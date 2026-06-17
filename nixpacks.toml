@@ -14,4 +14,4 @@ cmds = [
 ]
 
 [start]
-cmd = 'bash scripts/railway-start.sh'
+cmd = 'node scripts/railway-start.js'
