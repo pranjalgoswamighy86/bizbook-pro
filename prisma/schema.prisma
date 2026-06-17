@@ -1,0 +1,645 @@
+generator client {
+  provider      = "prisma-client-js"
+  // Cross-platform binary targets — Prisma will bundle ALL of these engines
+  // in node_modules/.prisma/client/, so the same build runs on any OS.
+  // Without "windows", Windows users get "PrismaClientInitializationError:
+  // could not locate the Query Engine for runtime 'windows'".
+  binaryTargets = ["native", "debian-openssl-3.0.x", "debian-openssl-1.1.x", "rhel-openssl-3.0.x", "rhel-openssl-1.1.x", "linux-arm64-openssl-3.0.x", "linux-arm64-openssl-1.1.x", "linux-musl-openssl-3.0.x", "linux-musl", "windows", "darwin", "darwin-arm64"]
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Tenant {
+  id          String   @id @default(cuid())
+  name        String
+  address     String?
+  phone       String?
+  email       String?
+  gstNumber   String?
+  panNumber   String?
+  currency    String   @default("INR")
+  plan        String   @default("free")
+  planExpires DateTime?
+  // Soft-delete: records are never truly deleted
+  isDeleted   Boolean  @default(false)
+  deletedAt   DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  users           User[]
+  sales           Sale[]
+  purchases       Purchase[]
+  expenses        Expense[]
+  inventory       InventoryItem[]
+  bankTransactions BankTransaction[]
+  bankStatementUploads BankStatementUpload[]
+  staff           Staff[]
+  payments        Payment[]
+  receipts        Receipt[]
+  debtors         Debtor[]
+  creditors       Creditor[]
+  parties         Party[]
+  products        Product[]
+  userTenants     UserTenant[]
+  auditLogs       AuditLog[]
+  subscriptions   Subscription[]
+  batches         Batch[]
+  priceLists      PriceList[]
+  accounts        Account[]
+  journalEntries  JournalEntry[]
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String
+  password  String
+  role      String   @default("DATA_ENTRY")
+  tenantId  String   // Default/primary tenant (for backward compatibility)
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Multi-company: a user can belong to multiple tenants
+  userTenants UserTenant[]
+  // Soft-delete: records are never truly deleted
+  isDeleted   Boolean  @default(false)
+  deletedAt   DateTime?
+}
+
+// ============================================================
+// Multi-Company Support: One User can own/manage multiple Tenants
+// ============================================================
+model UserTenant {
+  id        String   @id @default(cuid())
+  userId    String
+  tenantId  String
+  role      String   @default("MAIN_ADMIN")  // Role within this specific company
+  isOwner   Boolean  @default(false)          // Did this user create the company?
+  createdAt DateTime @default(now())
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, tenantId])  // One user-tenant pair only
+}
+
+// ============================================================
+// Unified Party Model (Suppliers + Customers)
+// Replaces scattered partyName strings on Sale/Purchase
+// ============================================================
+model Party {
+  id          String   @id @default(cuid())
+  name        String
+  phone       String?
+  email       String?
+  address     String?
+  gstNumber   String?
+  panNumber   String?
+  // Type: "BOTH" means supplier AND customer, "SUPPLIER" = only purchase, "CUSTOMER" = only sale
+  type        String   @default("BOTH")
+  openingBalance Float  @default(0)
+  currentBalance Float  @default(0)
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([name, tenantId])  // One party name per tenant
+  // Soft-delete: records are never truly deleted
+  isDeleted     Boolean  @default(false)
+  deletedAt     DateTime?
+}
+
+// ============================================================
+// Product (Finished Good) with Bill of Materials (BOM)
+// Links raw materials from InventoryItem to a finished product
+// ============================================================
+model Product {
+  id            String   @id @default(cuid())
+  name          String
+  description   String?
+  sku           String?
+  category      String?
+  salePrice     Float    @default(0)
+  gstRate       Float    @default(0)
+  isActive      Boolean  @default(true)
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  ingredients   ProductIngredient[]
+  // Soft-delete: records are never truly deleted
+  isDeleted     Boolean  @default(false)
+  deletedAt     DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model ProductIngredient {
+  id            String   @id @default(cuid())
+  productId     String
+  product       Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  inventoryItemId String
+  inventoryItem InventoryItem @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
+  quantity      Float    // Quantity of raw material needed per 1 unit of finished product
+  unit          String   @default("PCS")
+  notes         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model Sale {
+  id            String   @id @default(cuid())
+  invoiceNumber String
+  date          DateTime
+  partyName     String
+  partyAddress  String?
+  partyGst      String?
+  items         String
+  subtotal      Float
+  gstAmount     Float    @default(0)
+  totalAmount   Float
+  // Payment status for sales: PENDING, PARTIAL, RECEIVED
+  // For backward compat, "UNPAID" is treated as PENDING, "PAID" as RECEIVED
+  paymentStatus String   @default("PENDING")
+  amountReceived Float   @default(0)
+  amountPaid    Float    @default(0)  // Kept for backward compat, same as amountReceived
+  notes         String?
+  invoiceFile   String?
+  // E-Invoice fields (GST IRN integration)
+  einvoiceIrn        String?   // 64-char Invoice Reference Number from IRP
+  einvoiceAckNo      String?   // Acknowledgement Number from IRP
+  einvoiceAckDate    String?   // Acknowledgement timestamp from IRP
+  einvoiceQrCodeText String?   // Raw QR code string for printing
+  einvoiceStatus     String    @default("PENDING")  // PENDING, GENERATED, CANCELLED
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdBy     String?
+  // Soft-delete: records are never truly deleted
+  isDeleted     Boolean  @default(false)
+  deletedAt     DateTime?
+  version       Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model Purchase {
+  id            String   @id @default(cuid())
+  invoiceNumber String
+  date          DateTime
+  partyName     String
+  partyAddress  String?
+  partyGst      String?
+  items         String
+  subtotal      Float
+  gstAmount     Float    @default(0)
+  totalAmount   Float
+  // Payment status for purchases: UNPAID, PARTIAL, PAID
+  paymentStatus String   @default("UNPAID")
+  amountPaid    Float    @default(0)
+  notes         String?
+  invoiceFile   String?
+  // E-Invoice fields (GST IRN integration)
+  einvoiceIrn        String?   // 64-char Invoice Reference Number from IRP
+  einvoiceAckNo      String?   // Acknowledgement Number from IRP
+  einvoiceAckDate    String?   // Acknowledgement timestamp from IRP
+  einvoiceQrCodeText String?   // Raw QR code string for printing
+  einvoiceStatus     String    @default("PENDING")  // PENDING, GENERATED, CANCELLED
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdBy     String?
+  // Soft-delete: records are never truly deleted
+  isDeleted     Boolean  @default(false)
+  deletedAt     DateTime?
+  version       Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model Expense {
+  id          String   @id @default(cuid())
+  date        DateTime
+  category    String
+  description String
+  amount      Float
+  paymentMode String   @default("CASH")
+  reference   String?
+  notes       String?
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdBy   String?
+  // Soft-delete: records are never truly deleted
+  isDeleted   Boolean  @default(false)
+  deletedAt   DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model InventoryItem {
+  id            String   @id @default(cuid())
+  name          String
+  sku           String?
+  hsnCode       String?
+  unit          String   @default("PCS")
+  category      String?
+  brand         String?
+  // Type: "RAW_MATERIAL" or "FINISHED_PRODUCT"
+  itemType      String   @default("RAW_MATERIAL")
+  purchasePrice Float    @default(0)
+  salePrice     Float    @default(0)
+  mrp           Float?
+  openingStock  Float    @default(0)
+  currentStock  Float    @default(0)
+  minStock      Float    @default(0)
+  gstRate       Float    @default(0)
+  value         Float    @default(0)
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  // Link to Product if this is a finished product ingredient
+  ingredientOf  ProductIngredient[]
+  batches       Batch[]
+  priceListItems PriceListItem[]
+  // Soft-delete: records are never truly deleted
+  isDeleted     Boolean  @default(false)
+  deletedAt     DateTime?
+  version       Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model BankTransaction {
+  id            String   @id @default(cuid())
+  date          DateTime
+  description   String
+  reference     String?
+  deposit       Float    @default(0)
+  withdrawal    Float    @default(0)
+  balance       Float    @default(0)
+  category      String?
+  bankName      String?
+  accountNumber String?
+  // Reconciliation: link to sale/purchase when matched
+  matchedSaleId     String?
+  matchedPurchaseId String?
+  isReconciled      Boolean  @default(false)
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  // Soft-delete: records are never truly deleted
+  isDeleted     Boolean  @default(false)
+  deletedAt     DateTime?
+  version       Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+// ============================================================
+// Bank Statement Upload Tracking
+// Stores uploaded files for AI analysis and reconciliation
+// ============================================================
+model BankStatementUpload {
+  id            String   @id @default(cuid())
+  fileName      String
+  fileType      String   // "excel", "image", "pdf"
+  fileData      String   // Base64 encoded file content
+  status        String   @default("PENDING")  // PENDING, PROCESSING, COMPLETED, FAILED
+  analysisResult String? // JSON string with AI-extracted transactions
+  transactionCount Int   @default(0)
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdBy     String?
+  // Soft-delete: records are never truly deleted
+  isDeleted     Boolean  @default(false)
+  deletedAt     DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model Staff {
+  id            String   @id @default(cuid())
+  name          String
+  phone         String?
+  email         String?
+  role          String?
+  department    String?
+  salary        Float    @default(0)
+  joinDate      DateTime?
+  address       String?
+  aadhaar       String?
+  pan           String?
+  isActive      Boolean  @default(true)
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  salaryPayments SalaryPayment[]
+  // Soft-delete: records are never truly deleted
+  isDeleted     Boolean  @default(false)
+  deletedAt     DateTime?
+  version       Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model SalaryPayment {
+  id          String   @id @default(cuid())
+  staffId     String
+  staff       Staff    @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  month       String
+  amount      Float
+  paidDate    DateTime
+  paymentMode String   @default("BANK")
+  notes       String?
+  tenantId    String
+  // Soft-delete: records are never truly deleted
+  isDeleted   Boolean  @default(false)
+  deletedAt   DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Payment {
+  id          String   @id @default(cuid())
+  date        DateTime
+  partyName   String
+  amount      Float
+  paymentMode String   @default("CASH")
+  reference   String?
+  purpose     String?
+  invoiceRef  String?
+  notes       String?
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdBy   String?
+  // Soft-delete: records are never truly deleted
+  isDeleted   Boolean  @default(false)
+  deletedAt   DateTime?
+  version       Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Receipt {
+  id          String   @id @default(cuid())
+  date        DateTime
+  partyName   String
+  amount      Float
+  paymentMode String   @default("CASH")
+  reference   String?
+  purpose     String?
+  invoiceRef  String?
+  notes       String?
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdBy   String?
+  // Soft-delete: records are never truly deleted
+  isDeleted   Boolean  @default(false)
+  deletedAt   DateTime?
+  version       Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Debtor {
+  id              String   @id @default(cuid())
+  name            String
+  phone           String?
+  email           String?
+  address         String?
+  gstNumber       String?
+  openingBalance  Float    @default(0)
+  currentBalance  Float    @default(0)
+  tenantId        String
+  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  // Soft-delete: records are never truly deleted
+  isDeleted       Boolean  @default(false)
+  deletedAt       DateTime?
+  version       Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model Creditor {
+  id              String   @id @default(cuid())
+  name            String
+  phone           String?
+  email           String?
+  address         String?
+  gstNumber       String?
+  openingBalance  Float    @default(0)
+  currentBalance  Float    @default(0)
+  tenantId        String
+  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  // Soft-delete: records are never truly deleted
+  isDeleted       Boolean  @default(false)
+  deletedAt       DateTime?
+  version       Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model PasswordReset {
+  id        String   @id @default(cuid())
+  email     String
+  otp       String
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+// ============================================================
+// Audit Log — Tracks all data changes in the system
+// ============================================================
+model AuditLog {
+  id          String   @id @default(cuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userId      String?
+  userName    String?
+  action      String   // CREATE, UPDATE, DELETE
+  entityType  String   // Sale, Purchase, InventoryItem, etc.
+  entityId    String?
+  entityName  String?
+  changes     String?  // JSON string with before/after values
+  ipAddress   String?
+  createdAt   DateTime @default(now())
+}
+
+// ============================================================
+// Batch & Expiry — Track batch numbers and expiry dates for inventory
+// ============================================================
+model Batch {
+  id               String   @id @default(cuid())
+  tenantId         String
+  tenant           Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  inventoryItemId  String
+  inventoryItem    InventoryItem @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
+  batchNumber      String
+  manufacturingDate DateTime?
+  expiryDate       DateTime?
+  quantity         Float    @default(0)
+  supplier         String?
+  notes            String?
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@unique([batchNumber, inventoryItemId, tenantId])
+}
+
+// ============================================================
+// Price Lists — Support multiple price lists (Retail, Wholesale, etc.)
+// ============================================================
+model PriceList {
+  id          String   @id @default(cuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name        String
+  description String?
+  isDefault   Boolean  @default(false)
+  isActive    Boolean  @default(true)
+  items       PriceListItem[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([name, tenantId])
+}
+
+model PriceListItem {
+  id              String   @id @default(cuid())
+  priceListId     String
+  priceList       PriceList @relation(fields: [priceListId], references: [id], onDelete: Cascade)
+  inventoryItemId String
+  inventoryItem   InventoryItem @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
+  price           Float    @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([priceListId, inventoryItemId])
+}
+
+// ============================================================
+// Chart of Accounts — General Ledger Double-Entry System
+// ============================================================
+model Account {
+  id           String   @id @default(cuid())
+  accountCode  String   // Unique financial code (e.g., 10100 for Cash)
+  name         String   // Account title
+  type         String   // Asset, Liability, Equity, Revenue, Expense
+  description  String?
+  isActive     Boolean  @default(true)
+  parentId     String?  // For hierarchical accounts (sub-ledgers)
+  parent       Account? @relation("AccountHierarchy", fields: [parentId], references: [id])
+  children     Account[] @relation("AccountHierarchy")
+  tenantId     String
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  lines        JournalEntryLine[]
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([accountCode, tenantId])
+}
+
+// ============================================================
+// Journal Entries — The envelope for double-entry transactions
+// Immutable principle: once posted, entries are never modified/deleted
+// Corrections are made via reversing entries
+// ============================================================
+model JournalEntry {
+  id          String   @id @default(cuid())
+  entryDate   DateTime
+  reference   String?  // Source document (e.g., Invoice Number, Check Number)
+  description String   // Narration explaining the business activity
+  isPosted    Boolean  @default(false) // Draft or Posted
+  sourceType  String?  // SALE, PURCHASE, EXPENSE, PAYMENT, RECEIPT, MANUAL
+  sourceId    String?  // Reference to the source transaction ID
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  lines       JournalEntryLine[]
+  createdBy   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([entryDate])
+  @@index([tenantId])
+}
+
+// ============================================================
+// Journal Entry Lines — Individual debit/credit lines
+// Sum of debits MUST equal sum of credits for each entry
+// ============================================================
+model JournalEntryLine {
+  id            String   @id @default(cuid())
+  entryId       String
+  entry         JournalEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  accountId     String
+  account       Account  @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  debit         Float    @default(0)
+  credit        Float    @default(0)
+  description   String?  // Line-level narration
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([accountId])
+  @@index([entryId])
+}
+
+// ============================================================
+// Subscription & Recharge Models
+// ============================================================
+
+model Subscription {
+  id              String   @id @default(cuid())
+  tenantId        String   @unique
+  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  planHours       Int      @default(50)   // 50, 100, 200, 500, 1000
+  planName        String   @default("50Hrs Plan")
+  mrp             Float    @default(749)
+  discountPercent Float    @default(80)
+  discountAmount  Float    @default(150)
+  totalSeconds    Int      @default(180000) // 50hrs * 3600
+  remainingSeconds Int     @default(180000)
+  status          String   @default("ACTIVE") // ACTIVE, EXPIRED, CONVERTED_TO_VIEW_ONLY
+  startDate       DateTime @default(now())
+  endDate         DateTime?
+  // Free tier tracking
+  isFreeTier      Boolean  @default(false)
+  freeTierHours   Int      @default(0)  // 100, 50, or 20 depending on user number
+  // Role-based hour allocation
+  mainAdminHours  Int      @default(10)
+  juniorAdminHours Int     @default(15)
+  dataEntryHours  Int      @default(25)
+  viewOnlyHours   Int      @default(0)  // Always free
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  recharges       Recharge[]
+  usageLogs       UsageLog[]
+}
+
+model Recharge {
+  id              String   @id @default(cuid())
+  subscriptionId  String
+  subscription    Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  planHours       Int      // 50, 100, 200, 500, 1000
+  planName        String
+  mrp             Float
+  discountPercent Float
+  discountAmount  Float
+  totalSeconds    Int
+  paymentMode     String   @default("MANUAL") // RAZORPAY, MANUAL, FREE
+  paymentRef      String?
+  status          String   @default("COMPLETED") // PENDING, COMPLETED, FAILED
+  createdAt       DateTime @default(now())
+}
+
+model UsageLog {
+  id              String   @id @default(cuid())
+  subscriptionId  String
+  subscription    Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  userId          String?
+  userRole        String   // MAIN_ADMIN, JUNIOR_ADMIN, DATA_ENTRY, VIEW_ONLY
+  secondsUsed     Int
+  remainingAfter  Int
+  loggedAt        DateTime @default(now())
+}

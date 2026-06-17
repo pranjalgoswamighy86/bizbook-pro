@@ -1,0 +1,994 @@
+'use client'
+
+import { useEffect, useState, useCallback } from 'react'
+import { useAppStore, canEdit, canCorrect } from '@/store/app-store'
+import { AppHeader } from '@/components/app/header'
+import { Card, CardContent } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Badge } from '@/components/ui/badge'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Textarea } from '@/components/ui/textarea'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { formatCurrency, formatDate, getDateFilterRange } from '@/lib/formulas'
+import { isInterStateSupply } from '@/lib/gst-utils'
+import { Plus, Pencil, Trash2, Eye, ChevronDown, X, Loader2, CheckCircle2, Printer, Package, FileCheck, Sparkles } from 'lucide-react'
+import { useToast } from '@/hooks/use-toast'
+import { PartySuggest } from '@/components/app/party-suggest'
+import { triggerBackupDownload } from '@/hooks/use-excel-backup'
+import { authFetch } from '@/lib/auth-fetch'
+
+// ===== ENHANCED ITEM INTERFACE =====
+interface TaxEntry {
+  name: string
+  percent: number
+  percentOn: string  // "Amount" or "Amount+Tax"
+  amount: number
+}
+
+interface SaleItem {
+  name: string
+  category: string
+  hsn: string
+  unit: string
+  qty: number
+  rate: number
+  taxes: TaxEntry[]
+  mrp: number
+  discount: number
+  amount: number
+  totalTax: number
+  total: number
+  itemType?: string
+}
+
+interface Sale {
+  id: string; invoiceNumber: string; date: string; partyName: string; partyAddress: string | null
+  partyGst: string | null; items: string; subtotal: number; gstAmount: number; totalAmount: number
+  paymentStatus: string; amountPaid: number; amountReceived: number; notes: string | null; invoiceFile: string | null; createdBy: string | null
+  einvoiceIrn: string | null; einvoiceAckNo: string | null; einvoiceAckDate: string | null
+  einvoiceQrCodeText: string | null; einvoiceStatus: string
+}
+
+const PRESET_TAXES = ['GST', 'CGST', 'SGST', 'IGST', 'VAT', 'Excise Duty', 'Import Duty', 'Cess', 'Surcharge']
+
+const emptyTax = (name = 'GST', percent = 0): TaxEntry => ({
+  name, percent, percentOn: 'Amount', amount: 0
+})
+
+const emptyItem = (): SaleItem => ({
+  name: '', category: '', hsn: '', unit: 'PCS', qty: 1, rate: 0,
+  taxes: [emptyTax()], mrp: 0, discount: 0, amount: 0, totalTax: 0, total: 0
+})
+
+export function SaleRegister() {
+  const { tenant, user, dateFilter, searchQuery, setView } = useAppStore()
+  const isAuthenticated = useAppStore(s => s.isAuthenticated)
+  const { toast } = useToast()
+  const [sales, setSales] = useState<Sale[]>([])
+  const [loading, setLoading] = useState(true)
+  const [showForm, setShowForm] = useState(false)
+  const [viewItem, setViewItem] = useState<Sale | null>(null)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [justSavedSale, setJustSavedSale] = useState<Sale | null>(null)
+  // Note: Invoice file upload has been moved to AI Smart Import module
+  const [savedInvoiceFileRef, setSavedInvoiceFileRef] = useState<string | null>(null)
+
+  const [form, setForm] = useState({
+    invoiceNumber: '', date: new Date().toISOString().split('T')[0],
+    partyName: 'Cash', partyAddress: '', partyGst: '',
+    paymentStatus: 'RECEIVED', amountPaid: 0, amountReceived: 0, notes: '',
+  })
+  const [items, setItems] = useState<SaleItem[]>([emptyItem()])
+  const [finishedProductNames, setFinishedProductNames] = useState<string[]>([])
+
+  const fetchSales = useCallback(async () => {
+    if (!tenant) return
+    try {
+      const range = getDateFilterRange(dateFilter)
+      const res = await authFetch('/api/sales', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'list', tenantId: tenant.id, startDate: range.start.toISOString(), endDate: range.end.toISOString(), search: searchQuery || undefined }),
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setSales(data.sales || [])
+      }
+    } catch {
+      // Keep existing data on fetch error
+    } finally {
+      setLoading(false)
+    }
+  }, [tenant, dateFilter, searchQuery])
+
+  useEffect(() => { fetchSales() }, [fetchSales])
+
+  // Fetch finished product names for BOM badge detection
+  useEffect(() => {
+    if (!tenant) return
+    const fetchFinishedProducts = async () => {
+      try {
+        const res = await authFetch('/api/inventory', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'list', tenantId: tenant.id }),
+        })
+        if (res.ok) {
+          const data = await res.json()
+          const names = (data.items || [])
+            .filter((item: { itemType: string }) => item.itemType === 'FINISHED_PRODUCT')
+            .map((item: { name: string }) => item.name.toLowerCase())
+          setFinishedProductNames(names)
+        }
+      } catch { /* non-critical */ }
+    }
+    fetchFinishedProducts()
+  }, [tenant])
+
+  // ===== COMPUTED VALUES (must be declared before useEffect that references them) =====
+  const subtotal = items.reduce((s, i) => s + i.amount, 0)
+  const totalTax = items.reduce((s, i) => s + i.totalTax, 0)
+  const totalDiscount = items.reduce((s, i) => s + i.discount, 0)
+  const totalAmount = subtotal + totalTax
+
+  // Auto-set payment for Cash sales
+  useEffect(() => {
+    const isCash = form.partyName.trim().toLowerCase() === 'cash'
+    if (isCash) {
+      const currentTotal = totalAmount
+      setForm(prev => {
+        if (prev.paymentStatus === 'RECEIVED' && prev.amountReceived === currentTotal) return prev
+        return { ...prev, paymentStatus: 'RECEIVED', amountReceived: currentTotal, amountPaid: currentTotal }
+      })
+    }
+  }, [form.partyName, totalAmount])
+
+  // ===== ITEM CALCULATION ENGINE =====
+  const calcItemTotals = (item: SaleItem): SaleItem => {
+    const baseAmount = item.qty * item.rate
+    const afterDiscount = baseAmount - item.discount
+
+    // Auto-split GST tax entries into CGST+SGST (intra-state) or IGST (inter-state)
+    // In sales: supplier = tenant (company), buyer = customer (party)
+    const supplierGstin = tenant?.gstNumber || ''
+    const buyerGstin = form.partyGst || ''
+    const interState = isInterStateSupply(supplierGstin, buyerGstin)
+
+    const expandedTaxes: TaxEntry[] = []
+    for (const tax of item.taxes) {
+      if (tax.name.toLowerCase() === 'gst' && tax.percent > 0) {
+        // Split "GST 18%" into CGST 9% + SGST 9% (intra-state) or IGST 18% (inter-state)
+        if (interState) {
+          expandedTaxes.push({ name: 'IGST', percent: tax.percent, percentOn: 'Amount', amount: 0 })
+        } else {
+          expandedTaxes.push({ name: 'CGST', percent: tax.percent / 2, percentOn: 'Amount', amount: 0 })
+          expandedTaxes.push({ name: 'SGST', percent: tax.percent / 2, percentOn: 'Amount', amount: 0 })
+        }
+      } else {
+        // Already CGST/SGST/IGST or non-GST taxes are kept as-is (backward compatible)
+        expandedTaxes.push(tax)
+      }
+    }
+
+    let runningBase = afterDiscount
+    let totalTax = 0
+    const computedTaxes = expandedTaxes.map(tax => {
+      const taxBase = tax.percentOn === 'Amount' ? afterDiscount : runningBase
+      const taxAmount = taxBase * (tax.percent / 100)
+      totalTax += taxAmount
+      runningBase += taxAmount
+      return { ...tax, amount: Math.round(taxAmount * 100) / 100 }
+    })
+
+    return {
+      ...item,
+      amount: Math.round(afterDiscount * 100) / 100,
+      taxes: computedTaxes,
+      totalTax: Math.round(totalTax * 100) / 100,
+      total: Math.round((afterDiscount + totalTax) * 100) / 100
+    }
+  }
+
+  const updateItem = (index: number, field: string, value: string | number) => {
+    setItems(prev => prev.map((item, i) => {
+      if (i !== index) return item
+      const updated = { ...item, [field]: value }
+      // Auto-detect itemType when name changes
+      if (field === 'name' && typeof value === 'string') {
+        updated.itemType = finishedProductNames.includes(value.toLowerCase()) ? 'FINISHED_PRODUCT' : undefined
+      }
+      return calcItemTotals(updated)
+    }))
+  }
+
+  const updateItemTax = (itemIdx: number, taxIdx: number, field: string, value: string | number) => {
+    setItems(prev => prev.map((item, i) => {
+      if (i !== itemIdx) return item
+      const newTaxes = item.taxes.map((t, ti) => ti === taxIdx ? { ...t, [field]: value } : t)
+      return calcItemTotals({ ...item, taxes: newTaxes })
+    }))
+  }
+
+  const addTaxToItem = (itemIdx: number) => {
+    setItems(prev => prev.map((item, i) => {
+      if (i !== itemIdx) return item
+      return calcItemTotals({ ...item, taxes: [...item.taxes, emptyTax('GST', 0)] })
+    }))
+  }
+
+  const removeTaxFromItem = (itemIdx: number, taxIdx: number) => {
+    setItems(prev => prev.map((item, i) => {
+      if (i !== itemIdx) return item
+      const newTaxes = item.taxes.filter((_, ti) => ti !== taxIdx)
+      return calcItemTotals({ ...item, taxes: newTaxes.length > 0 ? newTaxes : [emptyTax()] })
+    }))
+  }
+
+  const addItem = () => setItems(prev => [...prev, emptyItem()])
+  const removeItem = (index: number) => setItems(prev => prev.filter((_, i) => i !== index))
+
+  const resetForm = () => {
+    setForm({
+      invoiceNumber: `INV-${Date.now().toString().slice(-6)}`, date: new Date().toISOString().split('T')[0],
+      partyName: 'Cash', partyAddress: '', partyGst: '',
+      paymentStatus: 'RECEIVED', amountPaid: 0, amountReceived: 0, notes: '',
+    })
+    setItems([emptyItem()])
+    setEditingId(null)
+    setSavedInvoiceFileRef(null)
+  }
+
+  // Normalize payment status for backward compat (UNPAID→PENDING, PAID→RECEIVED)
+  const normalizeStatus = (status: string): string => {
+    if (status === 'UNPAID') return 'PENDING'
+    if (status === 'PAID') return 'RECEIVED'
+    return status
+  }
+
+  const statusLabel = (status: string): string => {
+    const normalized = normalizeStatus(status)
+    const labels: Record<string, string> = { PENDING: 'Pending', PARTIAL: 'Partial', RECEIVED: 'Received' }
+    return labels[normalized] || status
+  }
+
+  const handleEdit = (sale: Sale) => {
+    setEditingId(sale.id)
+    const normalizedStatus = normalizeStatus(sale.paymentStatus)
+    setForm({
+      invoiceNumber: sale.invoiceNumber, date: new Date(sale.date).toISOString().split('T')[0],
+      partyName: sale.partyName, partyAddress: sale.partyAddress || '', partyGst: sale.partyGst || '',
+      paymentStatus: normalizedStatus, amountPaid: sale.amountPaid, amountReceived: sale.amountReceived || sale.amountPaid, notes: sale.notes || '',
+    })
+    try {
+      const parsed = JSON.parse(sale.items) as SaleItem[]
+      setItems(parsed.length > 0 ? parsed.map(item => calcItemTotals(item)) : [emptyItem()])
+    } catch {
+      setItems([emptyItem()])
+    }
+    setShowForm(true)
+  }
+
+  const handleSave = async () => {
+    if (!tenant) {
+      toast({ title: 'Error', description: 'No business selected. Please refresh and try again.', variant: 'destructive' })
+      return
+    }
+
+    // Validate required fields
+    if (!form.partyName.trim()) {
+      toast({ title: 'Validation Error', description: 'Customer name is required', variant: 'destructive' })
+      return
+    }
+    const hasValidItem = items.some(item => item.name.trim() || item.rate > 0)
+    if (!hasValidItem) {
+      toast({ title: 'Validation Error', description: 'At least one item with name and rate is required', variant: 'destructive' })
+      return
+    }
+
+    setSaving(true)
+    try {
+      const payload: Record<string, unknown> = {
+        invoiceNumber: form.invoiceNumber || `INV-${Date.now().toString().slice(-6)}`,
+        date: new Date(form.date).toISOString(),
+        partyName: form.partyName,
+        partyAddress: form.partyAddress || null,
+        partyGst: form.partyGst || null,
+        paymentStatus: form.paymentStatus || 'PENDING',
+        amountPaid: Number.isFinite(form.amountReceived) ? form.amountReceived : (Number.isFinite(form.amountPaid) ? form.amountPaid : 0),
+        amountReceived: Number.isFinite(form.amountReceived) ? form.amountReceived : 0,
+        notes: form.notes || null,
+        items: JSON.stringify(items),
+        subtotal: Number.isFinite(subtotal) ? subtotal : 0,
+        gstAmount: Number.isFinite(totalTax) ? totalTax : 0,
+        totalAmount: Number.isFinite(totalAmount) ? totalAmount : 0,
+        createdBy: user?.id || null,
+      }
+      if (savedInvoiceFileRef) {
+        payload.invoiceFile = savedInvoiceFileRef
+      } else if (!editingId) {
+        payload.invoiceFile = null
+      }
+
+      const res = await authFetch('/api/sales', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(editingId ? { action: 'update', id: editingId, data: payload, tenantId: tenant.id } : { action: 'create', tenantId: tenant.id, data: payload }),
+      })
+      if (res.ok) {
+        const data = await res.json()
+        const invMsg = data.inventoryUpdates && data.inventoryUpdates.length > 0
+          ? ` | Inventory updated: ${data.inventoryUpdates.join(', ')}`
+          : ''
+        toast({ title: editingId ? 'Sale updated' : 'Sale created', description: `Invoice ${form.invoiceNumber}${invMsg}` })
+        // Auto-trigger Excel backup download after every successful sale save
+        triggerBackupDownload(tenant.id, tenant.name, editingId ? 'sale:update' : 'sale:create')
+        // Build a Sale object from the saved data for Print Invoice
+        const savedSale: Sale = {
+          id: data.sale?.id || '',
+          invoiceNumber: form.invoiceNumber,
+          date: new Date(form.date).toISOString(),
+          partyName: form.partyName,
+          partyAddress: form.partyAddress || null,
+          partyGst: form.partyGst || null,
+          items: JSON.stringify(items),
+          subtotal: subtotal,
+          gstAmount: totalTax,
+          totalAmount: totalAmount,
+          paymentStatus: form.paymentStatus,
+          amountPaid: form.amountReceived || form.amountPaid || 0,
+          amountReceived: form.amountReceived || 0,
+          notes: form.notes || null,
+          invoiceFile: savedInvoiceFileRef || null,
+          einvoiceIrn: null,
+          einvoiceAckNo: null,
+          einvoiceAckDate: null,
+          einvoiceQrCodeText: null,
+          einvoiceStatus: 'PENDING',
+          createdBy: user?.id || null,
+        }
+        setJustSavedSale(savedSale)
+        setShowForm(false)
+        resetForm()
+        fetchSales()
+      } else {
+        const errData = await res.json().catch(() => ({}))
+        console.error('Save sale error:', errData)
+        // If tenant no longer exists (401), force logout
+        if (res.status === 401) {
+          toast({ title: 'Session expired', description: errData.error || 'Please log in again.', variant: 'destructive' })
+          setTimeout(() => { useAppStore.getState().logout() }, 2000)
+        } else {
+          toast({ title: 'Error saving sale', description: errData.error || `Server error (${res.status}). Please try again.`, variant: 'destructive' })
+        }
+      }
+    } catch (err) {
+      console.error('Save network error:', err)
+      toast({ title: 'Network Error', description: 'Could not connect to server. Please check your connection and try again.', variant: 'destructive' })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+
+
+  // ===== PRINT INVOICE =====
+  const handleGenerateEinvoice = async (sale: Sale) => {
+    if (!tenant) return
+    try {
+      const res = await authFetch('/api/einvoice', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'generate-payload', tenantId: tenant.id, saleId: sale.id }),
+      })
+      const data = await res.json()
+      if (res.ok) {
+        // Auto-update the sale's e-invoice status to GENERATED locally
+        // (The actual IRN/AckNo/AckDate come from IRP after the user submits the payload)
+        try {
+          await authFetch('/api/einvoice', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'update-status',
+              tenantId: tenant.id,
+              saleId: sale.id,
+              irn: data.irnHash,
+              status: 'GENERATED',
+            }),
+          })
+          // Refresh sales list to show the green checkmark
+          fetchSales()
+        } catch {
+          // Non-fatal — the payload was generated, status update can be retried
+          console.warn('Failed to auto-update e-invoice status')
+        }
+
+        // Show the e-invoice JSON in a new window for the user to submit to IRP
+        const einvoiceWindow = window.open('', '_blank', 'width=900,height=700')
+        if (einvoiceWindow) {
+          einvoiceWindow.document.write(`<!DOCTYPE html><html><head><title>E-Invoice - ${sale.invoiceNumber}</title>
+          <style>body{font-family:monospace;padding:20px;font-size:12px;}pre{background:#f5f5f5;padding:15px;border-radius:8px;overflow-x:auto;white-space:pre-wrap;word-break:break-all;}h2{color:#10b981;margin-bottom:10px;}.info{margin-bottom:15px;padding:10px;background:#f0fdf4;border-radius:6px;border:1px solid #10b981;}.step{margin:10px 0;padding:10px;background:#fef3c7;border-radius:6px;border-left:4px solid #f59e0b;}</style></head><body>
+          <h2>GST E-Invoice Payload (INV-01 Schema)</h2>
+          <div class="info"><strong>Invoice:</strong> ${sale.invoiceNumber} | <strong>IRN Hash:</strong> ${data.irnHash?.slice(0, 16)}... | <strong>Generated:</strong> ${new Date().toLocaleString()}</div>
+          <div class="step"><strong>Next steps:</strong>
+            <ol style="margin:8px 0 0 20px;padding:0;">
+              <li>Copy the JSON below</li>
+              <li>Log in to your IRP/GSP portal (e.g., NIC, Clear, Master India)</li>
+              <li>Submit the JSON to generate the official IRN</li>
+              <li>Copy the IRN, Ack No, and Ack Date from the IRP response</li>
+              <li>Return to BizBook Pro and update the e-invoice status with those values</li>
+            </ol>
+          </div>
+          <pre>${JSON.stringify(data.payload, null, 2)}</pre>
+          <div style="margin-top:15px;"><button onclick="navigator.clipboard.writeText(document.querySelector('pre').textContent);this.textContent='Copied!';setTimeout(()=>this.textContent='Copy JSON',2000)" style="padding:8px 20px;background:#10b981;color:white;border:none;border-radius:6px;cursor:pointer;font-size:14px;">Copy JSON</button></div>
+          </body></html>`)
+          einvoiceWindow.document.close()
+        }
+        toast({ title: 'E-Invoice Payload Generated', description: 'Submit the JSON to your IRP/GSP portal to get the official IRN' })
+      } else {
+        toast({ title: 'E-Invoice Error', description: data.error, variant: 'destructive' })
+      }
+    } catch {
+      toast({ title: 'Error', description: 'Failed to generate e-invoice payload', variant: 'destructive' })
+    }
+  }
+
+  const handlePrintInvoice = (sale: Sale) => {
+    const parsedItems: SaleItem[] = (() => {
+      try { return JSON.parse(sale.items) as SaleItem[] }
+      catch { return [] }
+    })()
+
+    const printHtml = `<!DOCTYPE html>
+<html>
+<head>
+  <title>Invoice - ${sale.invoiceNumber}</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Segoe UI', Arial, sans-serif; color: #1a1a1a; padding: 40px; max-width: 800px; margin: 0 auto; }
+    .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 30px; border-bottom: 3px solid #10b981; padding-bottom: 20px; }
+    .brand h1 { font-size: 24px; color: #10b981; }
+    .brand p { font-size: 12px; color: #666; margin-top: 4px; }
+    .invoice-title { text-align: right; }
+    .invoice-title h2 { font-size: 28px; color: #333; }
+    .invoice-title p { font-size: 13px; color: #666; margin-top: 4px; }
+    .parties { display: flex; justify-content: space-between; margin-bottom: 25px; }
+    .party-box { width: 48%; }
+    .party-box h3 { font-size: 11px; text-transform: uppercase; color: #999; letter-spacing: 1px; margin-bottom: 8px; }
+    .party-box .name { font-size: 16px; font-weight: 600; }
+    .party-box .detail { font-size: 13px; color: #555; margin-top: 3px; }
+    table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+    thead th { background: #f8fafc; padding: 10px 12px; text-align: left; font-size: 12px; text-transform: uppercase; color: #64748b; border-bottom: 2px solid #e2e8f0; }
+    thead th.right { text-align: right; }
+    tbody td { padding: 10px 12px; font-size: 13px; border-bottom: 1px solid #f1f5f9; }
+    tbody td.right { text-align: right; }
+    .summary { display: flex; justify-content: flex-end; }
+    .summary-box { width: 300px; }
+    .summary-row { display: flex; justify-content: space-between; padding: 6px 0; font-size: 14px; }
+    .summary-row.total { font-size: 18px; font-weight: 700; border-top: 2px solid #10b981; padding-top: 10px; margin-top: 5px; color: #10b981; }
+    .summary-row.due { color: #ef4444; font-weight: 600; }
+    .footer { margin-top: 40px; padding-top: 15px; border-top: 1px solid #e2e8f0; font-size: 11px; color: #999; text-align: center; }
+    .badge { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; }
+    .badge-paid { background: #dcfce7; color: #166534; }
+    .badge-unpaid { background: #fef3c7; color: #92400e; }
+    .badge-partial { background: #dbeafe; color: #1e40af; }
+    .badge-pending { background: #fef3c7; color: #92400e; }
+    .badge-received { background: #dcfce7; color: #166534; }
+    @media print { body { padding: 20px; } }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="brand">
+      <h1>${tenant?.name || 'BizBook Pro'}</h1>
+      <p>${tenant?.address || ''}</p>
+      ${tenant?.phone ? '<p>Phone: ' + tenant.phone + '</p>' : ''}
+      ${tenant?.email ? '<p>Email: ' + tenant.email + '</p>' : ''}
+      ${tenant?.gstNumber ? '<p>GSTIN: ' + tenant.gstNumber + '</p>' : ''}
+    </div>
+    <div class="invoice-title">
+      <h2>INVOICE</h2>
+      <p>#${sale.invoiceNumber}</p>
+      <p>${formatDate(sale.date)}</p>
+      <p><span class="badge badge-${normalizeStatus(sale.paymentStatus).toLowerCase()}">${statusLabel(sale.paymentStatus)}</span></p>
+    </div>
+  </div>
+
+  <div class="parties">
+    <div class="party-box">
+      <h3>From</h3>
+      <div class="name">${tenant?.name || 'Business'}</div>
+      ${tenant?.address ? '<div class="detail">' + tenant.address + '</div>' : ''}
+      ${tenant?.gstNumber ? '<div class="detail">GSTIN: ' + tenant.gstNumber + '</div>' : ''}
+    </div>
+    <div class="party-box">
+      <h3>Bill To</h3>
+      <div class="name">${sale.partyName}</div>
+      ${sale.partyAddress ? '<div class="detail">' + sale.partyAddress + '</div>' : ''}
+      ${sale.partyGst ? '<div class="detail">GSTIN: ' + sale.partyGst + '</div>' : ''}
+    </div>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Item</th>
+        <th>HSN</th>
+        <th class="right">Qty</th>
+        <th class="right">Rate</th>
+        <th class="right">Discount</th>
+        <th class="right">Amount</th>
+        <th class="right">Tax</th>
+        <th class="right">Total</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${parsedItems.map((item, i) => `
+      <tr>
+        <td>${i + 1}</td>
+        <td>${item.name}${item.category ? ' <span style="color:#999;font-size:11px">(' + item.category + ')</span>' : ''}</td>
+        <td>${item.hsn || '-'}</td>
+        <td class="right">${item.qty} ${item.unit}</td>
+        <td class="right">${formatCurrency(item.rate, tenant?.currency)}</td>
+        <td class="right">${item.discount > 0 ? formatCurrency(item.discount, tenant?.currency) : '-'}</td>
+        <td class="right">${formatCurrency(item.amount, tenant?.currency)}</td>
+        <td class="right">${formatCurrency(item.totalTax, tenant?.currency)}</td>
+        <td class="right" style="font-weight:600">${formatCurrency(item.total, tenant?.currency)}</td>
+      </tr>`).join('')}
+    </tbody>
+  </table>
+
+  <div class="summary">
+    <div class="summary-box">
+      <div class="summary-row"><span>Subtotal</span><span>${formatCurrency(sale.subtotal, tenant?.currency)}</span></div>
+      <div class="summary-row"><span>Tax / Duties</span><span>${formatCurrency(sale.gstAmount, tenant?.currency)}</span></div>
+      <div class="summary-row total"><span>Grand Total</span><span>${formatCurrency(sale.totalAmount, tenant?.currency)}</span></div>
+      <div class="summary-row"><span>Amount Received</span><span>${formatCurrency(sale.amountReceived || sale.amountPaid, tenant?.currency)}</span></div>
+      <div class="summary-row due"><span>Balance Due</span><span>${formatCurrency(sale.totalAmount - (sale.amountReceived || sale.amountPaid), tenant?.currency)}</span></div>
+    </div>
+  </div>
+
+  ${sale.notes ? '<div style="margin-top:20px;font-size:13px;color:#555"><strong>Notes:</strong> ' + sale.notes + '</div>' : ''}
+
+  ${sale.einvoiceStatus === 'GENERATED' ? `
+  <div style="margin-top:20px;padding:15px;border:2px solid #10b981;border-radius:8px;background:#f0fdf4;">
+    <div style="display:flex;justify-content:space-between;align-items:center;">
+      <div>
+        <h4 style="font-size:14px;color:#10b981;margin-bottom:8px;">E-INVOICE VERIFIED</h4>
+        <div style="font-size:12px;color:#555;">IRN: <span style="font-family:monospace;word-break:break-all;">${sale.einvoiceIrn || ''}</span></div>
+        ${sale.einvoiceAckNo ? '<div style="font-size:12px;color:#555;margin-top:4px;">Ack No: ' + sale.einvoiceAckNo + '</div>' : ''}
+        ${sale.einvoiceAckDate ? '<div style="font-size:12px;color:#555;margin-top:4px;">Ack Date: ' + sale.einvoiceAckDate + '</div>' : ''}
+      </div>
+      ${sale.einvoiceQrCodeText ? '<div style="text-align:center;"><img src="https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=' + encodeURIComponent(sale.einvoiceQrCodeText) + '" alt="E-Invoice QR" style="width:120px;height:120px;border:1px solid #e2e8f0;border-radius:4px;" /><div style="font-size:10px;color:#999;margin-top:4px;">Scan to verify</div></div>' : ''}
+    </div>
+  </div>
+  ` : ''}
+
+  <div class="footer">
+    Generated by BizBook Pro on ${new Date().toLocaleDateString()}
+  </div>
+</body>
+</html>`
+
+    const printWindow = window.open('', '_blank', 'width=900,height=700')
+    if (printWindow) {
+      printWindow.document.write(printHtml)
+      printWindow.document.close()
+      printWindow.onload = () => { printWindow.print() }
+    }
+  }
+
+  const handleDelete = async (id: string) => {
+    if (!confirm('Archive this sale entry? Stock will be reversed in inventory.')) return
+    const res = await authFetch('/api/sales', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'delete', id, tenantId: tenant?.id }),
+    })
+    if (res.ok) { toast({ title: 'Sale archived', description: 'Inventory stock reversed.' }); fetchSales() }
+  }
+
+  const statusBadge = (status: string) => {
+    const normalized = normalizeStatus(status)
+    const styles: Record<string, string> = {
+      PENDING: 'bg-amber-100 text-amber-700',
+      PARTIAL: 'bg-blue-100 text-blue-700',
+      RECEIVED: 'bg-emerald-100 text-emerald-700',
+    }
+    return <Badge variant="outline" className={styles[normalized] || 'bg-gray-100 text-gray-700'}>{statusLabel(status)}</Badge>
+  }
+
+  const exportData = sales.map((s) => ({
+    'Invoice #': s.invoiceNumber, 'Date': formatDate(s.date), 'Customer': s.partyName, 'Address': s.partyAddress || '',
+    'GST': s.partyGst || '', 'Subtotal': s.subtotal, 'Tax': s.gstAmount, 'Total': s.totalAmount,
+    'Status': statusLabel(s.paymentStatus), 'Received': s.amountReceived || s.amountPaid, 'Due': s.totalAmount - (s.amountReceived || s.amountPaid),
+    'Notes': s.notes || '',
+  }))
+
+  if (loading) return <div><AppHeader title="Sale Register" /><div className="p-6"><p className="text-muted-foreground">Loading...</p></div></div>
+
+  return (
+    <div>
+      <AppHeader title="Sale Register" data={exportData} exportFileName="sales-register" exportSheetName="Sales" />
+      <div className="p-4 sm:p-6 pb-8 space-y-4">
+        <div className="flex gap-2">
+          {(user ? canEdit(user.role) : isAuthenticated) && (
+            <Button onClick={() => { resetForm(); setShowForm(true) }} className="bg-emerald-600 hover:bg-emerald-700">
+              <Plus className="h-4 w-4 mr-2" /> New Sale
+            </Button>
+          )}
+          <Button variant="outline" onClick={() => setView('ai-import')} className="border-violet-300 text-violet-700 hover:bg-violet-50">
+            <Sparkles className="h-4 w-4 mr-2" /> AI Smart Import
+          </Button>
+        </div>
+
+        <Card className="border-0 shadow-sm">
+          <CardContent className="p-0">
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Invoice #</TableHead><TableHead>Date</TableHead><TableHead>Customer</TableHead>
+                    <TableHead className="text-right">Total</TableHead><TableHead className="text-right">Received</TableHead>
+                    <TableHead className="text-right">Due</TableHead><TableHead>Status</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {sales.length === 0 ? (
+                    <TableRow><TableCell colSpan={8} className="text-center text-muted-foreground py-8">No sales found. Click &quot;New Sale&quot; to add one.</TableCell></TableRow>
+                  ) : sales.map((s) => (
+                    <TableRow key={s.id}>
+                      <TableCell className="font-medium">
+                        {s.invoiceNumber}
+                        {s.einvoiceStatus === 'GENERATED' && <span title="E-Invoice Generated" className="ml-1 text-emerald-600">✓</span>}
+                      </TableCell>
+                      <TableCell>{formatDate(s.date)}</TableCell>
+                      <TableCell>{s.partyName}</TableCell>
+                      <TableCell className="text-right">{formatCurrency(s.totalAmount, tenant?.currency)}</TableCell>
+                      <TableCell className="text-right">{formatCurrency(s.amountReceived || s.amountPaid, tenant?.currency)}</TableCell>
+                      <TableCell className="text-right">{formatCurrency(s.totalAmount - (s.amountReceived || s.amountPaid), tenant?.currency)}</TableCell>
+                      <TableCell>{statusBadge(s.paymentStatus)}</TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex justify-end gap-1">
+                          <Button variant="ghost" size="icon" className="h-8 w-8" title="Print Invoice" onClick={() => handlePrintInvoice(s)}><Printer className="h-4 w-4" /></Button>
+                          {s.partyGst && <Button variant="ghost" size="icon" className="h-8 w-8" title="Generate E-Invoice" onClick={() => handleGenerateEinvoice(s)}><FileCheck className="h-4 w-4" /></Button>}
+                          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setViewItem(s)}><Eye className="h-4 w-4" /></Button>
+                          {canCorrect(user?.role || 'VIEW_ONLY') && <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleEdit(s)}><Pencil className="h-4 w-4" /></Button>}
+                          {canCorrect(user?.role || 'VIEW_ONLY') && <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => handleDelete(s.id)}><Trash2 className="h-4 w-4" /></Button>}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* ===== ADD/EDIT SALE DIALOG ===== */}
+        <Dialog open={showForm} onOpenChange={(open) => { if (!open && !saving) { setShowForm(false) } }}>
+          <DialogContent className="max-w-5xl max-h-[92vh] overflow-y-auto">
+            <DialogHeader><DialogTitle className="text-lg">{editingId ? 'Edit Sale' : 'New Sale Invoice'}</DialogTitle></DialogHeader>
+            <div className="space-y-5">
+              {/* Invoice Info */}
+              <div className="grid grid-cols-2 gap-3">
+                <div><Label>Invoice Number</Label><Input value={form.invoiceNumber} onChange={(e) => setForm({ ...form, invoiceNumber: e.target.value })} /></div>
+                <div><Label>Date</Label><Input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} /></div>
+              </div>
+
+              {/* Customer Info */}
+              <div className="grid grid-cols-3 gap-3">
+                <PartySuggest
+                  tenantId={tenant?.id}
+                  value={form.partyName}
+                  onChange={(val) => setForm({ ...form, partyName: val })}
+                  onPartySelect={(party) => {
+                    setForm({
+                      ...form,
+                      partyName: party.name,
+                      partyAddress: party.address || '',
+                      partyGst: party.gstNumber || '',
+                    })
+                  }}
+                  label="Customer Name"
+                  placeholder="Type customer name... (default: Cash)"
+                  required={true}
+                  partyType="CUSTOMER"
+                />
+                <div><Label>Customer Address</Label><Input value={form.partyAddress} onChange={(e) => setForm({ ...form, partyAddress: e.target.value })} placeholder="Full address" /></div>
+                <div><Label>Customer GST</Label><Input value={form.partyGst} onChange={(e) => setForm({ ...form, partyGst: e.target.value })} placeholder="Optional" /></div>
+              </div>
+
+              {/* AI Smart Import hint */}
+              <div className="border rounded-lg p-3 bg-gradient-to-r from-violet-50/80 to-purple-50/80 dark:from-violet-950/20 dark:to-purple-950/20">
+                <p className="text-xs text-muted-foreground">
+                  💡 To auto-fill sale details from an invoice image or PDF, use <strong>AI Smart Import</strong> from the sidebar.
+                </p>
+              </div>
+
+              {/* ===== ITEMS SECTION ===== */}
+              <div>
+                <Label className="text-sm font-semibold">Items</Label>
+                <div className="mt-2 space-y-3">
+                  {items.map((item, idx) => (
+                    <div key={idx} className="border rounded-lg p-3 bg-white">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs font-semibold text-muted-foreground">Item {idx + 1}</span>
+                        {items.length > 1 && (
+                          <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => removeItem(idx)}><Trash2 className="h-3.5 w-3.5" /></Button>
+                        )}
+                      </div>
+                      {/* Row 1: Name, Category, HSN, Unit */}
+                      <div className="grid grid-cols-4 gap-2 mb-2">
+                        <div>
+                          <Label className="text-xs text-muted-foreground">Item Name</Label>
+                          <Input placeholder="Item name" value={item.name} onChange={(e) => updateItem(idx, 'name', e.target.value)} />
+                          {(item.itemType === 'FINISHED_PRODUCT' || (item.name && finishedProductNames.includes(item.name.toLowerCase()))) && (
+                            <span className="inline-flex items-center gap-1 mt-1 text-xs text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">
+                              <Package className="h-3 w-3" /> Includes raw materials
+                            </span>
+                          )}
+                        </div>
+                        <div>
+                          <Label className="text-xs text-muted-foreground">Category</Label>
+                          <Input placeholder="e.g. Electronics" value={item.category} onChange={(e) => updateItem(idx, 'category', e.target.value)} />
+                        </div>
+                        <div>
+                          <Label className="text-xs text-muted-foreground">HSN Code</Label>
+                          <Input placeholder="HSN/SAC" value={item.hsn} onChange={(e) => updateItem(idx, 'hsn', e.target.value)} />
+                        </div>
+                        <div>
+                          <Label className="text-xs text-muted-foreground">Unit</Label>
+                          <Select value={item.unit} onValueChange={(v) => updateItem(idx, 'unit', v)}>
+                            <SelectTrigger><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="PCS">PCS</SelectItem>
+                              <SelectItem value="KG">KG</SelectItem>
+                              <SelectItem value="LTR">LTR</SelectItem>
+                              <SelectItem value="MTR">MTR</SelectItem>
+                              <SelectItem value="BOX">BOX</SelectItem>
+                              <SelectItem value="DOZEN">DOZEN</SelectItem>
+                              <SelectItem value="NOS">NOS</SelectItem>
+                              <SelectItem value="SET">SET</SelectItem>
+                              <SelectItem value="PAIR">PAIR</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+                      {/* Row 2: Qty, Rate, MRP, Discount */}
+                      <div className="grid grid-cols-4 gap-2 mb-2">
+                        <div>
+                          <Label className="text-xs text-muted-foreground">Quantity</Label>
+                          <Input type="number" placeholder="Qty" value={item.qty || ''} onChange={(e) => updateItem(idx, 'qty', Number(e.target.value))} />
+                        </div>
+                        <div>
+                          <Label className="text-xs text-muted-foreground">Rate</Label>
+                          <Input type="number" placeholder="Rate per unit" value={item.rate || ''} onChange={(e) => updateItem(idx, 'rate', Number(e.target.value))} />
+                        </div>
+                        <div>
+                          <Label className="text-xs text-muted-foreground">MRP</Label>
+                          <Input type="number" placeholder="MRP" value={item.mrp || ''} onChange={(e) => updateItem(idx, 'mrp', Number(e.target.value))} />
+                        </div>
+                        <div>
+                          <Label className="text-xs text-muted-foreground">Discount</Label>
+                          <Input type="number" placeholder="Discount amount" value={item.discount || ''} onChange={(e) => updateItem(idx, 'discount', Number(e.target.value))} />
+                        </div>
+                      </div>
+
+                      {/* Tax Section */}
+                      <div className="border-t pt-2 mt-1">
+                        <div className="flex items-center justify-between mb-1">
+                          <Label className="text-xs font-semibold text-muted-foreground">Tax / Duties</Label>
+                          <Button variant="ghost" size="sm" className="h-6 text-xs text-blue-600" onClick={() => addTaxToItem(idx)}>
+                            <Plus className="h-3 w-3 mr-1" />Add Tax
+                          </Button>
+                        </div>
+                        {item.taxes.map((tax, tIdx) => (
+                          <div key={tIdx} className="grid grid-cols-12 gap-2 items-end mb-1">
+                            <div className="col-span-3">
+                              <Popover>
+                                <PopoverTrigger asChild>
+                                  <Button variant="outline" size="sm" className="w-full justify-between text-xs h-8">
+                                    {tax.name || 'Select Tax'}
+                                    <ChevronDown className="h-3 w-3 ml-1" />
+                                  </Button>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-48 p-1" align="start">
+                                  {PRESET_TAXES.map(t => (
+                                    <Button key={t} variant="ghost" size="sm" className="w-full justify-start text-xs h-7"
+                                      onClick={() => updateItemTax(idx, tIdx, 'name', t)}>{t}</Button>
+                                  ))}
+                                  <div className="border-t my-1" />
+                                  <div className="px-2 py-1">
+                                    <Input placeholder="Custom tax name" className="h-7 text-xs"
+                                      onKeyDown={(e) => { if (e.key === 'Enter') { updateItemTax(idx, tIdx, 'name', (e.target as HTMLInputElement).value); } }} />
+                                  </div>
+                                </PopoverContent>
+                              </Popover>
+                            </div>
+                            <div className="col-span-2">
+                              <Input type="number" placeholder="%" value={tax.percent || ''} className="h-8 text-xs"
+                                onChange={(e) => updateItemTax(idx, tIdx, 'percent', Number(e.target.value))} />
+                            </div>
+                            <div className="col-span-2">
+                              <Select value={tax.percentOn} onValueChange={(v) => updateItemTax(idx, tIdx, 'percentOn', v)}>
+                                <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="Amount">% On Amount</SelectItem>
+                                  <SelectItem value="Amount+Tax">% On Amount+Tax</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="col-span-3 text-xs py-1.5 text-muted-foreground">
+                              = {formatCurrency(tax.amount, tenant?.currency)}
+                            </div>
+                            <div className="col-span-2 flex items-center justify-end">
+                              {item.taxes.length > 1 && (
+                                <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => removeTaxFromItem(idx, tIdx)}>
+                                  <X className="h-3 w-3" />
+                                </Button>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Item Total */}
+                      <div className="border-t pt-2 mt-1 flex justify-between text-sm">
+                        <span className="text-muted-foreground">Amount: {formatCurrency(item.amount, tenant?.currency)}</span>
+                        <span className="text-muted-foreground">Tax: {formatCurrency(item.totalTax, tenant?.currency)}</span>
+                        <span className="font-semibold">Total: {formatCurrency(item.total, tenant?.currency)}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <Button variant="outline" size="sm" className="mt-3" onClick={addItem}><Plus className="h-3 w-3 mr-1" />Add Item</Button>
+              </div>
+
+              {/* Summary */}
+              <div className="border-t pt-3 space-y-1 text-sm">
+                <div className="flex justify-between"><span>Subtotal</span><span>{formatCurrency(subtotal, tenant?.currency)}</span></div>
+                {totalDiscount > 0 && <div className="flex justify-between text-emerald-600"><span>Discount</span><span>-{formatCurrency(totalDiscount, tenant?.currency)}</span></div>}
+                <div className="flex justify-between"><span>Tax / Duties</span><span>{formatCurrency(totalTax, tenant?.currency)}</span></div>
+                <div className="flex justify-between font-bold text-base"><span>Total</span><span>{formatCurrency(totalAmount, tenant?.currency)}</span></div>
+              </div>
+
+              {/* Payment */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label>Payment Status</Label>
+                  <Select value={form.paymentStatus} onValueChange={(v) => {
+                    const currentTotal = totalAmount
+                    const newForm = { ...form, paymentStatus: v }
+                    if (v === 'RECEIVED') {
+                      newForm.amountReceived = currentTotal
+                      newForm.amountPaid = currentTotal
+                    } else if (v === 'PENDING') {
+                      newForm.amountReceived = 0
+                      newForm.amountPaid = 0
+                    }
+                    setForm(newForm)
+                  }} disabled={form.partyName.trim().toLowerCase() === 'cash'}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="PENDING">Pending</SelectItem>
+                      <SelectItem value="PARTIAL">Partial</SelectItem>
+                      <SelectItem value="RECEIVED">Received</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {form.partyName.trim().toLowerCase() === 'cash' && <p className="text-xs text-muted-foreground mt-1">Cash sales are auto-marked as Received</p>}
+                </div>
+                <div><Label>Amount Received</Label><Input type="number" value={form.amountReceived || ''} onChange={(e) => {
+                  const val = Number(e.target.value)
+                  setForm({ ...form, amountReceived: val, amountPaid: val })
+                }} disabled={form.partyName.trim().toLowerCase() === 'cash'} /></div>
+              </div>
+              <div><Label>Notes</Label><Textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Optional notes" /></div>
+
+
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => { if (!saving) setShowForm(false) }} disabled={saving}>Cancel</Button>
+              <Button type="button" className="bg-emerald-600 hover:bg-emerald-700" onClick={handleSave} disabled={saving}>
+                {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
+                {saving ? 'Saving...' : (editingId ? 'Update' : 'Save')} Sale
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* ===== VIEW SALE DIALOG ===== */}
+        <Dialog open={!!viewItem} onOpenChange={() => setViewItem(null)}>
+          <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+            <DialogHeader><DialogTitle className="flex items-center justify-between">
+              <span>Sale Invoice - {viewItem?.invoiceNumber}</span>
+              {viewItem && <Button variant="outline" size="sm" className="ml-2" onClick={() => handlePrintInvoice(viewItem)}><Printer className="h-4 w-4 mr-1" />Print</Button>}
+            </DialogTitle></DialogHeader>
+            {viewItem && (
+              <div className="space-y-3 text-sm">
+                <div className="grid grid-cols-2 gap-2">
+                  <p><strong>Date:</strong> {formatDate(viewItem.date)}</p>
+                  <p><strong>Customer:</strong> {viewItem.partyName}</p>
+                  <p><strong>Address:</strong> {viewItem.partyAddress || 'N/A'}</p>
+                  <p><strong>GST:</strong> {viewItem.partyGst || 'N/A'}</p>
+                  <p><strong>Status:</strong> {statusBadge(viewItem.paymentStatus)}</p>
+                  {viewItem.invoiceFile && <p><strong>Invoice:</strong> <a href={`/api/invoice-file?file=${encodeURIComponent(viewItem.invoiceFile)}`} target="_blank" rel="noopener noreferrer" className="text-emerald-600 underline hover:text-emerald-700">View Invoice</a></p>}
+                </div>
+                <div className="border rounded-lg overflow-hidden">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Item</TableHead><TableHead>Category</TableHead><TableHead>HSN</TableHead>
+                        <TableHead className="text-right">Qty</TableHead><TableHead className="text-right">Rate</TableHead>
+                        <TableHead className="text-right">Discount</TableHead><TableHead className="text-right">Amount</TableHead>
+                        <TableHead className="text-right">Tax</TableHead><TableHead className="text-right">Total</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {(() => {
+                        try {
+                          return (JSON.parse(viewItem.items) as SaleItem[]).map((item, i) => (
+                            <TableRow key={i}>
+                              <TableCell>
+                                {item.name}
+                                {(item.itemType === 'FINISHED_PRODUCT' || (item.name && finishedProductNames.includes(item.name.toLowerCase()))) && (
+                                  <span className="inline-flex items-center gap-1 ml-1 text-xs text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-full">
+                                    <Package className="h-3 w-3" /> BOM
+                                  </span>
+                                )}
+                              </TableCell>
+                              <TableCell>{item.category || '-'}</TableCell>
+                              <TableCell>{item.hsn || '-'}</TableCell>
+                              <TableCell className="text-right">{item.qty} {item.unit}</TableCell>
+                              <TableCell className="text-right">{formatCurrency(item.rate, tenant?.currency)}</TableCell>
+                              <TableCell className="text-right">{item.discount > 0 ? formatCurrency(item.discount, tenant?.currency) : '-'}</TableCell>
+                              <TableCell className="text-right">{formatCurrency(item.amount, tenant?.currency)}</TableCell>
+                              <TableCell className="text-right">{formatCurrency(item.totalTax, tenant?.currency)}</TableCell>
+                              <TableCell className="text-right font-medium">{formatCurrency(item.total, tenant?.currency)}</TableCell>
+                            </TableRow>
+                          ))
+                        } catch { return null }
+                      })()}
+                    </TableBody>
+                  </Table>
+                </div>
+                <div className="border-t pt-2 space-y-1">
+                  <div className="flex justify-between"><span>Subtotal</span><span>{formatCurrency(viewItem.subtotal, tenant?.currency)}</span></div>
+                  <div className="flex justify-between"><span>Tax / Duties</span><span>{formatCurrency(viewItem.gstAmount, tenant?.currency)}</span></div>
+                  <div className="flex justify-between font-bold"><span>Grand Total</span><span>{formatCurrency(viewItem.totalAmount, tenant?.currency)}</span></div>
+                  <div className="flex justify-between"><span>Amount Received</span><span>{formatCurrency(viewItem.amountReceived || viewItem.amountPaid, tenant?.currency)}</span></div>
+                  <div className="flex justify-between text-destructive font-semibold"><span>Balance Due</span><span>{formatCurrency(viewItem.totalAmount - (viewItem.amountReceived || viewItem.amountPaid), tenant?.currency)}</span></div>
+                </div>
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
+
+        {/* ===== PRINT INVOICE DIALOG (after saving) ===== */}
+        <Dialog open={!!justSavedSale} onOpenChange={(open) => { if (!open) setJustSavedSale(null) }}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2 text-emerald-700">
+                <CheckCircle2 className="h-5 w-5" />
+                Sale Saved Successfully
+              </DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3 text-sm">
+              <p>Invoice <strong>{justSavedSale?.invoiceNumber}</strong> for <strong>{justSavedSale?.partyName}</strong> has been saved.</p>
+              <p className="text-muted-foreground">Amount: <strong>{formatCurrency(justSavedSale?.totalAmount || 0, tenant?.currency)}</strong></p>
+            </div>
+            <DialogFooter className="flex gap-2 sm:gap-2">
+              <Button variant="outline" onClick={() => setJustSavedSale(null)}>Close</Button>
+              <Button className="bg-emerald-600 hover:bg-emerald-700" onClick={() => { if (justSavedSale) handlePrintInvoice(justSavedSale); setJustSavedSale(null) }}>
+                <Printer className="h-4 w-4 mr-2" /> Print Invoice
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </div>
+    </div>
+  )
+}

@@ -1,0 +1,50 @@
+# Render.com — Dockerfile for BizBook Pro
+# ============================================================
+# This Dockerfile creates a production-ready container that works
+# on Render.com, Railway.app, Fly.io, Google Cloud Run, or any
+# other container platform.
+# ============================================================
+
+FROM node:20-slim
+
+# Install OpenSSL (required by Prisma)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    openssl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy package files
+COPY package.json package-lock.json* ./
+COPY prisma ./prisma
+
+# Install dependencies
+RUN npm ci --no-audit --no-fund || npm install --no-audit --no-fund
+
+# Generate Prisma client
+RUN npx prisma generate
+
+# Copy source code
+COPY . .
+
+# Build the production standalone
+RUN NEXT_TELEMETRY_DISABLED=1 npm run build
+
+# Create runtime directories
+RUN mkdir -p db/upload db/backups logs
+
+# Expose port
+EXPOSE 3000
+
+# Set production environment
+ENV NODE_ENV=production
+ENV PORT=3000
+ENV HOSTNAME=0.0.0.0
+ENV DATABASE_URL="file:/app/db/custom.db"
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
+    CMD curl -f http://localhost:3000/api/health || exit 1
+
+# Start the server
+CMD ["node", ".next/standalone/server.js"]

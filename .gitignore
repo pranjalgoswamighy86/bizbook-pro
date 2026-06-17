@@ -1,0 +1,74 @@
+# Dependencies
+node_modules/
+.pnp/
+.pnp.js
+
+# Next.js build output
+.next/
+out/
+
+# Production build
+build/
+dist/
+
+# Environment variables (NEVER commit these!)
+.env
+.env.local
+.env.production
+.env.*.local
+
+# Database files (NEVER commit the database!)
+db/*.db
+db/*.db-shm
+db/*.db-wal
+db/backups/
+
+# Upload directories
+upload/
+uploaded-invoices/
+public/temp/
+
+# Logs
+*.log
+logs/
+dev.log
+server.log
+
+# Platform-specific
+.zscripts/dev.pid
+.zscripts/dev.log
+.zscripts/mini-service-*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# IDE
+.vscode/
+.idea/
+*.sublime*
+
+# Cache
+.cache/
+.turbo/
+
+# Test artifacts
+coverage/
+test-results/
+
+# Build artifacts in /tmp
+tool-results/
+
+# Platform-specific (not part of the app)
+skills/
+upload/
+download/
+tool-results/
+bizbook.db
+page_content.json
+.zscripts/
+security-patch*/
+bizbook-pro-deployed/
+download/

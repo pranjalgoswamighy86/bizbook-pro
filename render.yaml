@@ -1,0 +1,71 @@
+# Render.com Blueprint for BizBook Pro
+# ============================================================
+# This file configures the deployment on Render.com
+# Create a free account at https://render.com, then:
+#   1. Go to Dashboard → New → Blueprint
+#   2. Select your GitHub repository
+#   3. Render will read this file and create the service
+# ============================================================
+
+services:
+  - type: web
+    name: bizbook-pro
+    runtime: node
+    plan: free  # Free tier (sleeps after 15 min idle, wakes on request)
+    # Build configuration
+    buildCommand: npm install && npx prisma generate && npx prisma db push --skip-generate && npm run build
+    # Start command — uses the production standalone server
+    startCommand: node .next/standalone/server.js
+    # Health check
+    healthCheckPath: /api/health
+    # Auto-deploy from GitHub main branch
+    autoDeploy: true
+    # Environment variables (set these in Render dashboard or here)
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        value: file:./db/custom.db
+      - key: SESSION_SECRET
+        # Generate a new secret: openssl rand -hex 32
+        sync: false  # Set manually in Render dashboard
+      - key: PORT
+        value: 3000
+      - key: HOSTNAME
+        value: 0.0.0.0
+      - key: NODE_OPTIONS
+        value: --max-old-space-size=512
+      - key: NEXT_TELEMETRY_DISABLED
+        value: "1"
+      # Email (SMTP via Gmail)
+      - key: SMTP_HOST
+        value: smtp.gmail.com
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_SECURE
+        value: "false"
+      - key: SMTP_USER
+        sync: false  # Set manually
+      - key: SMTP_PASS
+        sync: false  # Set manually
+      - key: SMTP_FROM
+        sync: false  # Set manually
+      # SMS (2Factor.in)
+      - key: TWOFACTOR_API_KEY
+        sync: false  # Set manually
+      - key: TWOFACTOR_SENDER_ID
+        value: BIZBOK
+      - key: TWOFACTOR_TEMPLATE_NAME
+        value: BizBook Pro
+      # Razorpay (optional — leave empty for manual mode)
+      - key: RAZORPAY_KEY_ID
+        sync: false  # Set manually
+      - key: RAZORPAY_KEY_SECRET
+        sync: false  # Set manually
+    # Persistent disk for SQLite database (survives restarts)
+    # NOTE: Render free tier doesn't include disks, but you can add one for $1/month
+    # If you don't add a disk, the database resets on each deploy
+    disks:
+      - name: bizbook-db
+        mountPath: /opt/render/project/src/db
+        sizeGB: 1  # 1GB is enough for thousands of records
