@@ -1,0 +1,17 @@
+[phases.setup]
+nixPkgs = ['nodejs_20', 'openssl']
+
+[phases.install]
+cmds = ['npm install']
+
+[phases.build]
+cmds = [
+  'npx prisma generate',
+  'mkdir -p db',
+  'DATABASE_URL="file:./db/custom.db" npx prisma db push --skip-generate',
+  'npx next build',
+  'node postbuild.js'
+]
+
+[start]
+cmd = 'node .next/standalone/server.js'
