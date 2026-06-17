@@ -6,7 +6,7 @@
     "watchPatterns": ["src/**", "prisma/**", "public/**", "package.json", "next.config.ts"]
   },
   "deploy": {
-    "startCommand": "node .next/standalone/server.js",
+    "startCommand": "mkdir -p db && npx prisma db push --skip-generate && node .next/standalone/server.js",
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 10
   }

@@ -14,4 +14,4 @@ cmds = [
 ]
 
 [start]
-cmd = 'node .next/standalone/server.js'
+cmd = 'mkdir -p db && npx prisma db push --skip-generate && node .next/standalone/server.js'
