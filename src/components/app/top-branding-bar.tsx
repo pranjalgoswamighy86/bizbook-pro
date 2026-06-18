@@ -184,16 +184,10 @@ export function TopBrandingBar() {
         <div className="h-5 w-px bg-slate-200" aria-hidden="true" />
 
         {/* User Profile Block (Spec Section 12 Rule 2.1)
-            Spec: "Replace the generic or hardcoded text string 'Admin' with the
-            dynamic session variable representing the actual authenticated account
-            holder's name (userProfile.tenantName or session.user.name)"
-            Implementation: Show TENANT NAME first (the company the user is operating),
-            with user's actual name as tooltip. This replaces generic 'Admin' text. */}
-        <div className="flex flex-col text-right min-w-0" title={`User: ${user?.name || 'Unknown'} (${user?.email || 'no email'})`}>
+            v4.19: Show USER'S NAME (not tenant name) — user wants to see their own name */}
+        <div className="flex flex-col text-right min-w-0" title={`Tenant: ${tenant?.name || 'Unknown'}`}>
           <span className="text-xs sm:text-sm font-bold text-slate-800 tracking-tight truncate max-w-[120px] sm:max-w-[180px]">
-            {/* v4.12: Spec says use tenantName, not user.name — tenant is the company
-                the user is currently operating. Falls back to user.name only if no tenant. */}
-            {tenant?.name || user?.name || 'Loading Tenant...'}
+            {user?.name || 'Loading...'}
           </span>
           <span className="text-[9px] sm:text-[10px] font-medium text-slate-400 uppercase tracking-wider">
             {user?.role ? getRoleLabel(user.role) : 'MAIN_ADMIN'}
