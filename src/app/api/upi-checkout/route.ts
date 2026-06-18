@@ -35,7 +35,8 @@ export async function POST(req: NextRequest) {
       while (usedAmounts.includes(Number(paise.toFixed(2)))) { paise += 0.01; if (paise >= 1) return NextResponse.json({ error: 'Checkout buffer full. Retry later.' }, { status: 503 }) }
 
       const finalAmount = Number((plan.price + paise).toFixed(2))
-      const payeeVPA = process.env.MASTER_UPI_VPA || '9101555075@kotakbank'
+      // v4.11: Spec Section 24 — use NEXT_PUBLIC_SUPER_ADMIN_UPI_ID with MASTER_UPI_VPA fallback
+      const payeeVPA = process.env.NEXT_PUBLIC_SUPER_ADMIN_UPI_ID || process.env.MASTER_UPI_VPA || '9101555075@kotakbank'
       const payeeName = encodeURIComponent(process.env.MASTER_UPI_NAME || 'Tahigo International')
       const txnNote = encodeURIComponent(`BIZBOOK_PRO_RECHARGE_${tenantId}_${planHours}HRS`)
       const upiUri = `upi://pay?pa=${payeeVPA}&pn=${payeeName}&am=${finalAmount.toFixed(2)}&cu=INR&tn=${txnNote}`

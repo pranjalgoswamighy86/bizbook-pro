@@ -5,7 +5,8 @@ providers = ['node']
 [phases.install]
 cmds = [
   'rm -rf .next .turbo out dist node_modules/.cache',
-  'npm install --no-audit --no-fund --prefer-offline'
+  'npm install --no-audit --no-fund --prefer-offline',
+  'npm cache clean --force'
 ]
 
 [phases.build]
