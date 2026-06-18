@@ -510,7 +510,7 @@ export function CoverPage() {
               Replace with generic description that doesn't name competitors. */}
           <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
             The simplest billing &amp; inventory software for growing businesses.
-            Clean interface, powerful features, lifetime entry with minimal subscription.
+            Clean interface, powerful features, flexible subscription plans with usage-based hours.
           </p>
         </div>
 
