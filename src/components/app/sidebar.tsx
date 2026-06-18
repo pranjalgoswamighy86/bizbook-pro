@@ -164,49 +164,19 @@ export function AppSidebar() {
   }
 
   // Shared navigation content for both mobile and desktop sidebars
+  // v4.18: Branding removed — TopBrandingBar handles all branding.
   const sidebarContent = (
     <>
-      {/* v4.13: Spec Section 9 — Dual-Branding Logo Alignment
-          Sidebar shows BOTH logos (Tahigo International + BizBook Pro) with hierarchy:
-            Line 1: [Tahigo logo] [BizBook logo]
-            Line 2: "Tahigo International" (parent, small uppercase)
-            Line 3: "BizBook Pro" (product, bold)
-            Line 4: tenant.name (company being operated, muted) */}
-      <div className="p-4 shrink-0">
-        <div className="flex items-center gap-2">
-          {/* Tahigo International parent logo */}
-          <img
-            src="/tahigo-logo.png"
-            alt="Tahigo International"
-            className="flex-shrink-0 h-10 w-10 rounded-lg object-contain border border-slate-100 shadow-sm p-1 bg-white"
-            onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
-          />
-          {/* BizBook Pro product logo */}
-          <img
-            src="/bizbook-pro-logo.png"
-            alt="BizBook Pro"
-            className="flex-shrink-0 h-10 w-10 rounded-lg object-contain border border-slate-100 shadow-sm p-1 bg-white"
-            onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
-          />
-          <div className="min-w-0 flex-1">
-            <p className="text-[9px] font-semibold text-slate-500 tracking-wider uppercase truncate">
-              Tahigo International
-            </p>
-            <h1 className="text-sm font-black text-slate-800 truncate leading-tight">
-              BizBook Pro
-            </h1>
-            <p className="text-[10px] text-muted-foreground truncate">
-              {tenant?.name || 'Business'}
-            </p>
-          </div>
-          {isMobile && (
-            <Button variant="ghost" size="icon" className="flex-shrink-0 h-7 w-7" onClick={closeMobileDrawer}>
+      {/* Switch Company / Add Company / Import Backup buttons (NO branding) */}
+      <div className="p-3 shrink-0">
+        {isMobile && (
+          <div className="flex justify-end mb-2">
+            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={closeMobileDrawer}>
               <X className="h-4 w-4" />
             </Button>
-          )}
-        </div>
-        {/* Switch Company / Add Company / Import Backup buttons */}
-        <div className="mt-2 space-y-1">
+          </div>
+        )}
+        <div className="space-y-1">
           <button
             onClick={handleSwitchCompany}
             className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-xs text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950 transition-colors"
@@ -312,13 +282,9 @@ export function AppSidebar() {
           >
             <Menu className="h-5 w-5" />
           </Button>
-          {/* v4.13: Dual logos on mobile top bar */}
-          <img src="/tahigo-logo.png" alt="Tahigo International" className="h-10 w-10 rounded-lg object-contain flex-shrink-0 p-1 border border-slate-100 bg-white shadow-sm" onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }} />
-          <img src="/bizbook-pro-logo.png" alt="BizBook Pro" className="h-10 w-10 rounded-lg object-contain flex-shrink-0 p-1 border border-slate-100 bg-white shadow-sm" onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }} />
+          {/* v4.18: No logos in mobile sidebar top bar — TopBrandingBar handles branding */}
           <div className="min-w-0 flex-1">
-            <p className="text-[9px] font-semibold text-slate-500 tracking-wider uppercase truncate">Tahigo International</p>
-            <h1 className="text-sm font-black text-slate-800 truncate leading-tight">BizBook Pro</h1>
-            <p className="text-[10px] text-muted-foreground truncate">{tenant?.name || 'Business'}</p>
+            <p className="text-xs font-medium text-muted-foreground truncate">{tenant?.name || 'Business'}</p>
           </div>
         </div>
 
@@ -347,6 +313,8 @@ export function AppSidebar() {
   // ============================
   // Desktop: inline sidebar with collapse
   // ============================
+  // v4.18: Branding is in TopBrandingBar — sidebar starts with company switcher + nav.
+  // No duplicate logos/text in sidebar header.
 
   return (
     <div
@@ -355,33 +323,10 @@ export function AppSidebar() {
         sidebarOpen ? 'w-64' : 'w-16'
       )}
     >
-      {/* Header */}
-      <div className="p-4 shrink-0">
-        <div className="flex items-center gap-2">
-          {/* v4.13: Dual logos (Tahigo + BizBook Pro) */}
-          <img
-            src="/tahigo-logo.png"
-            alt="Tahigo International"
-            className="flex-shrink-0 h-10 w-10 rounded-lg object-contain p-1 border border-slate-100 bg-white shadow-sm"
-            onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
-          />
-          <img
-            src="/bizbook-pro-logo.png"
-            alt="BizBook Pro"
-            className="flex-shrink-0 h-10 w-10 rounded-lg object-contain p-1 border border-slate-100 bg-white shadow-sm"
-            onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
-          />
-          {sidebarOpen && (
-            <div className="min-w-0 flex-1">
-              <p className="text-[9px] font-semibold text-slate-500 tracking-wider uppercase truncate">Tahigo International</p>
-              <h1 className="text-sm font-black text-slate-800 truncate leading-tight">BizBook Pro</h1>
-              <p className="text-[10px] text-muted-foreground truncate">{tenant?.name || 'Business'}</p>
-            </div>
-          )}
-        </div>
-        {/* Switch Company / Add Company / Import Backup buttons */}
+      {/* Switch Company / Add Company / Import Backup buttons (NO branding — that's in TopBrandingBar) */}
+      <div className="p-3 shrink-0">
         {sidebarOpen && (
-          <div className="mt-2 space-y-1">
+          <div className="space-y-1">
             <button
               onClick={handleSwitchCompany}
               className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-xs text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950 transition-colors"
