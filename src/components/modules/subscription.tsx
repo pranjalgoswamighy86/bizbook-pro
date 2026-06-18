@@ -267,16 +267,15 @@ export function SubscriptionPage() {
         </p>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {data.availablePlans.map((plan) => {
-            const finalPrice = plan.mrp - plan.discountAmount
+            const finalPrice = plan.discountAmount  // discountAmount IS the final price customer pays
             const perHour = (finalPrice / plan.hours).toFixed(1)
             const isPopular = plan.hours === 200
             return (
               <Card
                 key={plan.hours}
-                className={`relative cursor-pointer hover:border-emerald-500 hover:shadow-lg transition-all ${
+                className={`relative transition-all ${
                   isPopular ? 'border-emerald-500 border-2 shadow-md' : 'border'
                 }`}
-                onClick={() => setRechargePlan(plan)}
               >
                 {isPopular && (
                   <div className="absolute -top-3 left-1/2 -translate-x-1/2">
@@ -309,23 +308,13 @@ export function SubscriptionPage() {
                     <RoleLine label="View Only" hours={0} suffix="Free" />
                   </div>
 
-                  <div className="flex gap-2 mt-4">
-                    <Button
-                      className="flex-1 bg-emerald-600 hover:bg-emerald-700"
-                      size="sm"
-                      onClick={(e) => { e.stopPropagation(); setRechargePlan(plan) }}
-                    >
-                      Recharge Now
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="border-violet-300 text-violet-700 hover:bg-violet-50 dark:border-violet-700 dark:text-violet-300"
-                      onClick={(e) => { e.stopPropagation(); setUpiPlan(plan) }}
-                    >
-                      Pay via UPI
-                    </Button>
-                  </div>
+                  <Button
+                    className="w-full mt-4 bg-emerald-600 hover:bg-emerald-700"
+                    size="sm"
+                    onClick={(e) => { e.stopPropagation(); setUpiPlan(plan) }}
+                  >
+                    Choose Plan — ₹{finalPrice}
+                  </Button>
                 </CardContent>
               </Card>
             )

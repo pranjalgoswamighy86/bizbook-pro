@@ -59,15 +59,21 @@ model User {
   name      String
   password  String
   role      String   @default("DATA_ENTRY")
-  tenantId  String   // Default/primary tenant (for backward compatibility)
+  tenantId  String
   tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  // Multi-company: a user can belong to multiple tenants
+  // Login security policy fields
+  lastLoginAt          DateTime?
+  lastOtpVerifiedAt    DateTime?
+  passwordChangedAt    DateTime?
+  failedLoginAttempts  Int      @default(0)
+
+  // Multi-company
   userTenants UserTenant[]
-  // Soft-delete: records are never truly deleted
+  // Soft-delete
   isDeleted   Boolean  @default(false)
   deletedAt   DateTime?
 }
@@ -611,6 +617,15 @@ model Subscription {
   juniorAdminHours Int     @default(15)
   dataEntryHours  Int      @default(25)
   viewOnlyHours   Int      @default(0)  // Always free
+  // Extended ID slots + manual override fields
+  extraJuniorAdminSlots  Int  @default(0)
+  extraDataEntrySlots    Int  @default(0)
+  maxUsersAllowed       Int?
+  customPlanType        String?
+  manualOverrideNote    String?
+  manualOverrideAt      DateTime?
+  manualOverrideBy      String?
+  lastWarningShown      String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 

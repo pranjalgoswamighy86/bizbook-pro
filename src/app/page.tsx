@@ -32,6 +32,7 @@ import { SubscriptionPage } from '@/components/modules/subscription'
 import { ErrorBoundary } from '@/components/app/error-boundary'
 import { Loader2 } from 'lucide-react'
 import { authFetch } from '@/lib/auth-fetch'
+import { useSubscriptionUsageTracker } from '@/hooks/use-subscription-usage'
 
 function ModuleRouter() {
   const { currentView } = useAppStore()
@@ -67,10 +68,10 @@ function ModuleRouter() {
 }
 
 export default function Home() {
-  const { isAuthenticated, currentView, logout } = useAppStore()
+  const { isAuthenticated, currentView, logout, user } = useAppStore()
+  // Track subscription usage (deducts seconds every minute while active)
+  useSubscriptionUsageTracker()
   // Hydration guard: wait for Zustand persist to rehydrate from localStorage
-  // Without this, server renders with default state (not authenticated) and
-  // client flashes/mismatches when localStorage state loads
   const [hydrated, setHydrated] = useState(false)
 
   useEffect(() => {
