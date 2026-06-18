@@ -7,10 +7,10 @@ console.log('=== BizBook Pro Startup ===');
 // CRITICAL: Delete HOSTNAME so Next.js binds to 0.0.0.0 (fixes Railway 502)
 delete process.env.HOSTNAME;
 
-// Set DATABASE_URL if not set
-const DB_DIR = path.join(process.cwd(), 'db');
-const DB_FILE = path.join(DB_DIR, 'custom.db');
-process.env.DATABASE_URL = process.env.DATABASE_URL || ('file:' + DB_FILE);
+// Set DATABASE_URL — use ABSOLUTE path so it works regardless of cwd
+const DB_DIR = '/app/db';
+const DB_FILE = DB_DIR + '/custom.db';
+process.env.DATABASE_URL = 'file:' + DB_FILE;
 
 // Set env var defaults
 process.env.NODE_ENV = process.env.NODE_ENV || 'production';
