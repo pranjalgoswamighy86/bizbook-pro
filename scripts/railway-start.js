@@ -31,7 +31,16 @@ console.log('DATABASE_URL:', process.env.DATABASE_URL);
 // Step 1: Create db directory
 fs.mkdirSync(DB_DIR, { recursive: true });
 
-// Step 2: Push Prisma schema (non-destructive — no --accept-data-loss)
+// Step 2: Regenerate Prisma client (ensures schema fields like lastLoginAt exist)
+console.log('→ Regenerating Prisma client...');
+try {
+  execSync('npx prisma generate', { stdio: 'inherit', env: process.env, cwd: '/app' });
+  console.log('✓ Prisma client regenerated');
+} catch (e) {
+  console.log('⚠️ Prisma generate failed:', e.message);
+}
+
+// Step 3: Push Prisma schema (non-destructive)
 console.log('→ Syncing database schema (safe, no data loss)...');
 try {
   execSync('npx prisma db push --skip-generate', {
@@ -68,18 +77,34 @@ try {
       // Check if admin user already exists
       const existingUser = await prisma.user.findFirst({ where: { email: 'admin@bizbook.pro' } }).catch(() => null);
       if (!existingUser) {
-        const user = await prisma.user.create({
-          data: {
-            name: 'Admin',
-            email: 'admin@bizbook.pro',
-            password: passwordHash,
-            role: 'MAIN_ADMIN',
-            tenantId: tenant.id,
-            lastLoginAt: new Date(),
-            lastOtpVerifiedAt: new Date(),
-            passwordChangedAt: new Date(),
-          },
-        });
+        // Try with new fields first, fall back to basic fields if schema doesn't have them
+        let user;
+        try {
+          user = await prisma.user.create({
+            data: {
+              name: 'Admin',
+              email: 'admin@bizbook.pro',
+              password: passwordHash,
+              role: 'MAIN_ADMIN',
+              tenantId: tenant.id,
+              lastLoginAt: new Date(),
+              lastOtpVerifiedAt: new Date(),
+              passwordChangedAt: new Date(),
+            },
+          });
+        } catch (createErr) {
+          // Fallback: create without the new fields (old Prisma client)
+          console.log('⚠️ New fields not available, creating with basic fields...');
+          user = await prisma.user.create({
+            data: {
+              name: 'Admin',
+              email: 'admin@bizbook.pro',
+              password: passwordHash,
+              role: 'MAIN_ADMIN',
+              tenantId: tenant.id,
+            },
+          });
+        }
         // Check if link exists
         const existingLink = await prisma.userTenant.findFirst({ where: { userId: user.id, tenantId: tenant.id } }).catch(() => null);
         if (!existingLink) {
