@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Progress } from '@/components/ui/progress'
+import { UPICheckoutModal } from '@/components/app/upi-checkout-modal'
 import { Clock, Zap, Crown, Check, AlertCircle, TrendingUp, Users, Sparkles, Loader2, Receipt } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 
@@ -61,6 +62,7 @@ export function SubscriptionPage() {
   const [loading, setLoading] = useState(true)
   const [rechargePlan, setRechargePlan] = useState<Plan | null>(null)
   const [recharging, setRecharging] = useState(false)
+  const [upiPlan, setUpiPlan] = useState<Plan | null>(null)
 
   const load = async () => {
     if (!tenant) return
@@ -307,13 +309,23 @@ export function SubscriptionPage() {
                     <RoleLine label="View Only" hours={0} suffix="Free" />
                   </div>
 
-                  <Button
-                    className="w-full mt-4 bg-emerald-600 hover:bg-emerald-700"
-                    size="sm"
-                    onClick={(e) => { e.stopPropagation(); setRechargePlan(plan) }}
-                  >
-                    Recharge Now
-                  </Button>
+                  <div className="flex gap-2 mt-4">
+                    <Button
+                      className="flex-1 bg-emerald-600 hover:bg-emerald-700"
+                      size="sm"
+                      onClick={(e) => { e.stopPropagation(); setRechargePlan(plan) }}
+                    >
+                      Recharge Now
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="border-violet-300 text-violet-700 hover:bg-violet-50 dark:border-violet-700 dark:text-violet-300"
+                      onClick={(e) => { e.stopPropagation(); setUpiPlan(plan) }}
+                    >
+                      Pay via UPI
+                    </Button>
+                  </div>
                 </CardContent>
               </Card>
             )
@@ -423,6 +435,18 @@ export function SubscriptionPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* === UPI Checkout Modal (Zero-Cost Autonomous Payment) === */}
+      {upiPlan && tenant && (
+        <UPICheckoutModal
+          open={!!upiPlan}
+          onClose={() => setUpiPlan(null)}
+          onSuccess={() => { load() }}
+          tenantId={tenant.id}
+          planHours={upiPlan.hours}
+          planName={upiPlan.name}
+        />
+      )}
     </div>
   )
 }

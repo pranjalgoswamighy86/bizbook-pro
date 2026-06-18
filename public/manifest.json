@@ -1,0 +1,27 @@
+{
+  "name": "BizBook Pro — Business Management",
+  "short_name": "BizBook Pro",
+  "description": "The simplest billing & inventory software for growing businesses. A product by Tahigo International.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#059669",
+  "theme_color": "#059669",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/logo.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["business", "finance", "productivity"],
+  "lang": "en",
+  "dir": "ltr"
+}

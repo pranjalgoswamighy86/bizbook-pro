@@ -50,6 +50,7 @@ model Tenant {
   priceLists      PriceList[]
   accounts        Account[]
   journalEntries  JournalEntry[]
+  subscriptionQueue SubscriptionQueue[]
 }
 
 model User {
@@ -642,4 +643,25 @@ model UsageLog {
   secondsUsed     Int
   remainingAfter  Int
   loggedAt        DateTime @default(now())
+}
+
+// ============================================================
+// SubscriptionQueue — Zero-Cost UPI Payment Tracking
+// ============================================================
+model SubscriptionQueue {
+  id              String   @id @default(cuid())
+  tenantId        String
+  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  baseAmount      Float
+  finalAmount     Float
+  paiseIncrement  Float
+  planHours       Int
+  planName        String
+  status          String   @default("PENDING")
+  upiUri          String?
+  createdAt       DateTime @default(now())
+  completedAt     DateTime?
+
+  @@index([status, finalAmount])
+  @@index([tenantId, status])
 }

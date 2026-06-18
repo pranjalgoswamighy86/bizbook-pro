@@ -6,6 +6,7 @@ import { AppHeader } from '@/components/app/header'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { formatCurrency, getDateFilterRange, formatDate } from '@/lib/formulas'
 import { authFetch } from '@/lib/auth-fetch'
+import { DownloadForDesktop } from '@/components/app/download-for-desktop'
 import {
   TrendingUp, TrendingDown, ShoppingCart, Package, Receipt, Building2,
   UserCheck, UserX, AlertTriangle, BarChart3, ArrowUpRight, ArrowDownRight,
@@ -86,6 +87,9 @@ export function Dashboard() {
   return (
     <div>
       <AppHeader title="Dashboard" />
+      <div className="px-4 pt-3 pb-1 flex justify-end">
+        <DownloadForDesktop />
+      </div>
       <div className="p-4 sm:p-6 pb-8 space-y-6">
         {/* KPI Cards */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
