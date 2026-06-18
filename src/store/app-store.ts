@@ -28,6 +28,7 @@ export type ViewType =
   | 'general-ledger'
   | 'ai-import'
   | 'subscription'
+  | 'ai-valuation'
   | 'super-admin-subscriptions'
 
 export type UserRole = 'VIEW_ONLY' | 'DATA_ENTRY' | 'JUNIOR_ADMIN' | 'MAIN_ADMIN'

@@ -21,7 +21,7 @@
  */
 
 import { useAppStore, getRoleLabel } from '@/store/app-store'
-import { LogOut, Crown, Sparkles } from 'lucide-react'
+import { LogOut, Crown, Sparkles, Download, TrendingUp } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { useState, useEffect } from 'react'
 import { authFetch } from '@/lib/auth-fetch'
@@ -38,6 +38,24 @@ export function TopBrandingBar() {
   const { user, tenant, logout, setView } = useAppStore()
   const router = useRouter()
   const [subInfo, setSubInfo] = useState<SubscriptionInfo | null>(null)
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null)
+
+  // v4.20: PWA install prompt — "Download Desktop" button
+  useEffect(() => {
+    const handler = (e: Event) => {
+      e.preventDefault()
+      setDeferredPrompt(e)
+    }
+    window.addEventListener('beforeinstallprompt', handler)
+    return () => window.removeEventListener('beforeinstallprompt', handler)
+  }, [])
+
+  const handleInstall = async () => {
+    if (!deferredPrompt) return
+    deferredPrompt.prompt()
+    await deferredPrompt.userChoice
+    setDeferredPrompt(null)
+  }
 
   // Fetch subscription info for the badge
   useEffect(() => {
@@ -140,9 +158,21 @@ export function TopBrandingBar() {
       {/* ============= CENTER ZONE: Clean Whitespace (Task 33) ============= */}
       <div className="flex-1 hidden md:block" aria-hidden="true" />
 
-      {/* ============= RIGHT ZONE: Subscription + Profile + Logout ============= */}
+      {/* ============= RIGHT ZONE: Download Desktop + Subscription + Profile + Logout ============= */}
       <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-        {/* Subscription Badge (Task 32 — relocated from sidebar bottom) */}
+        {/* v4.20: Download Desktop button (PWA install) */}
+        {deferredPrompt && (
+          <button
+            onClick={handleInstall}
+            className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-700 font-bold text-[11px] rounded-xl transition-all cursor-pointer"
+            title="Install BizBook Pro as a desktop app"
+          >
+            <Download className="h-3.5 w-3.5" />
+            <span className="hidden lg:inline">Download Desktop</span>
+          </button>
+        )}
+
+        {/* Subscription Badge — v4.20: Always show hours+minutes, even if 0h 0m */}
         <button
           onClick={handleSubscriptionClick}
           className={`flex items-center gap-1.5 sm:gap-2 px-2 sm:px-3 py-1 sm:py-1.5 rounded-full border transition-all cursor-pointer ${
@@ -173,9 +203,8 @@ export function TopBrandingBar() {
               UPGRADE
             </span>
           )}
-          {/* Remaining hours + minutes — visible on larger screens
-              v4.14: Show BOTH hours and minutes (was only hours, showing "0h" bug) */}
-          <span className="text-[10px] text-slate-500 font-medium hidden lg:inline">
+          {/* Remaining hours + minutes — v4.20: ALWAYS visible (was hidden on small screens) */}
+          <span className="text-[10px] sm:text-[11px] text-slate-600 font-bold whitespace-nowrap">
             {remainingHours}h {remainingMinutes}m left
           </span>
         </button>

@@ -74,6 +74,7 @@ const navItems: NavItem[] = [
   { id: 'audit-log', label: 'Audit Log', icon: <FileText className="h-4 w-4" />, minRole: 'MAIN_ADMIN' },
   { id: 'ai-import', label: 'AI Smart Import', icon: <Sparkles className="h-4 w-4" /> },
   { id: 'subscription', label: 'Subscription', icon: <Crown className="h-4 w-4" /> },
+  { id: 'ai-valuation', label: 'Smart AI Company Valuation', icon: <Sparkles className="h-4 w-4" /> },
   { id: 'super-admin-subscriptions', label: 'Super Admin Panel', icon: <Crown className="h-4 w-4" />, minRole: 'MAIN_ADMIN' },
   { id: 'backup', label: 'Backup & Restore', icon: <HardDrive className="h-4 w-4" />, minRole: 'MAIN_ADMIN' },
   { id: 'settings', label: 'Settings', icon: <Settings className="h-4 w-4" />, minRole: 'MAIN_ADMIN' },
