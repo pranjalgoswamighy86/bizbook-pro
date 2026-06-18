@@ -97,7 +97,8 @@ const SUPER_ADMIN_EMAILS = [
   (process.env.ADMIN_EMAIL || '').toLowerCase(),
 ].filter(Boolean);
 
-// INFRASTRUCTURE_OWNER: matched by email (PRANJALGOSWAMIGHY86@GMAIL.COM)
+// INFRASTRUCTURE_OWNER: matched by email (PRANJALGOSWAMIGHY86@GMAIL.COM per Spec Part 9)
+// Hardcoded fallback ensures spec compliance even if env var missing
 const INFRA_OWNER_EMAILS = [
   'pranjalgoswamighy86@gmail.com',
   (process.env.INFRASTRUCTURE_OWNER_EMAIL || '').toLowerCase(),

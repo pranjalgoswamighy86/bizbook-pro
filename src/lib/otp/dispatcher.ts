@@ -55,6 +55,8 @@ export interface OtpDispatchResult {
 const ADMIN_BYPASS_EMAILS = [
   'admin@bizbook.pro',
   (process.env.ADMIN_EMAIL || '').toLowerCase(),
+  // Spec Part 9: PRANJALGOSWAMIGHY86@GMAIL.COM is INFRASTRUCTURE_OWNER_ADMIN — also bypasses OTP
+  'pranjalgoswamighy86@gmail.com',
   (process.env.INFRASTRUCTURE_OWNER_EMAIL || '').toLowerCase(),
 ].filter(Boolean);
 
