@@ -96,18 +96,22 @@ export async function POST(req: NextRequest) {
 
       const existingUser = await db.user.findFirst({ where: { email, isDeleted: false } })
       if (existingUser) {
+        // v4.10: Spec Section 10 Rule 2.1 — must return 409 Conflict
         return NextResponse.json({
-          error: 'This email ID is already registered. Please go to the Login page and log in with your existing account.',
+          error: 'This account credentials already exist. Registration blocked.',
           field: 'email',
-        }, { status: 400 })
+          code: 'DUPLICATE_REGISTRATION',
+        }, { status: 409 })
       }
 
       const existingPhoneTenant = await findTenantByPhone(businessPhone)
       if (existingPhoneTenant) {
+        // v4.10: Spec Section 10 Rule 2.1 — 409 Conflict
         return NextResponse.json({
-          error: 'This mobile number is already registered with another account. Please use a different mobile number or go to the Login page.',
+          error: 'This account credentials already exist. Registration blocked.',
           field: 'phone',
-        }, { status: 400 })
+          code: 'DUPLICATE_REGISTRATION',
+        }, { status: 409 })
       }
 
       const otp = String(Math.floor(100000 + Math.random() * 900000))
@@ -195,16 +199,20 @@ export async function POST(req: NextRequest) {
 
       const existingUser = await db.user.findFirst({ where: { email, isDeleted: false } })
       if (existingUser) {
+        // v4.10: Spec Section 10 Rule 2.1 — 409 Conflict
         return NextResponse.json({
-          error: 'This email ID is already registered. Please go to the Login page and log in.',
-        }, { status: 400 })
+          error: 'This account credentials already exist. Registration blocked.',
+          code: 'DUPLICATE_REGISTRATION',
+        }, { status: 409 })
       }
 
       const existingPhoneTenant = await findTenantByPhone(businessPhone)
       if (existingPhoneTenant) {
+        // v4.10: Spec Section 10 Rule 2.1 — 409 Conflict
         return NextResponse.json({
-          error: 'This mobile number is already registered. Please use a different number or go to Login.',
-        }, { status: 400 })
+          error: 'This account credentials already exist. Registration blocked.',
+          code: 'DUPLICATE_REGISTRATION',
+        }, { status: 409 })
       }
 
       const otpRecord = await db.passwordReset.findFirst({

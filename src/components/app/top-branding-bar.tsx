@@ -87,8 +87,10 @@ export function TopBrandingBar() {
     >
       {/* ============= LEFT ZONE: Dual Branding (Tahigo + BizBook Pro) ============= */}
       <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-        {/* Polished Tahigo Parent Logo Container (Spec Part 4.1 + Task 30) */}
-        <div className="relative flex items-center justify-center h-9 w-9 sm:h-10 sm:w-10 bg-white rounded-xl border border-slate-100 shadow-sm p-1.5 overflow-hidden transition-all duration-300 hover:shadow-md shrink-0">
+        {/* Polished Tahigo Parent Logo Container (Spec Part 4.1 + Task 30 + Section 5)
+            Spec: "Increase its container dimension bounds to be visually dominant
+            (min-width: 48px / height: 48px minimum bounding box)" → h-12 w-12 */}
+        <div className="relative flex items-center justify-center h-12 w-12 bg-white rounded-xl border border-slate-100 shadow-sm p-2 overflow-hidden transition-all duration-300 hover:shadow-md shrink-0">
           <img
             src="/tahigo-logo.png"
             alt="Tahigo International"

@@ -278,6 +278,73 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // v4.10: Spec Section 2 Case A — Inventory Cross-Reference Rule
+    // "For each extracted line item, the system must search the Products table.
+    //  If the name matches an existing string, bind it to its current SKU.
+    //  If it does not exist, flag it visually as a [ New Product Detected ] block."
+    if (tenantId && analysis.importData) {
+      const allLineItems = [
+        ...(analysis.importData.sales || []).flatMap((s: any) => s.items || []),
+        ...(analysis.importData.purchases || []).flatMap((p: any) => p.items || []),
+        ...(analysis.importData.products || []),
+      ]
+
+      if (allLineItems.length > 0 && allLineItems.length < 200) {
+        try {
+          // Get all existing inventory items for this tenant
+          const existingItems = await db.inventoryItem.findMany({
+            where: { tenantId, isDeleted: false },
+            select: { id: true, name: true, sku: true, hsnCode: true },
+          })
+
+          const normalizeName = (s: string) => (s || '').toLowerCase().trim().replace(/\s+/g, ' ')
+
+          // Tag each line item with match status
+          let newProductCount = 0
+          let matchedCount = 0
+          for (const item of allLineItems) {
+            const itemName = normalizeName(item.name || item.productName || item.description || '')
+            if (!itemName) continue
+
+            const match = existingItems.find((ei) => {
+              const eiName = normalizeName(ei.name)
+              if (!eiName) return false
+              if (eiName === itemName) return true
+              if (eiName.length >= 6 && itemName.length >= 6 &&
+                  (eiName.includes(itemName) || itemName.includes(eiName))) return true
+              return false
+            })
+
+            if (match) {
+              item._matchedInventoryId = match.id
+              item._matchedSku = match.sku
+              item._matchStatus = 'EXISTING'
+              matchedCount++
+            } else {
+              item._matchStatus = 'NEW_PRODUCT_DETECTED'
+              newProductCount++
+            }
+          }
+
+          if (newProductCount > 0) {
+            analysis.warnings = analysis.warnings || []
+            analysis.warnings.push(
+              `INVENTORY_CROSS_REF: ${newProductCount} new product(s) detected (not in your inventory). ` +
+              `${matchedCount} item(s) matched existing inventory. ` +
+              `New products will be flagged as [New Product Detected] in the preview — you can register SKUs and HSN codes before saving.`
+            )
+            ;(analysis as any).inventoryCrossRef = {
+              totalItems: allLineItems.length,
+              matched: matchedCount,
+              newProducts: newProductCount,
+            }
+          }
+        } catch (err: any) {
+          console.warn('[AI-Import] Inventory cross-ref failed:', err?.message)
+        }
+      }
+    }
+
     return NextResponse.json({ success: true, analysis, savedFileName: file.name })
   } catch (error: any) {
     console.error('[AI-Import] Error:', error)
