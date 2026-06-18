@@ -16,8 +16,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "BizBook Pro - Simple Business Management",
-  description: "The simplest billing & inventory software. Easier than Tally Prime & Marg ERP. Manage sales, purchases, expenses, inventory, and more.",
+  title: "BizBook Pro — A Product by Tahigo International",
+  description: "The simplest billing & inventory software for growing businesses. Clean interface, powerful features, flexible subscription plans with usage-based hours.",
   icons: {
     icon: "/favicon.png",
   },
