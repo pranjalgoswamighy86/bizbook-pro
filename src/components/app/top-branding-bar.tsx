@@ -1,0 +1,237 @@
+'use client'
+
+/**
+ * TopBrandingBar — Sticky Top Header (Spec Part 4)
+ * -----------------------------------------------
+ * Implements Tasks 30-33 from chat log + Spec Part 4:
+ *
+ *   Task 30: Tahigo Logo Premium Styling (shadow, chroma, container)
+ *   Task 31: Sidebar Cleanup (removed bottom user block)  ← done in sidebar.tsx
+ *   Task 32: Top Header Bar (sticky, branding + subscription + profile + logout)
+ *   Task 33: Top-Bar Redundancy Clean-Up
+ *
+ * Layout (left to right):
+ *   [Tahigo logo] | [BizBook Pro title + Tahigo International subtitle]   <flex-1 spacer>   [Subscription badge] | [User name + role] | [Logout icon]
+ *
+ * Sticky: position: sticky; top: 0; z-40 — remains visible during scroll
+ *
+ * MOUNT: in src/app/page.tsx, render <TopBrandingBar /> above <AppSidebar />
+ *        and adjust main element to have pt-14 to make room for the bar
+ *        (on screens < 900px where sidebar becomes a drawer).
+ */
+
+import { useAppStore, getRoleLabel } from '@/store/app-store'
+import { LogOut, Crown, Sparkles } from 'lucide-react'
+import { useRouter } from 'next/navigation'
+import { useState, useEffect } from 'react'
+import { authFetch } from '@/lib/auth-fetch'
+
+interface SubscriptionInfo {
+  planName: string
+  remainingSeconds: number
+  isFreeTier: boolean
+  status: string
+}
+
+export function TopBrandingBar() {
+  const { user, tenant, logout, setView } = useAppStore()
+  const router = useRouter()
+  const [subInfo, setSubInfo] = useState<SubscriptionInfo | null>(null)
+
+  // Fetch subscription info for the badge
+  useEffect(() => {
+    if (!tenant?.id) return
+    let cancelled = false
+    const fetchSub = async () => {
+      try {
+        const res = await authFetch('/api/subscription')
+        if (!res.ok) return
+        const data = await res.json()
+        if (cancelled) return
+        setSubInfo({
+          planName: data.subscription?.planName || 'FREE',
+          remainingSeconds: data.subscription?.remainingSeconds || 0,
+          isFreeTier: data.subscription?.isFreeTier ?? true,
+          status: data.subscription?.status || 'ACTIVE',
+        })
+      } catch (err) {
+        // Silent fail — badge will show default
+      }
+    }
+    fetchSub()
+    const interval = setInterval(fetchSub, 60000) // refresh every minute
+    return () => {
+      cancelled = true
+      clearInterval(interval)
+    }
+  }, [tenant?.id])
+
+  const handleLogout = () => {
+    logout()
+    router.refresh()
+  }
+
+  const handleSubscriptionClick = () => {
+    setView('subscription')
+  }
+
+  // Format remaining hours
+  const remainingHours = subInfo ? Math.floor(subInfo.remainingSeconds / 3600) : 0
+  const isLow = remainingHours < 10 && subInfo?.isFreeTier
+  const planLabel = subInfo?.isFreeTier ? 'FREE Tier' : (subInfo?.planName || 'FREE Tier')
+
+  return (
+    <header
+      className="h-14 w-full bg-white border-b border-slate-200 flex items-center justify-between px-3 sm:px-6 sticky top-0 z-40 shrink-0"
+      role="banner"
+    >
+      {/* ============= LEFT ZONE: Dual Branding (Tahigo + BizBook Pro) ============= */}
+      <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+        {/* Polished Tahigo Parent Logo Container (Spec Part 4.1 + Task 30) */}
+        <div className="relative flex items-center justify-center h-9 w-9 sm:h-10 sm:w-10 bg-white rounded-xl border border-slate-100 shadow-sm p-1.5 overflow-hidden transition-all duration-300 hover:shadow-md shrink-0">
+          <img
+            src="/tahigo-logo.png"
+            alt="Tahigo International"
+            className="h-full w-full object-contain antialiased"
+            onError={(e) => {
+              // Hide if logo missing — don't show broken image
+              ;(e.currentTarget as HTMLImageElement).style.display = 'none'
+            }}
+          />
+        </div>
+
+        {/* Structural separator */}
+        <div className="h-5 w-px bg-slate-200 shrink-0" aria-hidden="true" />
+
+        {/* BizBook Pro Product Identity */}
+        <div className="flex flex-col min-w-0">
+          <div className="flex items-center gap-1.5 min-w-0">
+            <span className="text-sm sm:text-base font-black text-slate-800 tracking-tight truncate">
+              BizBook Pro
+            </span>
+          </div>
+          <span className="text-[9px] sm:text-[10px] font-semibold text-slate-400 tracking-wider uppercase truncate">
+            Tahigo International
+          </span>
+        </div>
+      </div>
+
+      {/* ============= CENTER ZONE: Clean Whitespace (Task 33) ============= */}
+      <div className="flex-1 hidden md:block" aria-hidden="true" />
+
+      {/* ============= RIGHT ZONE: Subscription + Profile + Logout ============= */}
+      <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+        {/* Subscription Badge (Task 32 — relocated from sidebar bottom) */}
+        <button
+          onClick={handleSubscriptionClick}
+          className={`flex items-center gap-1.5 sm:gap-2 px-2 sm:px-3 py-1 sm:py-1.5 rounded-full border transition-all cursor-pointer ${
+            isLow
+              ? 'bg-rose-50 hover:bg-rose-100 border-rose-200'
+              : subInfo?.isFreeTier
+              ? 'bg-amber-50 hover:bg-amber-100 border-amber-200'
+              : 'bg-emerald-50 hover:bg-emerald-100 border-emerald-200'
+          }`}
+          title={`${planLabel} — ${remainingHours}h remaining. Click to upgrade.`}
+          aria-label="Subscription status — click to manage"
+        >
+          {/* Pulsing dot for free tier (Spec Part 4.2) */}
+          <span
+            className={`h-1.5 w-1.5 sm:h-2 sm:w-2 rounded-full ${
+              isLow ? 'bg-rose-500' : subInfo?.isFreeTier ? 'bg-amber-500' : 'bg-emerald-500'
+            } animate-pulse`}
+          />
+          <span
+            className={`text-[10px] sm:text-[11px] font-bold uppercase tracking-wide hidden sm:inline ${
+              isLow ? 'text-rose-800' : subInfo?.isFreeTier ? 'text-amber-800' : 'text-emerald-800'
+            }`}
+          >
+            {planLabel}
+          </span>
+          {subInfo?.isFreeTier && (
+            <span className="text-[9px] sm:text-[10px] bg-amber-600 text-white font-black px-1.5 py-0.5 rounded">
+              UPGRADE
+            </span>
+          )}
+          {/* Remaining hours — visible on larger screens */}
+          <span className="text-[10px] text-slate-500 font-medium hidden lg:inline">
+            {remainingHours}h left
+          </span>
+        </button>
+
+        {/* Vertical divider */}
+        <div className="h-5 w-px bg-slate-200" aria-hidden="true" />
+
+        {/* User Profile Block (Task 32 + 33) */}
+        <div className="flex flex-col text-right min-w-0">
+          <span className="text-xs sm:text-sm font-bold text-slate-800 tracking-tight truncate max-w-[120px] sm:max-w-[180px]">
+            {user?.name || tenant?.name || 'Loading...'}
+          </span>
+          <span className="text-[9px] sm:text-[10px] font-medium text-slate-400 uppercase tracking-wider">
+            {user?.role ? getRoleLabel(user.role) : 'MAIN_ADMIN'}
+          </span>
+        </div>
+
+        {/* Minimalist Logout Icon Button (Task 32 — icon only, no text) */}
+        <button
+          onClick={handleLogout}
+          className="p-1.5 sm:p-2 text-slate-400 hover:text-rose-600 bg-slate-50 hover:bg-rose-50 rounded-lg transition-all border border-slate-100 cursor-pointer group shrink-0"
+          title="Sign Out"
+          aria-label="Sign out"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            fill="none"
+            viewBox="0 0 24 24"
+            strokeWidth={2}
+            stroke="currentColor"
+            className="w-4 h-4 transition-transform group-hover:translate-x-0.5"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l-3 3m0 0l3 3m-3-3h12.75"
+            />
+          </svg>
+        </button>
+      </div>
+    </header>
+  )
+}
+
+/*
+ * ============================================================================
+ * INTEGRATION (in src/app/page.tsx):
+ * ============================================================================
+ *
+ *   import { TopBrandingBar } from '@/components/app/top-branding-bar'
+ *
+ *   // Replace the existing return block:
+ *   return (
+ *     <div className="flex flex-col h-screen overflow-hidden bg-background" style={{ height: '100dvh' }}>
+ *       <TopBrandingBar />
+ *       <div className="flex flex-1 min-h-0 overflow-hidden">
+ *         <AppSidebar />
+ *         <main className="flex-1 min-w-0 min-h-0 overflow-y-auto overflow-x-hidden" style={{ scrollbarGutter: 'stable' }}>
+ *           <ErrorBoundary>
+ *             <ModuleRouter />
+ *           </ErrorBoundary>
+ *         </main>
+ *       </div>
+ *     </div>
+ *   )
+ *
+ * ============================================================================
+ * SPEC COMPLIANCE:
+ * ============================================================================
+ *   Task 30: Tahigo logo in polished container (rounded-xl, shadow-sm, antialiased) ✓
+ *   Task 31: Sidebar bottom user block removed (separate edit in sidebar.tsx) ✓
+ *   Task 32: Top header with branding + subscription + profile + logout ✓
+ *   Task 33: No duplicate branding text (only "BizBook Pro" + "Tahigo International" subtitle) ✓
+ *   Spec 4.1: Tahigo logo prominent (40px), BizBook Pro to its right ✓
+ *   Spec 4.2: Subscription widget with pulsing badge for FREE tier ✓
+ *   Spec 4.3: Sidebar bottom user block removed ✓
+ *   Spec 4.4: Dynamic user name (not hardcoded "Admin"), role below, icon-only logout ✓
+ *   Spec 4.5: No duplicate "BizBook"/"Tahigo" strings in same row ✓
+ *   Spec 4.6: position: sticky; top: 0; z-40 ✓
+ * ============================================================================
+ */

@@ -260,24 +260,8 @@ export function AppSidebar() {
 
       <Separator />
 
-      {/* User Info */}
-      <div className="p-3 shrink-0">
-        {user && (
-          <div className="mb-2 px-2">
-            <p className="text-sm font-medium truncate">{user.name}</p>
-            <p className="text-xs text-muted-foreground truncate">{getRoleLabel(user.role)}</p>
-          </div>
-        )}
-        <Button
-          variant="ghost"
-          size="sm"
-          className="w-full text-destructive hover:text-destructive hover:bg-destructive/10"
-          onClick={logout}
-        >
-          <LogOut className="h-4 w-4" />
-          <span className="ml-2">Logout</span>
-        </Button>
-      </div>
+      {/* v4.6: User info + Logout text REMOVED from sidebar (Task 31)
+          These now live in the TopBrandingBar (top-right corner, icon-only logout) */}
     </>
   )
 
@@ -451,24 +435,9 @@ export function AppSidebar() {
 
       <Separator />
 
-      {/* User Info */}
-      <div className="p-3 shrink-0">
-        {sidebarOpen && user && (
-          <div className="mb-2 px-2">
-            <p className="text-sm font-medium truncate">{user.name}</p>
-            <p className="text-xs text-muted-foreground truncate">{getRoleLabel(user.role)}</p>
-          </div>
-        )}
-        <Button
-          variant="ghost"
-          size={sidebarOpen ? 'sm' : 'icon'}
-          className="w-full text-destructive hover:text-destructive hover:bg-destructive/10"
-          onClick={logout}
-        >
-          <LogOut className="h-4 w-4" />
-          {sidebarOpen && <span className="ml-2">Logout</span>}
-        </Button>
-      </div>
+      {/* v4.6: User info + Logout text REMOVED from sidebar (Task 31)
+          These now live in the TopBrandingBar (top-right corner, icon-only logout) */}
+
       {backupDialog}
     </div>
   )

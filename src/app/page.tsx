@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useAppStore } from '@/store/app-store'
 import { AppSidebar } from '@/components/app/sidebar'
+import { TopBrandingBar } from '@/components/app/top-branding-bar'
 import { CoverPage } from '@/components/modules/cover'
 import { CompanySelectPage } from '@/components/modules/company-select'
 import { Dashboard } from '@/components/modules/dashboard'
@@ -122,13 +123,16 @@ export default function Home() {
   }
 
   return (
-    <div className="flex h-screen overflow-hidden bg-background" style={{ height: '100dvh' }}>
-      <AppSidebar />
-      <main className="flex-1 min-w-0 min-h-0 overflow-y-auto overflow-x-hidden pt-14 min-[900px]:pt-0" style={{ scrollbarGutter: 'stable' }}>
-        <ErrorBoundary>
-          <ModuleRouter />
-        </ErrorBoundary>
-      </main>
+    <div className="flex flex-col h-screen overflow-hidden bg-background" style={{ height: '100dvh' }}>
+      <TopBrandingBar />
+      <div className="flex flex-1 min-h-0 overflow-hidden">
+        <AppSidebar />
+        <main className="flex-1 min-w-0 min-h-0 overflow-y-auto overflow-x-hidden" style={{ scrollbarGutter: 'stable' }}>
+          <ErrorBoundary>
+            <ModuleRouter />
+          </ErrorBoundary>
+        </main>
+      </div>
     </div>
   )
 }
