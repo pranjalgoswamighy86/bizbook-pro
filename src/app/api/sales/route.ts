@@ -116,12 +116,17 @@ export async function POST(req: NextRequest) {
                   const rawItem = await tx.inventoryItem.findUnique({ where: { id: ingredient.inventoryItemId } })
                   if (rawItem) {
                     const qtyNeeded = ingredient.quantity * (item.qty || 0)
-                    // ---- SECURITY PATCH v1: surface stock shortages instead of Math.max(0) ----
+                    // ---- v4.9: Spec Section 14 Rule 2.1 — Anti-Negative Stock ----
+                    // Spec: "If Requested Quantity > Current Available Stock, terminate
+                    // execution instantly. Do not allow stock counts to decline below zero.
+                    // Block mutation, return a 422 Unprocessable Entity state, and trigger
+                    // a warning component: 'Insufficient physical inventory balance.
+                    // Transaction aborted to prevent data corruption.'"
                     if (rawItem.currentStock < qtyNeeded) {
-                      warnings.push(`BOM ingredient "${rawItem.name}" stock short by ${qtyNeeded - rawItem.currentStock}`)
+                      throw new Error(`CRITICAL_BLOCK_422: Insufficient physical inventory balance for BOM ingredient "${rawItem.name}". Requested: ${qtyNeeded}, Available: ${rawItem.currentStock}. Transaction aborted to prevent data corruption.`)
                     }
-                    // --------------------------------------------------------------------------------
-                    const newRawStock = Math.max(0, rawItem.currentStock - qtyNeeded)
+                    // ----------------------------------------------------------------
+                    const newRawStock = rawItem.currentStock - qtyNeeded
                     await tx.inventoryItem.update({
                       where: { id: rawItem.id },
                       data: {
@@ -132,7 +137,11 @@ export async function POST(req: NextRequest) {
                   }
                 }
               }
-              const newStock = Math.max(0, existingItem.currentStock - (item.qty || 0))
+              // ---- v4.9: Spec Section 14 Rule 2.1 — Anti-Negative Stock (main item) ----
+              if (existingItem.currentStock < (item.qty || 0)) {
+                throw new Error(`CRITICAL_BLOCK_422: Insufficient physical inventory balance for "${existingItem.name}". Requested: ${item.qty || 0}, Available: ${existingItem.currentStock}. Transaction aborted to prevent data corruption.`)
+              }
+              const newStock = existingItem.currentStock - (item.qty || 0)
               await tx.inventoryItem.update({
                 where: { id: existingItem.id },
                 data: {
@@ -142,12 +151,12 @@ export async function POST(req: NextRequest) {
                 },
               })
             } else {
-              // ---- SECURITY PATCH v1: surface stock shortage ----
+              // ---- v4.9: Spec Section 14 Rule 2.1 — Anti-Negative Stock (non-BOM item) ----
               if (existingItem.currentStock < (item.qty || 0)) {
-                warnings.push(`"${existingItem.name}" stock short by ${(item.qty || 0) - existingItem.currentStock}`)
+                throw new Error(`CRITICAL_BLOCK_422: Insufficient physical inventory balance for "${existingItem.name}". Requested: ${item.qty || 0}, Available: ${existingItem.currentStock}. Transaction aborted to prevent data corruption.`)
               }
-              // -----------------------------------------------------
-              const newStock = Math.max(0, existingItem.currentStock - (item.qty || 0))
+              // -----------------------------------------------------------------
+              const newStock = existingItem.currentStock - (item.qty || 0)
               await tx.inventoryItem.update({
                 where: { id: existingItem.id },
                 data: {
@@ -566,8 +575,19 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json({ error: 'Invalid action' }, { status: 400 })
-  } catch (error) {
+  } catch (error: any) {
     console.error('Sales error:', error)
+    // v4.9: Spec Section 14 Rule 2.1 — Anti-Negative Stock returns HTTP 422
+    if (error?.message?.includes('CRITICAL_BLOCK_422')) {
+      return NextResponse.json(
+        {
+          error: 'Insufficient physical inventory balance. Transaction aborted to prevent data corruption.',
+          code: 'INSUFFICIENT_STOCK',
+          details: error.message.replace('CRITICAL_BLOCK_422: ', ''),
+        },
+        { status: 422 }
+      )
+    }
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }

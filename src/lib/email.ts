@@ -63,6 +63,17 @@ function createTransporter(port: number, secure: boolean) {
       user: process.env.SMTP_USER || '',
       pass: process.env.SMTP_PASS || '',
     },
+    // v4.9: Spec Section 23 — Anti-Blocking Header Enforcement Matrix
+    headers: {
+      'X-Priority': '1',                     // Mark transaction as High Priority
+      'X-MSMail-Priority': 'High',
+      'Precedence': 'bulk',
+      'X-Auto-Response-Suppress': 'OOF, AutoReply', // Bypass spam/loop filter systems
+    },
+    tls: {
+      ciphers: 'SSLv3',
+      rejectUnauthorized: true,              // Strict security validation
+    },
     connectionTimeout: 15000,
     greetingTimeout: 10000,
     socketTimeout: 20000,
@@ -218,4 +229,33 @@ export async function sendOtpEmail(
 
   console.error(`[EMAIL] All email providers failed. Last error: ${smtpResult.error}`)
   return smtpResult
+}
+
+// ---------------------------------------------------------------------------
+// v4.9: Spec Section 23 — verifyAndRefreshSMTPLink
+// "Verify connection configuration state actively on system boot"
+// Called from scripts/railway-start.js during startup to clear SMTP blocks.
+// ---------------------------------------------------------------------------
+export async function verifyAndRefreshSMTPLink(): Promise<{ ok: boolean; error?: string }> {
+  if (!isEmailConfigured()) {
+    console.log('[SMTP-REFRESH] Email not configured — skipping verification')
+    return { ok: false, error: 'EMAIL_NOT_CONFIGURED' }
+  }
+
+  // Try each SMTP port until one verifies
+  for (const { port, secure } of SMTP_PORTS) {
+    try {
+      const transporter = createTransporter(port, secure)
+      await transporter.verify()
+      console.log(`[SMTP-REFRESH] ✓ SMTP Secure Gateway verified on port ${port} — cleared for inbox dispatch`)
+      return { ok: true }
+    } catch (err: any) {
+      console.warn(`[SMTP-REFRESH] Port ${port} verify failed: ${err?.message}`)
+    }
+  }
+
+  console.error('[SMTP-REFRESH] FATAL: SMTP Authentication handshakes dropped on all ports.')
+  console.error('[SMTP-REFRESH] Check SPF/DKIM TXT records on your domain registrar.')
+  console.error('[SMTP-REFRESH] Note: Railway blocks outbound SMTP — use Resend API for production email.')
+  return { ok: false, error: 'ALL_PORTS_FAILED' }
 }

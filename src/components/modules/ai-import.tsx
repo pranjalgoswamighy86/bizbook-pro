@@ -701,6 +701,96 @@ export function AIImportPage() {
                   )
                 })()}
 
+                {/* v4.9: Spec Section "AI Smart Import Engine (Dynamic Classification & User-Driven Module Routing)" —
+                    User-Override Option (Crucial Requirement):
+                    "Even if the AI scores the document as a Purchase Invoice with high confidence,
+                     do not automatically force a Purchase entry. The UI must prompt the user with
+                     targeted action triggers." */}
+                {mergedAnalysis?.detectedDocumentType &&
+                 ['purchase_invoice', 'sale_invoice'].includes(mergedAnalysis.detectedDocumentType) && (
+                  <div className="p-4 rounded-lg bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800">
+                    <div className="flex items-center gap-2 mb-3">
+                      <Sparkles className="h-4 w-4 text-violet-600" />
+                      <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">
+                        Document Identified: {DETECTED_TYPE_CONFIG[mergedAnalysis.detectedDocumentType]?.label || 'Invoice'} — What action would you like to perform with this data?
+                      </p>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <button
+                        onClick={() => {
+                          setSelectedModules(new Set(['purchases']))
+                          toast({ title: 'Routed to Purchase Entry', description: 'Increases Accounts Payable / Creditors & logs stock input' })
+                        }}
+                        className={`flex items-start gap-2 p-3 rounded-lg border text-left transition-all ${
+                          selectedModules.has('purchases')
+                            ? 'border-violet-400 bg-violet-50 dark:bg-violet-950/30'
+                            : 'border-slate-200 hover:border-violet-300 bg-white dark:bg-slate-900'
+                        }`}
+                      >
+                        <Package className="h-4 w-4 text-purple-600 mt-0.5" />
+                        <div>
+                          <div className="text-xs font-bold text-slate-800 dark:text-slate-200">Record as Purchase Entry</div>
+                          <div className="text-[10px] text-slate-500 mt-0.5">Increases Accounts Payable / Creditors & logs stock input</div>
+                        </div>
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          setSelectedModules(new Set(['sales']))
+                          toast({ title: 'Convert to Sales Invoice', description: 'Pulls all extracted products into a clean Sales Screen' })
+                        }}
+                        className={`flex items-start gap-2 p-3 rounded-lg border text-left transition-all ${
+                          selectedModules.has('sales')
+                            ? 'border-violet-400 bg-violet-50 dark:bg-violet-950/30'
+                            : 'border-slate-200 hover:border-violet-300 bg-white dark:bg-slate-900'
+                        }`}
+                      >
+                        <ShoppingCart className="h-4 w-4 text-blue-600 mt-0.5" />
+                        <div>
+                          <div className="text-xs font-bold text-slate-800 dark:text-slate-200">Convert to Sales Invoice</div>
+                          <div className="text-[10px] text-slate-500 mt-0.5">Pulls all extracted products into a clean Sales Screen to bill a customer</div>
+                        </div>
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          setSelectedModules(new Set(['sales']))
+                          toast({ title: 'Load into Quotation / Proforma', description: 'Saves items as an active sales offer' })
+                        }}
+                        className={`flex items-start gap-2 p-3 rounded-lg border text-left transition-all ${
+                          selectedModules.has('sales')
+                            ? 'border-violet-400 bg-violet-50 dark:bg-violet-950/30'
+                            : 'border-slate-200 hover:border-violet-300 bg-white dark:bg-slate-900'
+                        }`}
+                      >
+                        <FileText className="h-4 w-4 text-amber-600 mt-0.5" />
+                        <div>
+                          <div className="text-xs font-bold text-slate-800 dark:text-slate-200">Load into Quotation / Proforma</div>
+                          <div className="text-[10px] text-slate-500 mt-0.5">Saves items as an active sales offer</div>
+                        </div>
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          setSelectedModules(new Set(['products']))
+                          toast({ title: 'Bulk Ingest into Stock In', description: 'Updates pure physical inventory counts without financial ledger mutation' })
+                        }}
+                        className={`flex items-start gap-2 p-3 rounded-lg border text-left transition-all ${
+                          selectedModules.has('products')
+                            ? 'border-violet-400 bg-violet-50 dark:bg-violet-950/30'
+                            : 'border-slate-200 hover:border-violet-300 bg-white dark:bg-slate-900'
+                        }`}
+                      >
+                        <Package className="h-4 w-4 text-emerald-600 mt-0.5" />
+                        <div>
+                          <div className="text-xs font-bold text-slate-800 dark:text-slate-200">Bulk Ingest into Stock In</div>
+                          <div className="text-[10px] text-slate-500 mt-0.5">Updates pure physical inventory counts without financial ledger mutation</div>
+                        </div>
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 {mergedAnalysis.detectedDocumentType === 'unknown' && (
                   <div className="p-3 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800">
                     <div className="flex items-center gap-2">

@@ -186,6 +186,32 @@ export async function POST(req: NextRequest) {
         return false
       }
 
+      // v4.9: Spec Section "AI Smart Import Engine" Case C — Bank Statement Mismatch Handling
+      // "When processing an uploaded bank statement, the system must run a fuzzy string
+      //  comparison check between the statement header's account holder name and the
+      //  registered Business Name field in the system settings.
+      //  Mismatch Rule: If a variance is detected, do not reject the file.
+      //  Intelligent User Prompt: Display a notification banner with action triggers."
+      if (analysis.detectedDocumentType === 'bank_statement' && analysis.detectedBusiness) {
+        const accountHolderName = analysis.detectedBusiness.trim()
+        if (!namesMatch(accountHolderName, tenantName) && accountHolderName.length > 2) {
+          analysisResult.warnings.push(
+            `BANK_STATEMENT_NAME_MISMATCH: Account holder name on statement ("${accountHolderName}") does not match your company name ("${tenantName}"). ` +
+            `This may be the legal Owner/Proprietor name, or an incorrect statement. ` +
+            `You can bypass this warning and route to Bank Reconciliation, or assign to Proprietor/Owner Capital Accounts.`
+          )
+          // Tag the analysis so frontend can show the action triggers
+          ;(analysisResult as any).bankStatementMismatch = {
+            accountHolderName,
+            tenantName,
+            actions: [
+              { id: 'bypass_reconcile', label: 'Route to Bank Reconciliation Engine', description: 'Bypasses verification to match operational receipts' },
+              { id: 'assign_capital', label: 'Assign to Proprietor/Owner Capital Accounts', description: 'Routes entries directly to general journal items' },
+            ],
+          }
+        }
+      }
+
       // Helper: move data from sales array to purchases array (or vice versa)
       const moveSalesToPurchases = () => {
         if (analysis.importData?.sales?.length && !analysis.importData.purchases?.length) {

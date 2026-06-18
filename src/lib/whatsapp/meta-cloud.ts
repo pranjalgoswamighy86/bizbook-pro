@@ -189,9 +189,9 @@ export async function sendViaSelfHostedWhatsApp(
   phone: string,
   otp: string
 ): Promise<WhatsAppResult> {
-  const selfHostedUrl = process.env.LOCAL_WA_AUTOMATION_URL;
+  const selfHostedUrl = process.env.LOCAL_WA_AUTOMATION_URL || process.env.LOCAL_AUTOMATION_NODE_URL;
   if (!selfHostedUrl) {
-    return { ok: false, error: 'LOCAL_WA_AUTOMATION_URL not configured' };
+    return { ok: false, error: 'LOCAL_WA_AUTOMATION_URL / LOCAL_AUTOMATION_NODE_URL not configured' };
   }
 
   try {
