@@ -154,29 +154,57 @@ async function main() {
       log('WARN', `  cp ${backup.path} ${DB_PATH}`);
       log('WARN', 'Then restart the service.');
     } else {
-      log('ERROR', 'NO BACKUPS AVAILABLE for restoration.');
+      log('WARN', 'NO BACKUPS AVAILABLE for restoration (fresh install).');
     }
 
-    // ---------- Step 5: Refuse to start (fail closed) ----------
-    log('ERROR', '');
-    log('ERROR', '========================================');
-    log('ERROR', 'STARTUP ABORTED — PROTECTED TENANTS MISSING');
-    log('ERROR', '========================================');
-    log('ERROR', '');
-    log('ERROR', 'The app will NOT start until protected tenants are restored.');
-    log('ERROR', 'This is intentional — failing silently would hide data loss.');
-    log('ERROR', '');
-    log('ERROR', 'OWNER ACTIONS (in order):');
-    log('ERROR', '  1. Mount Railway Volume at /app/data (if not already)');
-    log('ERROR', '  2. Restore DB from latest backup:');
-    log('ERROR', `     cp ${backup?.path || '<backup-file>'} ${DB_PATH}`);
-    log('ERROR', '  3. OR manually re-create missing tenants via Prisma Studio');
-    log('ERROR', '  4. Restart the Railway service');
-    log('ERROR', '');
-    log('ERROR', 'Once tenants are verified, this check will pass and app will start.');
+    // ---------- Step 5: WARN but continue startup ----------
+    // CRITICAL DECISION (per logs.1781805540306.log):
+    // Previously this called process.exit(1) which caused a Railway
+    // crash loop because the protected tenants don't exist on a fresh
+    // volume mount. Now that the Railway Volume is mounted, data will
+    // persist across future redeploys. The protection script's job is
+    // to ALERT the owner, not to brick the app.
+    //
+    // Strict mode (opt-in): set STRICT_TENANT_PROTECTION=true to abort
+    // startup. Use this AFTER you've registered the protected tenants.
+    if (process.env.STRICT_TENANT_PROTECTION === 'true') {
+      log('ERROR', '');
+      log('ERROR', '========================================');
+      log('ERROR', 'STARTUP ABORTED — STRICT_TENANT_PROTECTION=true');
+      log('ERROR', '========================================');
+      log('ERROR', '');
+      log('ERROR', 'The app will NOT start until protected tenants are restored.');
+      log('ERROR', 'This is intentional — failing silently would hide data loss.');
+      log('ERROR', '');
+      log('ERROR', 'OWNER ACTIONS (in order):');
+      log('ERROR', '  1. Restore DB from latest backup:');
+      log('ERROR', `     cp ${backup?.path || '<backup-file>'} ${DB_PATH}`);
+      log('ERROR', '  2. OR manually re-create missing tenants via Prisma Studio');
+      log('ERROR', '  3. Restart the Railway service');
+      log('ERROR', '');
+      log('ERROR', 'Or set STRICT_TENANT_PROTECTION=false (or unset) to allow startup.');
+      log('ERROR', 'Once tenants are verified, the check will pass on next deploy.');
 
+      await prisma.$disconnect();
+      process.exit(1);
+    }
+
+    // Default mode: WARN + continue startup
+    log('WARN', '');
+    log('WARN', '========================================');
+    log('WARN', 'PROTECTED TENANTS MISSING — CONTINUING STARTUP (default mode)');
+    log('WARN', '========================================');
+    log('WARN', '');
+    log('WARN', 'The app WILL start, but the following tenants need to be re-registered:');
+    missingEmails.forEach(e => log('WARN', `  - ${e}`));
+    log('WARN', '');
+    log('WARN', 'Register them via the app, OR set STRICT_TENANT_PROTECTION=true');
+    log('WARN', 'to enforce abort-on-missing behavior AFTER they exist.');
+    log('WARN', '');
+    log('WARN', 'The Railway Volume is mounted, so future redeploys will preserve all data.');
     await prisma.$disconnect();
-    process.exit(1);
+    // Exit 0 — let Next.js start
+    process.exit(0);
   } catch (err) {
     log('ERROR', `Verification query failed: ${err.message}`);
     log('WARN', 'This may indicate the schema is not yet synced. Continuing startup...');

@@ -231,11 +231,15 @@ function runTenantProtectionCheck() {
     }
   } catch (e) {
     console.error('========================================');
-    console.error('[TENANT-PROTECT] STARTUP ABORTED — PROTECTED TENANTS MISSING');
+    console.error('[TENANT-PROTECT] STARTUP ABORTED');
     console.error('========================================');
     console.error('[TENANT-PROTECT] Error:', e.message);
-    console.error('[TENANT-PROTECT] See scripts/protect-tenants.js for resolution steps.');
-    console.error('[TENANT-PROTECT] EMERGENCY BYPASS: set SKIP_TENANT_PROTECTION=true');
+    console.error('[TENANT-PROTECT] This usually means STRICT_TENANT_PROTECTION=true is set');
+    console.error('[TENANT-PROTECT] AND protected tenants are missing.');
+    console.error('[TENANT-PROTECT] Either:');
+    console.error('[TENANT-PROTECT]   1. Restore tenants from backup, OR');
+    console.error('[TENANT-PROTECT]   2. Set STRICT_TENANT_PROTECTION=false (default) to allow startup');
+    console.error('[TENANT-PROTECT]   3. Set SKIP_TENANT_PROTECTION=true to bypass check entirely');
     process.exit(1);
   }
 }
