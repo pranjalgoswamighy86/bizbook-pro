@@ -72,3 +72,7 @@ page_content.json
 security-patch*/
 bizbook-pro-deployed/
 download/
+
+# TypeScript build cache (must NOT be committed — breaks Railway build cache mount)
+tsconfig.tsbuildinfo
+*.tsbuildinfo

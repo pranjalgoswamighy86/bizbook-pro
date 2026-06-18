@@ -392,6 +392,83 @@ export async function POST(req: NextRequest) {
 
       const defaultTenant = user.tenant
 
+      // === v4.3: Task 8 — 3-Day OTP Gate ===
+      // If lastOtpVerifiedAt > 3 days ago (or never set), require OTP before login
+      // Admin emails (admin@bizbook.pro, pranjalgoswamighy86@gmail.com) bypass per Task 29
+      const ADMIN_BYPASS_EMAILS = [
+        'admin@bizbook.pro',
+        (process.env.ADMIN_EMAIL || '').toLowerCase(),
+        'pranjalgoswamighy86@gmail.com',
+        (process.env.INFRASTRUCTURE_OWNER_EMAIL || '').toLowerCase(),
+      ].filter(Boolean);
+
+      const isBypassUser = ADMIN_BYPASS_EMAILS.includes(user.email.toLowerCase());
+      const lastOtpVerifiedAt = user.lastOtpVerifiedAt ? new Date(user.lastOtpVerifiedAt) : null;
+      const THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000;
+      const requiresOtpGate = !isBypassUser && (
+        !lastOtpVerifiedAt ||
+        (Date.now() - lastOtpVerifiedAt.getTime()) > THREE_DAYS_MS
+      );
+
+      if (requiresOtpGate) {
+        console.log(`[AUTH-GATE] User ${user.email} requires OTP re-verification (last verified: ${lastOtpVerifiedAt?.toISOString() || 'never'})`);
+        // Generate + dispatch OTP, then ask frontend to show OTP verification step
+        const otp = String(Math.floor(100000 + Math.random() * 900000));
+        const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+
+        await db.passwordReset.updateMany({
+          where: { email: user.email, used: false },
+          data: { used: true },
+        });
+        await db.passwordReset.create({
+          data: { email: user.email, otp, expiresAt },
+        });
+
+        // Dispatch via multi-channel pipeline (Email → SMS → WhatsApp)
+        const { dispatchOtp } = await import('@/lib/otp/dispatcher');
+        const userTenant = await db.tenant.findUnique({
+          where: { id: user.tenantId },
+          select: { phone: true },
+        });
+        const otpResult = await dispatchOtp(otp, {
+          email: user.email,
+          mobile: userTenant?.phone || undefined,
+          userId: user.id,
+          tenantId: user.tenantId,
+          purpose: 'login',
+        });
+
+        return NextResponse.json({
+          requiresOtp: true,
+          otpDispatched: otpResult.ok,
+          emailSent: otpResult.emailDelivered,
+          smsSent: otpResult.smsDelivered,
+          whatsappSent: otpResult.whatsappDelivered,
+          email: user.email,
+          message: 'Please check your email inbox/spam for the 6-digit OTP. If email delivery fails, the OTP will be securely sent directly to your registered tenant mobile number as a backup channel.',
+          // Do NOT issue session token until OTP is verified
+        });
+      }
+
+      // === v4.3: Rule 2.2 — Workspace Selection ===
+      // If user has 2+ active workspaces, return WORKSPACE_SELECTION_REQUIRED
+      // Frontend shows modal, user picks workspace, then calls select-workspace action
+      if (companies.length > 1) {
+        console.log(`[AUTH-GATE] User ${user.email} has ${companies.length} workspaces — requiring selection`);
+        return NextResponse.json({
+          status: 'WORKSPACE_SELECTION_REQUIRED',
+          user: { id: user.id, email: user.email, name: user.name },
+          workspaces: companies.map(c => ({
+            tenantId: c.tenantId,
+            tenantName: c.tenant.name,
+            role: c.role,
+            isOwner: c.isOwner,
+            isOwnTenant: c.role === 'MAIN_ADMIN' && c.isOwner,
+          })),
+          // NO session token issued yet — user must select workspace first
+        });
+      }
+
       // ---- SECURITY PATCH v1: set session cookie ----
       const token = createSessionToken(user.id, user.email)
       const res = NextResponse.json({
@@ -407,8 +484,183 @@ export async function POST(req: NextRequest) {
         sessionToken: token,  // for Bearer header fallback when cookies are blocked
       })
       setSessionCookie(res, token)
+      // Update lastLoginAt
+      await db.user.update({
+        where: { id: user.id },
+        data: { lastLoginAt: new Date() },
+      }).catch(() => {});
       return res
       // -----------------------------------------------
+    }
+
+    // ============================================================
+    // v4.3: Verify login OTP (for 3-Day OTP Gate — Task 8)
+    // Frontend calls this after user enters the OTP sent during login
+    // ============================================================
+    if (action === 'verify-login-otp') {
+      const { email, otp: submittedOtp } = body
+
+      if (!email || !submittedOtp) {
+        return NextResponse.json({ error: 'Email and OTP required' }, { status: 400 })
+      }
+
+      const rlKey = passwordResetRateLimitKey(`verify:${email}`)
+      const rl = checkRateLimit(rlKey, RATE_LIMITS.OTP_VERIFY)
+      if (!rl.allowed) {
+        return NextResponse.json({
+          error: `Too many attempts. Try again in ${rl.retryAfterSeconds} seconds.`,
+        }, { status: 429 })
+      }
+
+      // Find most recent unused OTP for this email
+      const otpRecord = await db.passwordReset.findFirst({
+        where: { email, used: false, expiresAt: { gt: new Date() } },
+        orderBy: { createdAt: 'desc' },
+      })
+
+      if (!otpRecord) {
+        return NextResponse.json({ error: 'OTP expired or not found. Please request a new one.' }, { status: 400 })
+      }
+
+      if (otpRecord.otp !== submittedOtp) {
+        return NextResponse.json({ error: 'Invalid OTP. Please try again.' }, { status: 400 })
+      }
+
+      // Mark OTP as used
+      await db.passwordReset.update({
+        where: { id: otpRecord.id },
+        data: { used: true },
+      })
+
+      // Find user
+      const user = await db.user.findUnique({
+        where: { email },
+        include: { tenant: true },
+      })
+      if (!user) {
+        return NextResponse.json({ error: 'User not found' }, { status: 404 })
+      }
+
+      // Update lastOtpVerifiedAt — this resets the 3-day clock
+      await db.user.update({
+        where: { id: user.id },
+        data: {
+          lastOtpVerifiedAt: new Date(),
+          lastLoginAt: new Date(),
+        },
+      })
+
+      // Now check workspace selection (Rule 2.2) — same as login flow
+      const companies = await db.userTenant.findMany({
+        where: { userId: user.id },
+        include: { tenant: { select: { id: true, name: true, address: true, phone: true, email: true, gstNumber: true, panNumber: true, plan: true, planExpires: true, currency: true } } },
+        orderBy: { createdAt: 'asc' },
+      })
+
+      if (companies.length > 1) {
+        return NextResponse.json({
+          status: 'WORKSPACE_SELECTION_REQUIRED',
+          user: { id: user.id, email: user.email, name: user.name },
+          workspaces: companies.map(c => ({
+            tenantId: c.tenantId,
+            tenantName: c.tenant.name,
+            role: c.role,
+            isOwner: c.isOwner,
+            isOwnTenant: c.role === 'MAIN_ADMIN' && c.isOwner,
+          })),
+        })
+      }
+
+      // Single workspace — issue session token
+      const token = createSessionToken(user.id, user.email)
+      const defaultTenant = user.tenant
+      const res = NextResponse.json({
+        user: { id: user.id, email: user.email, name: user.name, role: user.role, tenantId: user.tenantId },
+        tenant: { id: defaultTenant.id, name: defaultTenant.name, address: defaultTenant.address, phone: defaultTenant.phone, email: defaultTenant.email, gstNumber: defaultTenant.gstNumber, panNumber: defaultTenant.panNumber, plan: defaultTenant.plan, planExpires: defaultTenant.planExpires?.toISOString(), currency: defaultTenant.currency },
+        companies: companies.map(c => ({
+          tenantId: c.tenantId,
+          name: c.tenant.name,
+          role: c.role,
+          isOwner: c.isOwner,
+          tenant: c.tenant,
+        })),
+        sessionToken: token,
+      })
+      setSessionCookie(res, token)
+      return res
+    }
+
+    // ============================================================
+    // v4.3: Select Workspace (Rule 2.2 — finalize login after picking workspace)
+    // Frontend calls this after user clicks a workspace button in the modal
+    // ============================================================
+    if (action === 'select-workspace') {
+      const { userId, tenantId } = body
+
+      if (!userId || !tenantId) {
+        return NextResponse.json({ error: 'userId and tenantId required' }, { status: 400 })
+      }
+
+      // Verify user has access to this tenant
+      const userTenant = await db.userTenant.findUnique({
+        where: { userId_tenantId: { userId, tenantId } },
+        include: {
+          tenant: { select: { id: true, name: true, address: true, phone: true, email: true, gstNumber: true, panNumber: true, plan: true, planExpires: true, currency: true } },
+          user: { select: { id: true, email: true, name: true, role: true } },
+        },
+      })
+
+      if (!userTenant) {
+        return NextResponse.json({ error: 'No access to this workspace' }, { status: 403 })
+      }
+
+      // Issue session token scoped to selected tenant
+      const token = createSessionToken(userTenant.user.id, userTenant.user.email)
+      const companies = await db.userTenant.findMany({
+        where: { userId },
+        include: { tenant: { select: { id: true, name: true, address: true, phone: true, email: true, gstNumber: true, panNumber: true, plan: true, planExpires: true, currency: true } } },
+        orderBy: { createdAt: 'asc' },
+      })
+
+      const res = NextResponse.json({
+        status: 'LOGGED_IN',
+        user: {
+          id: userTenant.user.id,
+          email: userTenant.user.email,
+          name: userTenant.user.name,
+          role: userTenant.role,
+          tenantId,
+        },
+        tenant: {
+          id: userTenant.tenant.id,
+          name: userTenant.tenant.name,
+          address: userTenant.tenant.address,
+          phone: userTenant.tenant.phone,
+          email: userTenant.tenant.email,
+          gstNumber: userTenant.tenant.gstNumber,
+          panNumber: userTenant.tenant.panNumber,
+          plan: userTenant.tenant.plan,
+          planExpires: userTenant.tenant.planExpires?.toISOString(),
+          currency: userTenant.tenant.currency,
+        },
+        companies: companies.map(c => ({
+          tenantId: c.tenantId,
+          name: c.tenant.name,
+          role: c.role,
+          isOwner: c.isOwner,
+          tenant: c.tenant,
+        })),
+        sessionToken: token,
+      })
+      setSessionCookie(res, token)
+
+      // Update lastLoginAt
+      await db.user.update({
+        where: { id: userId },
+        data: { lastLoginAt: new Date(), tenantId },
+      }).catch(() => {});
+
+      return res
     }
 
     // ============================================================

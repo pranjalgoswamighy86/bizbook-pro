@@ -190,13 +190,17 @@ try {
       console.log('✓ Database has', count, 'users — skipping seed (data preserved)');
     }
     await prisma.$disconnect();
+    // Run tenant protection check AFTER schema synced + seed complete, BEFORE Next.js starts
+    runTenantProtectionCheck();
     startServer();
   }).catch((err) => {
     console.log('⚠️ Seed check failed:', err.message);
+    runTenantProtectionCheck();
     startServer();
   });
 } catch (e) {
   console.log('⚠️ Prisma error:', e.message);
+  runTenantProtectionCheck();
   startServer();
 }
 
@@ -205,6 +209,9 @@ try {
 // goswamipranjalghy86@gmail.com, homesghy@gmail.com) still exist.
 // Aborts startup if missing — prevents silent data loss.
 // Bypass via SKIP_TENANT_PROTECTION=true (emergency only, first deploy).
+//
+// NOTE: This function is called AFTER prisma db push completes (above),
+//       not at module load — running it before schema sync causes query errors.
 function runTenantProtectionCheck() {
   if (process.env.SKIP_TENANT_PROTECTION === 'true') {
     console.log('[TENANT-PROTECT] [WARN] SKIP_TENANT_PROTECTION=true — skipping check (EMERGENCY ONLY)');
@@ -233,7 +240,9 @@ function runTenantProtectionCheck() {
   }
 }
 
-runTenantProtectionCheck();
+// NOTE: runTenantProtectionCheck() is called inside the prisma.then/catch
+//       blocks above (after schema sync). Do NOT call it here at module load —
+//       doing so causes "Tenant table does not exist" errors per log analysis.
 
 function startServer() {
   console.log('→ Starting Next.js server...');
