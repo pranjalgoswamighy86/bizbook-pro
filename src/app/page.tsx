@@ -30,6 +30,7 @@ import { ChartOfAccounts } from '@/components/modules/chart-of-accounts'
 import { GeneralLedger } from '@/components/modules/general-ledger'
 import { AIImportPage } from '@/components/modules/ai-import'
 import { SubscriptionPage } from '@/components/modules/subscription'
+import { SuperAdminSubscriptionPanel } from '@/components/modules/super-admin-subscriptions'
 import { ErrorBoundary } from '@/components/app/error-boundary'
 import { Loader2 } from 'lucide-react'
 import { authFetch } from '@/lib/auth-fetch'
@@ -63,6 +64,7 @@ function ModuleRouter() {
     case 'general-ledger': return <GeneralLedger />
     case 'ai-import': return <AIImportPage />
     case 'subscription': return <SubscriptionPage />
+    case 'super-admin-subscriptions': return <SuperAdminSubscriptionPanel />
     case 'company-select': return <CompanySelectPage />
     default: return <Dashboard />
   }

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { WorkspaceSelectionModal, type WorkspaceOption } from '@/components/auth/workspace-selection-modal'
 import { useAppStore } from '@/store/app-store'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -24,6 +25,16 @@ export function CoverPage() {
   // Login form
   const [loginEmail, setLoginEmail] = useState('')
   const [loginPassword, setLoginPassword] = useState('')
+
+  // v4.7: 3-Day OTP Gate state (Task 8)
+  const [loginRequiresOtp, setLoginRequiresOtp] = useState(false)
+  const [loginOtp, setLoginOtp] = useState('')
+  const [loginOtpMessage, setLoginOtpMessage] = useState('')
+
+  // v4.7: Workspace Selection state (Rule 2.2)
+  const [showWorkspaceModal, setShowWorkspaceModal] = useState(false)
+  const [workspaceUser, setWorkspaceUser] = useState<{ id: string; email: string; name: string } | null>(null)
+  const [workspaceOptions, setWorkspaceOptions] = useState<WorkspaceOption[]>([])
 
   // Register form
   const [regStep, setRegStep] = useState<RegStep>('form')
@@ -71,7 +82,95 @@ export function CoverPage() {
         setError(data.error || 'Login failed')
         return
       }
-      // Pass sessionToken to the store so authFetch can send it as Bearer header
+
+      // v4.7: Handle 3-Day OTP Gate (Task 8)
+      // Backend returns { requiresOtp: true, message, email } when lastOtpVerifiedAt > 3 days
+      if (data.requiresOtp) {
+        setLoginRequiresOtp(true)
+        setLoginOtpMessage(data.message || 'Please check your email inbox/spam for the 6-digit OTP. If email delivery fails, the OTP will be securely sent directly to your registered tenant mobile number as a backup channel.')
+        setLoading(false)
+        return
+      }
+
+      // v4.7: Handle Workspace Selection (Rule 2.2)
+      // Backend returns { status: 'WORKSPACE_SELECTION_REQUIRED', user, workspaces } when user has 2+ tenants
+      if (data.status === 'WORKSPACE_SELECTION_REQUIRED') {
+        setWorkspaceUser(data.user)
+        setWorkspaceOptions(data.workspaces || [])
+        setShowWorkspaceModal(true)
+        setLoading(false)
+        return
+      }
+
+      // Standard login success — pass sessionToken to the store
+      login(data.user, data.tenant, data.companies || [], data.sessionToken)
+    } catch {
+      setError('Network error. Please try again.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // ============================================================
+  // v4.7: Verify Login OTP (completes 3-Day OTP Gate)
+  // ============================================================
+  const handleVerifyLoginOtp = async () => {
+    if (!loginOtp.trim() || loginOtp.trim().length !== 6) {
+      setError('Please enter the 6-digit OTP.')
+      return
+    }
+    setLoading(true)
+    setError('')
+    try {
+      const res = await fetch('/api/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'verify-login-otp', email: loginEmail, otp: loginOtp.trim() }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setError(data.error || 'OTP verification failed')
+        return
+      }
+
+      // v4.7: After OTP verified, backend may still return WORKSPACE_SELECTION_REQUIRED
+      if (data.status === 'WORKSPACE_SELECTION_REQUIRED') {
+        setLoginRequiresOtp(false)
+        setLoginOtp('')
+        setWorkspaceUser(data.user)
+        setWorkspaceOptions(data.workspaces || [])
+        setShowWorkspaceModal(true)
+        return
+      }
+
+      // Standard login success
+      login(data.user, data.tenant, data.companies || [], data.sessionToken)
+    } catch {
+      setError('Network error. Please try again.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // ============================================================
+  // v4.7: Select Workspace (Rule 2.2 — finalize login after picking)
+  // ============================================================
+  const handleSelectWorkspace = async (workspace: WorkspaceOption) => {
+    if (!workspaceUser) return
+    setLoading(true)
+    setError('')
+    try {
+      const res = await fetch('/api/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'select-workspace', userId: workspaceUser.id, tenantId: workspace.tenantId }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setError(data.error || 'Workspace selection failed')
+        return
+      }
+      setShowWorkspaceModal(false)
       login(data.user, data.tenant, data.companies || [], data.sessionToken)
     } catch {
       setError('Network error. Please try again.')
@@ -404,31 +503,71 @@ export function CoverPage() {
                 </TabsList>
 
                 <TabsContent value="login">
-                  <form onSubmit={handleLogin} className="space-y-4">
-                    <div>
-                      <Label htmlFor="login-email">Email</Label>
-                      <Input id="login-email" type="email" value={loginEmail} onChange={(e) => setLoginEmail(e.target.value)} required placeholder="you@business.com" />
-                    </div>
-                    <div>
-                      <Label htmlFor="login-pass">Password</Label>
-                      <Input id="login-pass" type="password" value={loginPassword} onChange={(e) => setLoginPassword(e.target.value)} required placeholder="Enter password" />
-                    </div>
-                    {error && tab === 'login' && <p className="text-sm text-destructive">{error}</p>}
-                    <Button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-700" disabled={loading}>
-                      {loading ? 'Signing in...' : 'Sign In'}
-                    </Button>
-                    {/* Forgot Password Link */}
-                    <div className="text-center">
+                  {/* v4.7: 3-Day OTP Gate UI (Task 8) — shown when backend returns requiresOtp */}
+                  {loginRequiresOtp ? (
+                    <form onSubmit={(e) => { e.preventDefault(); handleVerifyLoginOtp() }} className="space-y-4">
+                      <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-800 leading-relaxed">
+                        {loginOtpMessage}
+                      </div>
+                      <div>
+                        <Label htmlFor="login-otp">6-Digit OTP</Label>
+                        <Input
+                          id="login-otp"
+                          type="text"
+                          inputMode="numeric"
+                          pattern="[0-9]{6}"
+                          maxLength={6}
+                          value={loginOtp}
+                          onChange={(e) => setLoginOtp(e.target.value.replace(/\D/g, ''))}
+                          required
+                          placeholder="Enter 6-digit code"
+                          className="text-center text-lg tracking-widest"
+                          autoFocus
+                        />
+                      </div>
+                      {error && <p className="text-sm text-destructive">{error}</p>}
+                      <Button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-700" disabled={loading}>
+                        {loading ? 'Verifying...' : 'Verify OTP & Continue'}
+                      </Button>
                       <button
                         type="button"
-                        className="text-sm text-emerald-600 hover:text-emerald-700 hover:underline font-medium inline-flex items-center gap-1"
-                        onClick={() => { setResetStep('request'); setResetError('') }}
+                        className="w-full text-xs text-slate-500 hover:text-slate-700"
+                        onClick={() => {
+                          setLoginRequiresOtp(false)
+                          setLoginOtp('')
+                          setError('')
+                        }}
                       >
-                        <KeyRound className="h-3.5 w-3.5" />
-                        Forgot Password? Reset it here
+                        ← Back to login
                       </button>
-                    </div>
-                  </form>
+                    </form>
+                  ) : (
+                    <form onSubmit={handleLogin} className="space-y-4">
+                      <div>
+                        <Label htmlFor="login-email">Email</Label>
+                        <Input id="login-email" type="email" value={loginEmail} onChange={(e) => setLoginEmail(e.target.value)} required placeholder="you@business.com" />
+                      </div>
+                      <div>
+                        <Label htmlFor="login-pass">Password</Label>
+                        <Input id="login-pass" type="password" value={loginPassword} onChange={(e) => setLoginPassword(e.target.value)} required placeholder="Enter password" />
+                      </div>
+                      {error && tab === 'login' && <p className="text-sm text-destructive">{error}</p>}
+                      <Button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-700" disabled={loading}>
+                        {loading ? 'Signing in...' : 'Sign In'}
+                      </Button>
+                      {/* Forgot Password Link */}
+                      <div className="text-center">
+                        <button
+                          type="button"
+                          className="text-sm text-emerald-600 hover:text-emerald-700 hover:underline font-medium inline-flex items-center gap-1"
+                          onClick={() => { setResetStep('request'); setResetError('') }}
+                        >
+                          <KeyRound className="h-3.5 w-3.5" />
+                          Forgot Password? Reset it here
+                        </button>
+                      </div>
+                    </form>
+                  )}
                 </TabsContent>
 
                 <TabsContent value="register">
@@ -721,6 +860,18 @@ export function CoverPage() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* v4.7: Workspace Selection Modal (Rule 2.2) */}
+      <WorkspaceSelectionModal
+        open={showWorkspaceModal}
+        user={workspaceUser}
+        workspaces={workspaceOptions}
+        onSelect={handleSelectWorkspace}
+        onCancel={() => {
+          setShowWorkspaceModal(false)
+          setError('Workspace selection cancelled. Please log in again.')
+        }}
+      />
     </div>
   )
 }

@@ -307,6 +307,161 @@ export async function POST(req: NextRequest) {
       })
     }
 
+    // ============================================================
+    // v4.7: ADMIN-LIST-ALL — Super Admin views ALL tenants' subscriptions (Rule 1.4)
+    // ============================================================
+    if (action === 'admin-list-all') {
+      const access = await requireAuthAndRole(req, tenantId, ['MAIN_ADMIN'])
+      if (access instanceof NextResponse) return access
+
+      // Restrict to admin@bizbook.pro or pranjalgoswamighy86@gmail.com (per Spec Part 9)
+      const ADMIN_BYPASS_EMAILS = [
+        'admin@bizbook.pro',
+        (process.env.ADMIN_EMAIL || '').toLowerCase(),
+        'pranjalgoswamighy86@gmail.com',
+        (process.env.INFRASTRUCTURE_OWNER_EMAIL || '').toLowerCase(),
+      ].filter(Boolean)
+
+      if (!access.user?.email || !ADMIN_BYPASS_EMAILS.includes(access.user.email.toLowerCase())) {
+        return NextResponse.json({ error: 'FORBIDDEN — Super Admin only' }, { status: 403 })
+      }
+
+      // Fetch ALL subscriptions with tenant info
+      const allSubs = await db.subscription.findMany({
+        include: {
+          tenant: {
+            select: { id: true, name: true, email: true, phone: true, plan: true, createdAt: true },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+      })
+
+      return NextResponse.json({
+        totalTenants: allSubs.length,
+        subscriptions: allSubs.map(s => ({
+          id: s.id,
+          tenantId: s.tenantId,
+          tenantName: s.tenant?.name || 'Unknown',
+          tenantEmail: s.tenant?.email || '',
+          tenantPhone: s.tenant?.phone || '',
+          planName: s.planName,
+          planHours: s.planHours,
+          remainingSeconds: s.remainingSeconds,
+          remainingHours: Math.floor(s.remainingSeconds / 3600),
+          totalSeconds: s.totalSeconds,
+          status: s.status,
+          isFreeTier: s.isFreeTier,
+          freeTierHours: s.freeTierHours,
+          startDate: s.startDate.toISOString(),
+          endDate: s.endDate?.toISOString() || null,
+          maxUsersAllowed: (s as any).maxUsersAllowed || null,
+          customPlanType: (s as any).customPlanType || null,
+        })),
+      })
+    }
+
+    // ============================================================
+    // v4.7: ADMIN-MODIFY — Super Admin modifies any tenant's subscription (Rule 1.4)
+    // Allows: maxUsersAllowed, customPlanType, endDate, remainingSeconds, planHours, planName
+    // ============================================================
+    if (action === 'admin-modify') {
+      const access = await requireAuthAndRole(req, tenantId, ['MAIN_ADMIN'])
+      if (access instanceof NextResponse) return access
+
+      // Restrict to admin@bizbook.pro or pranjalgoswamighy86@gmail.com (per Spec Part 9)
+      const ADMIN_BYPASS_EMAILS = [
+        'admin@bizbook.pro',
+        (process.env.ADMIN_EMAIL || '').toLowerCase(),
+        'pranjalgoswamighy86@gmail.com',
+        (process.env.INFRASTRUCTURE_OWNER_EMAIL || '').toLowerCase(),
+      ].filter(Boolean)
+
+      if (!access.user?.email || !ADMIN_BYPASS_EMAILS.includes(access.user.email.toLowerCase())) {
+        return NextResponse.json({ error: 'FORBIDDEN — Super Admin only' }, { status: 403 })
+      }
+
+      const { targetTenantId, modifications } = body
+      if (!targetTenantId) {
+        return NextResponse.json({ error: 'targetTenantId required' }, { status: 400 })
+      }
+
+      // Find the target tenant's subscription
+      const targetSub = await db.subscription.findUnique({
+        where: { tenantId: targetTenantId },
+      })
+      if (!targetSub) {
+        return NextResponse.json({ error: 'Subscription not found for target tenant' }, { status: 404 })
+      }
+
+      // Build update payload from allowed modifications (Rule 1.4)
+      const updateData: any = {}
+      const allowedFields = [
+        'remainingSeconds',
+        'planHours',
+        'planName',
+        'status',
+        'isFreeTier',
+        'freeTierHours',
+        'maxUsersAllowed',
+        'customPlanType',
+        'endDate',
+        'totalSeconds',
+      ]
+
+      for (const field of allowedFields) {
+        if (field in (modifications || {})) {
+          if (field === 'endDate' && modifications[field]) {
+            updateData[field] = new Date(modifications[field])
+          } else {
+            updateData[field] = modifications[field]
+          }
+        }
+      }
+
+      if (Object.keys(updateData).length === 0) {
+        return NextResponse.json({ error: 'No valid modifications provided' }, { status: 400 })
+      }
+
+      const updated = await db.subscription.update({
+        where: { id: targetSub.id },
+        data: updateData,
+      })
+
+      // Audit log (use existing writeAuditLog signature)
+      await writeAuditLog({
+        tenantId: targetTenantId,
+        userId: access.userId,
+        action: 'UPDATE',
+        entityType: 'Subscription',
+        entityId: targetSub.id,
+        entityName: targetSub.planName,
+        changes: {
+          adminEmail: access.user.email,
+          action: 'SUBSCRIPTION_ADMIN_MODIFY',
+          modifications: updateData,
+          timestamp: new Date().toISOString(),
+        } as any,
+      })
+
+      console.log(`[SUBSCRIPTION][ADMIN-MODIFY] ${access.user.email} modified tenant ${targetTenantId}:`, updateData)
+
+      return NextResponse.json({
+        success: true,
+        subscription: {
+          id: updated.id,
+          tenantId: updated.tenantId,
+          planName: updated.planName,
+          planHours: updated.planHours,
+          remainingSeconds: updated.remainingSeconds,
+          status: updated.status,
+          endDate: updated.endDate?.toISOString() || null,
+          maxUsersAllowed: (updated as any).maxUsersAllowed || null,
+          customPlanType: (updated as any).customPlanType || null,
+        },
+        message: 'Subscription modified by Super Admin (Rule 1.4)',
+      })
+    }
+
     return NextResponse.json({ error: 'Invalid action' }, { status: 400 })
   } catch (error) {
     console.error('Subscription error:', error)
