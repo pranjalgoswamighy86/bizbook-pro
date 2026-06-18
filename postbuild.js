@@ -181,6 +181,8 @@ const essentialModules = [
   "mammoth",
   "@prisma/client",
   ".prisma",
+  "resend",
+  "nodemailer",
 ];
 const nmDest = path.join(STANDALONE_DIR, "node_modules");
 ensureDir(nmDest);

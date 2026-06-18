@@ -8,8 +8,62 @@ console.log('=== BizBook Pro Startup ===');
 delete process.env.HOSTNAME;
 
 // Set DATABASE_URL — use ABSOLUTE path so it works regardless of cwd
+// === RAILWAY VOLUME STRATEGY ===
+// Railway ephemeral filesystem loses /app/db on every redeploy.
+// Mount a Railway Volume at /app/data (persistent across deploys).
+// On startup, we symlink /app/data/custom.db -> /app/db/custom.db
+// and restore from the latest backup if the volume is empty/new.
 const DB_DIR = '/app/db';
 const DB_FILE = DB_DIR + '/custom.db';
+const VOLUME_DIR = '/app/data';        // Railway Volume mount point
+const VOLUME_DB_FILE = VOLUME_DIR + '/custom.db';
+const VOLUME_BACKUP_DIR = VOLUME_DIR + '/backups';
+
+// Ensure /app/db exists
+fs.mkdirSync(DB_DIR, { recursive: true });
+
+// If a Railway Volume is mounted at /app/data, use it for persistence
+let usingVolume = false;
+try {
+  if (fs.existsSync(VOLUME_DIR)) {
+    usingVolume = true;
+    fs.mkdirSync(VOLUME_BACKUP_DIR, { recursive: true });
+    console.log('[VOLUME] Railway Volume detected at', VOLUME_DIR);
+
+    // === AUTO-RESTORE: if volume has a DB, symlink it to /app/db/custom.db ===
+    if (fs.existsSync(VOLUME_DB_FILE)) {
+      const stat = fs.statSync(VOLUME_DB_FILE);
+      if (stat.size > 0) {
+        console.log(`[VOLUME] Found persisted DB at ${VOLUME_DB_FILE} (${(stat.size / 1024).toFixed(1)}KB)`);
+        // Symlink (or copy if symlink fails — e.g. on weird filesystems)
+        try {
+          if (fs.existsSync(DB_FILE) || fs.isSymbolicLinkSync?.(DB_FILE)) {
+            fs.unlinkSync(DB_FILE);
+          }
+          try {
+            fs.symlinkSync(VOLUME_DB_FILE, DB_FILE);
+            console.log(`[VOLUME] Symlinked ${DB_FILE} -> ${VOLUME_DB_FILE}`);
+          } catch (linkErr) {
+            fs.copyFileSync(VOLUME_DB_FILE, DB_FILE);
+            console.log(`[VOLUME] Copied ${VOLUME_DB_FILE} -> ${DB_FILE} (symlink failed)`);
+          }
+        } catch (e) {
+          console.warn('[VOLUME] Could not link DB, will use empty file:', e.message);
+        }
+      } else {
+        console.warn('[VOLUME] Volume DB exists but is empty — ignoring');
+      }
+    } else {
+      console.log('[VOLUME] No persisted DB found — first run on this volume');
+    }
+  } else {
+    console.log('[VOLUME] No Railway Volume at /app/data — DB will be EPHEMERAL (lost on redeploy)');
+    console.log('[VOLUME] To fix: add a Volume in Railway dashboard, mount path = /app/data');
+  }
+} catch (e) {
+  console.warn('[VOLUME] Volume detection failed:', e.message);
+}
+
 process.env.DATABASE_URL = 'file:' + DB_FILE;
 
 // Set env var defaults
@@ -28,8 +82,7 @@ console.log('CWD:', process.cwd());
 console.log('PORT:', process.env.PORT || '3000');
 console.log('DATABASE_URL:', process.env.DATABASE_URL);
 
-// Step 1: Create db directory
-fs.mkdirSync(DB_DIR, { recursive: true });
+// Step 1: db dir already created above (during volume detection)
 
 // Step 2: Regenerate Prisma client (ensures schema fields like lastLoginAt exist)
 console.log('→ Regenerating Prisma client...');
@@ -50,6 +103,23 @@ try {
   console.log('✓ Database schema synced');
 } catch (e) {
   console.log('⚠️ Prisma db push failed:', e.message);
+}
+
+// Step 3.5: Persist DB to Volume (so next deploy picks it up)
+if (usingVolume) {
+  try {
+    if (fs.existsSync(DB_FILE)) {
+      // If DB_FILE is a symlink, copy its content; otherwise copy the file directly
+      const realPath = fs.realpathSync(DB_FILE);
+      if (realPath !== VOLUME_DB_FILE) {
+        fs.copyFileSync(realPath, VOLUME_DB_FILE);
+        const sz = fs.statSync(VOLUME_DB_FILE).size;
+        console.log(`[VOLUME] ✓ Persisted DB to ${VOLUME_DB_FILE} (${(sz / 1024).toFixed(1)}KB)`);
+      }
+    }
+  } catch (e) {
+    console.warn('[VOLUME] Persist failed:', e.message);
+  }
 }
 
 // Step 3: Seed admin user (idempotent — only creates if empty)
@@ -217,6 +287,40 @@ function startServer() {
   // Change to standalone dir and start
   process.chdir(standaloneDir);
   console.log('→ Working directory:', process.cwd());
+
+  // === Periodic DB persist to Volume (every 60s) ===
+  // This ensures user registrations, sales entries, etc. are mirrored
+  // to the persistent volume so nothing is lost on the next deploy.
+  if (usingVolume) {
+    const PERSIST_INTERVAL = 60 * 1000; // 60 seconds
+    setInterval(() => {
+      try {
+        if (!fs.existsSync(DB_FILE)) return;
+        const realPath = fs.realpathSync(DB_FILE);
+        if (realPath === VOLUME_DB_FILE) return; // already the volume file
+        fs.copyFileSync(realPath, VOLUME_DB_FILE);
+      } catch (e) {
+        // silent — non-critical
+      }
+    }, PERSIST_INTERVAL);
+    console.log(`[VOLUME] Periodic persist every 60s — enabled`);
+
+    // Also persist on shutdown
+    const persistOnExit = () => {
+      try {
+        if (fs.existsSync(DB_FILE)) {
+          const realPath = fs.realpathSync(DB_FILE);
+          if (realPath !== VOLUME_DB_FILE) {
+            fs.copyFileSync(realPath, VOLUME_DB_FILE);
+            console.log('[VOLUME] ✓ Final persist on shutdown');
+          }
+        }
+      } catch (e) { /* ignore */ }
+      process.exit(0);
+    };
+    process.on('SIGTERM', persistOnExit);
+    process.on('SIGINT', persistOnExit);
+  }
 
   // Start the standalone server (HOSTNAME deleted → binds to 0.0.0.0)
   require(path.join(standaloneDir, 'server.js'));
