@@ -1,15 +1,20 @@
 [phases.setup]
 nixPkgs = ['nodejs_20', 'openssl']
+providers = ['node']
 
 [phases.install]
-cmds = ['npm install']
+cmds = [
+  'rm -rf .next .turbo out dist node_modules/.cache',
+  'npm install --no-audit --no-fund --prefer-offline'
+]
 
 [phases.build]
 cmds = [
+  'rm -f tsconfig.tsbuildinfo',
   'npx prisma generate',
   'mkdir -p db',
   'DATABASE_URL="file:./db/custom.db" npx prisma db push --skip-generate',
-  'npx next build',
+  'NODE_OPTIONS="--max-old-space-size=2048" npx next build --webpack',
   'node postbuild.js'
 ]
 
