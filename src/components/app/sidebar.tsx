@@ -166,17 +166,25 @@ export function AppSidebar() {
   // Shared navigation content for both mobile and desktop sidebars
   const sidebarContent = (
     <>
-      {/* Header with company info + switcher */}
+      {/* v4.12: Spec Section 5 + Task 10 — Top-left branding shows Tahigo (parent)
+          + "A Product by Tahigo International" badge.
+          Sidebar shows the Tahigo logo prominently, with the tenant (company) name below. */}
       <div className="p-4 shrink-0">
         <div className="flex items-center gap-3">
           <img
-            src="/logo.png"
-            alt="BizBook Pro"
-            className="flex-shrink-0 h-8 w-8 rounded-lg object-contain"
+            src="/tahigo-logo.png"
+            alt="Tahigo International"
+            className="flex-shrink-0 h-12 w-12 rounded-xl object-contain border border-slate-100 shadow-sm p-1 bg-white"
+            onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
           />
           <div className="min-w-0 flex-1">
-            <h1 className="text-sm font-bold truncate">BizBook Pro</h1>
-            <p className="text-xs text-muted-foreground truncate">{tenant?.name || 'Business'}</p>
+            <h1 className="text-base font-black truncate">Tahigo</h1>
+            <p className="text-[10px] font-semibold text-slate-500 tracking-wider uppercase truncate">
+              Tahigo International
+            </p>
+            <p className="text-xs text-muted-foreground truncate mt-0.5">
+              {tenant?.name || 'Business'}
+            </p>
           </div>
           {isMobile && (
             <Button variant="ghost" size="icon" className="flex-shrink-0 h-7 w-7" onClick={closeMobileDrawer}>
@@ -291,9 +299,10 @@ export function AppSidebar() {
           >
             <Menu className="h-5 w-5" />
           </Button>
-          <img src="/logo.png" alt="BizBook Pro" className="h-7 w-7 rounded-lg object-contain flex-shrink-0" />
+          <img src="/tahigo-logo.png" alt="Tahigo International" className="h-12 w-12 rounded-xl object-contain flex-shrink-0 p-1 border border-slate-100 bg-white shadow-sm" onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }} />
           <div className="min-w-0 flex-1">
-            <h1 className="text-sm font-bold truncate">BizBook Pro</h1>
+            <h1 className="text-base font-black truncate">Tahigo</h1>
+            <p className="text-[10px] font-semibold text-slate-500 tracking-wider uppercase truncate">Tahigo International</p>
             <p className="text-xs text-muted-foreground truncate">{tenant?.name || 'Business'}</p>
           </div>
         </div>
@@ -335,13 +344,15 @@ export function AppSidebar() {
       <div className="p-4 shrink-0">
         <div className="flex items-center gap-3">
           <img
-            src="/logo.png"
-            alt="BizBook Pro"
-            className="flex-shrink-0 h-8 w-8 rounded-lg object-contain"
+            src="/tahigo-logo.png"
+            alt="Tahigo International"
+            className="flex-shrink-0 h-12 w-12 rounded-xl object-contain p-1 border border-slate-100 bg-white shadow-sm"
+            onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
           />
           {sidebarOpen && (
             <div className="min-w-0 flex-1">
-              <h1 className="text-sm font-bold truncate">BizBook Pro</h1>
+              <h1 className="text-base font-black truncate">Tahigo</h1>
+              <p className="text-[10px] font-semibold text-slate-500 tracking-wider uppercase truncate">Tahigo International</p>
               <p className="text-xs text-muted-foreground truncate">{tenant?.name || 'Business'}</p>
             </div>
           )}
