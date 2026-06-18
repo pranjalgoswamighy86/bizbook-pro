@@ -28,7 +28,8 @@ import { authFetch } from '@/lib/auth-fetch'
 
 interface SubscriptionInfo {
   planName: string
-  remainingSeconds: number
+  remainingHours: number
+  remainingMinutes: number
   isFreeTier: boolean
   status: string
 }
@@ -48,9 +49,11 @@ export function TopBrandingBar() {
         if (!res.ok) return
         const data = await res.json()
         if (cancelled) return
+        // v4.14: API returns remainingHours + remainingMinutes (NOT remainingSeconds)
         setSubInfo({
           planName: data.subscription?.planName || 'FREE',
-          remainingSeconds: data.subscription?.remainingSeconds || 0,
+          remainingHours: data.subscription?.remainingHours ?? 0,
+          remainingMinutes: data.subscription?.remainingMinutes ?? 0,
           isFreeTier: data.subscription?.isFreeTier ?? true,
           status: data.subscription?.status || 'ACTIVE',
         })
@@ -75,8 +78,10 @@ export function TopBrandingBar() {
     setView('subscription')
   }
 
-  // Format remaining hours
-  const remainingHours = subInfo ? Math.floor(subInfo.remainingSeconds / 3600) : 0
+  // v4.14: Use remainingHours directly from API (was incorrectly computing from remainingSeconds
+  // which was never returned by the API — causing "0h left" bug)
+  const remainingHours = subInfo?.remainingHours ?? 0
+  const remainingMinutes = subInfo?.remainingMinutes ?? 0
   const isLow = remainingHours < 10 && subInfo?.isFreeTier
   const planLabel = subInfo?.isFreeTier ? 'FREE Tier' : (subInfo?.planName || 'FREE Tier')
 
@@ -147,7 +152,7 @@ export function TopBrandingBar() {
               ? 'bg-amber-50 hover:bg-amber-100 border-amber-200'
               : 'bg-emerald-50 hover:bg-emerald-100 border-emerald-200'
           }`}
-          title={`${planLabel} — ${remainingHours}h remaining. Click to upgrade.`}
+          title={`${planLabel} — ${remainingHours}h ${remainingMinutes}m remaining. Click to upgrade.`}
           aria-label="Subscription status — click to manage"
         >
           {/* Pulsing dot for free tier (Spec Part 4.2) */}
@@ -168,9 +173,10 @@ export function TopBrandingBar() {
               UPGRADE
             </span>
           )}
-          {/* Remaining hours — visible on larger screens */}
+          {/* Remaining hours + minutes — visible on larger screens
+              v4.14: Show BOTH hours and minutes (was only hours, showing "0h" bug) */}
           <span className="text-[10px] text-slate-500 font-medium hidden lg:inline">
-            {remainingHours}h left
+            {remainingHours}h {remainingMinutes}m left
           </span>
         </button>
 
