@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db-soft-delete'
 import { sendOtpEmail, isEmailConfigured } from '@/lib/email'
 import { sendOtpSms, isSmsConfigured } from '@/lib/sms'
+import { dispatchOtp } from '@/lib/otp/dispatcher'
 import { checkRateLimit, RATE_LIMITS, otpRateLimitKey, loginRateLimitKey, passwordResetRateLimitKey } from '@/lib/rate-limit'
 // ---- SECURITY PATCH v1 imports ----
 import {
@@ -120,31 +121,29 @@ export async function POST(req: NextRequest) {
         data: { email, otp, expiresAt },
       })
 
-      let emailSent = false
-      let emailError = ''
-      if (isEmailConfigured()) {
-        const emailResult = await sendOtpEmail(email, otp, name)
-        emailSent = emailResult.success
-        emailError = emailResult.error || ''
-        console.log(`[REG-OTP] Email to ${email}: ${emailSent ? 'SENT' : `FAILED (${emailError})`}`)
-      } else {
-        emailError = 'SMTP_NOT_CONFIGURED'
-        console.log('[REG-OTP] Email skipped: SMTP not configured')
-      }
+      // === v4 Multi-Channel OTP Dispatcher (Spec Part 3) ===
+      // Replaces old dual email+SMS calls. Dispatcher enforces:
+      //   - Email first (Resend primary, SMTP fallback)
+      //   - SMS text only (no voice/TTS — Rule 2.1) if email fails
+      //   - WhatsApp fail-safe if SMS fails AND WHATSAPP_ACCESS_TOKEN set
+      //   - NEVER routes to master mobile for non-admin users (Rule 1.1 fix)
+      //   - Logs to AuditLog table
+      console.log(`[REG-OTP] Dispatching via multi-channel pipeline to ${email} / ${businessPhone || 'no-phone'}`)
+      const otpResult = await dispatchOtp(otp, {
+        email,
+        mobile: businessPhone, // user's actual mobile, NOT master
+        purpose: 'register',
+      })
 
-      let smsSent = false
-      let smsError = ''
-      if (isSmsConfigured() && businessPhone) {
-        const smsResult = await sendOtpSms(businessPhone, otp)
-        smsSent = smsResult.success
-        smsError = smsResult.error || ''
-        console.log(`[REG-OTP] SMS to ${businessPhone}: ${smsSent ? 'SENT' : `FAILED (${smsError})`}`)
-      } else {
-        smsError = 'SMS_NOT_CONFIGURED'
-      }
+      const emailSent = otpResult.emailDelivered
+      const smsSent = otpResult.smsDelivered
+      const whatsappSent = otpResult.whatsappDelivered
+      const delivered = otpResult.ok
 
-      if (!emailSent && !smsSent) {
-        if (emailError === 'SMTP_NOT_CONFIGURED' && smsError === 'SMS_NOT_CONFIGURED') {
+      if (!delivered) {
+        const errorMsg = otpResult.fallbackReason || 'All OTP delivery channels failed'
+        console.error(`[REG-OTP] All channels failed: ${errorMsg}`)
+        if (errorMsg.includes('NOT_CONFIGURED') || errorMsg.includes('not configured')) {
           return NextResponse.json({
             error: 'OTP delivery is not configured. Please contact your administrator to set up email or SMS service.',
           }, { status: 500 })
@@ -159,8 +158,12 @@ export async function POST(req: NextRequest) {
         message = 'Verification OTP sent to your email and mobile number.'
       } else if (emailSent) {
         message = 'Verification OTP sent to your email address. Please check your inbox and spam folder.'
-      } else {
+      } else if (smsSent) {
         message = 'Verification OTP sent to your mobile number.'
+      } else if (whatsappSent) {
+        message = 'Verification OTP sent to your WhatsApp number (email and SMS unavailable).'
+      } else {
+        message = 'Verification OTP dispatched.'
       }
 
       return NextResponse.json({
@@ -803,48 +806,41 @@ export async function POST(req: NextRequest) {
         data: { email: targetUser.email, otp, expiresAt },
       })
 
-      let emailSent = false
-      let emailError = ''
-      if (isEmailConfigured()) {
-        const emailResult = await sendOtpEmail(targetUser.email, otp, targetUser.name)
-        emailSent = emailResult.success
-        emailError = emailResult.error || ''
-        console.log(`[OTP] Email to ${targetUser.email}: ${emailSent ? 'SENT' : `FAILED (${emailError})`}`)
-      } else {
-        emailError = 'SMTP_NOT_CONFIGURED'
-        console.log('[OTP] Email skipped: SMTP not configured')
-      }
+      // === v4 Multi-Channel OTP Dispatcher (Spec Part 3) ===
+      // Look up the user's tenant to get their actual registered phone
+      // (CRITICAL: must NOT use process.env.MASTER_MOBILE_NUMBER as fallback)
+      const targetTenant = await db.tenant.findUnique({
+        where: { id: targetUser.tenantId },
+        select: { phone: true, name: true },
+      })
+      const userMobile = targetTenant?.phone || undefined // user's own phone, never master
 
-      let smsSent = false
-      let smsError = ''
-      if (isSmsConfigured()) {
-        const tenant = await db.tenant.findUnique({ where: { id: targetUser.tenantId } })
-        if (tenant?.phone) {
-          console.log(`[OTP] Sending SMS to ${tenant.phone}...`)
-          const smsResult = await sendOtpSms(tenant.phone, otp)
-          smsSent = smsResult.success
-          smsError = smsResult.error || ''
-          console.log(`[OTP] SMS to ${tenant.phone}: ${smsSent ? 'SENT' : `FAILED (${smsError})`}`)
-        } else {
-          smsError = 'NO_PHONE_ON_ACCOUNT'
-          console.log('[OTP] SMS skipped: No phone number on account')
-        }
-      } else {
-        smsError = 'SMS_NOT_CONFIGURED'
-        console.log('[OTP] SMS skipped: SMS not configured')
-      }
+      console.log(`[OTP] Dispatching via multi-channel pipeline to ${targetUser.email} / ${userMobile || 'no-phone'}`)
+      const otpResult = await dispatchOtp(otp, {
+        email: targetUser.email,
+        mobile: userMobile,
+        userId: targetUser.id,
+        tenantId: targetUser.tenantId,
+        purpose: 'reset',
+      })
 
-      const delivered = emailSent || smsSent
+      const emailSent = otpResult.emailDelivered
+      const smsSent = otpResult.smsDelivered
+      const whatsappSent = otpResult.whatsappDelivered
+      const delivered = otpResult.ok
 
       let message = ''
       if (emailSent && smsSent) {
         message = 'OTP sent to your email and registered mobile number.'
       } else if (emailSent) {
-        message = 'OTP sent to your email address.'
+        message = 'OTP sent to your email address. Please check your inbox and spam folder.'
       } else if (smsSent) {
         message = 'OTP sent to your registered mobile number.'
+      } else if (whatsappSent) {
+        message = 'OTP sent to your WhatsApp (email and SMS unavailable).'
       } else {
-        if (emailError === 'SMTP_NOT_CONFIGURED' && smsError === 'SMS_NOT_CONFIGURED') {
+        const reason = otpResult.fallbackReason || ''
+        if (reason.includes('NOT_CONFIGURED') || reason.includes('not configured')) {
           message = 'OTP delivery is not configured. Please contact your administrator to set up email or SMS service.'
         } else {
           message = 'Failed to send OTP. Please try again or contact support.'
