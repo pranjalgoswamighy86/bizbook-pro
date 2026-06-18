@@ -200,6 +200,41 @@ try {
   startServer();
 }
 
+// === Tenant Protection Check (v4 fix pack) ===
+// Verifies protected tenant accounts (kdhomesghy@gmail.com,
+// goswamipranjalghy86@gmail.com, homesghy@gmail.com) still exist.
+// Aborts startup if missing — prevents silent data loss.
+// Bypass via SKIP_TENANT_PROTECTION=true (emergency only, first deploy).
+function runTenantProtectionCheck() {
+  if (process.env.SKIP_TENANT_PROTECTION === 'true') {
+    console.log('[TENANT-PROTECT] [WARN] SKIP_TENANT_PROTECTION=true — skipping check (EMERGENCY ONLY)');
+    console.log('[TENANT-PROTECT] [WARN] REMOVE THIS ENV VAR after first tenants are created!');
+    return;
+  }
+  try {
+    const protectScript = path.join(__dirname, 'protect-tenants.js');
+    if (fs.existsSync(protectScript)) {
+      console.log('→ Running tenant protection check...');
+      execSync(`node "${protectScript}"`, {
+        stdio: 'inherit',
+        env: process.env,
+      });
+    } else {
+      console.log('[TENANT-PROTECT] protect-tenants.js not found — skipping check');
+    }
+  } catch (e) {
+    console.error('========================================');
+    console.error('[TENANT-PROTECT] STARTUP ABORTED — PROTECTED TENANTS MISSING');
+    console.error('========================================');
+    console.error('[TENANT-PROTECT] Error:', e.message);
+    console.error('[TENANT-PROTECT] See scripts/protect-tenants.js for resolution steps.');
+    console.error('[TENANT-PROTECT] EMERGENCY BYPASS: set SKIP_TENANT_PROTECTION=true');
+    process.exit(1);
+  }
+}
+
+runTenantProtectionCheck();
+
 function startServer() {
   console.log('→ Starting Next.js server...');
 
