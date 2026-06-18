@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Toaster as SonnerToaster } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
+import { SWUpdateModal } from "@/components/app/sw-update-modal";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -39,6 +40,8 @@ export default function RootLayout({
         {children}
         <Toaster />
         <SonnerToaster />
+        {/* v4.8: PWA Service Worker Update Interceptor (Spec Section 20) */}
+        <SWUpdateModal />
       </body>
     </html>
   );

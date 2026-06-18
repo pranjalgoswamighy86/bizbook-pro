@@ -26,7 +26,7 @@ const nextConfig: NextConfig = {
   },
   reactStrictMode: false,
 
-  serverExternalPackages: ["xlsx", "pdf-parse", "mammoth"],
+  serverExternalPackages: ["xlsx", "pdf-parse", "mammoth", "imap", "mailparser"],
 
   // Exclude bloat dirs from the standalone trace so the production
   // bundle stays small. Adjust if you add new top-level dirs.
