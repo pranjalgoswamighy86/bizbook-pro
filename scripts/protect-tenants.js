@@ -116,8 +116,8 @@ async function main() {
         id: true,
         email: true,
         name: true,
-        mobile: true,
-        subscriptionStatus: true,
+        phone: true, // NOTE: schema uses `phone` not `mobile`
+        plan: true,  // NOTE: schema uses `plan` not `subscriptionStatus`
         createdAt: true,
       },
     });
@@ -130,7 +130,7 @@ async function main() {
     if (missingEmails.length === 0) {
       log('OK', `✓ All ${PROTECTED_TENANTS.length} protected tenants verified present.`);
       existingTenants.forEach(t => {
-        log('OK', `  - ${t.email} (tenant: ${t.name}, plan: ${t.subscriptionStatus || 'unknown'})`);
+        log('OK', `  - ${t.email} (tenant: ${t.name}, plan: ${t.plan || 'unknown'})`);
       });
       await prisma.$disconnect();
       return;
