@@ -96,8 +96,17 @@ export async function dispatchOtp(
   // ---------- CRITICAL SAFETY CHECK ----------
   // Master mobile (9101555075) must NEVER receive OTPs for non-admin users
   // This is the root-cause fix for "OTP goes to master mobile" bug
+  //
+  // v4.17 EXCEPTION: Allow OTP to master mobile when:
+  //   1. The email belongs to admin@bizbook.pro OR pranjalgoswamighy86@gmail.com
+  //   2. The purpose is 'register' (new account registration — user is PROVIDING
+  //      their own mobile, not being redirected to master)
+  // The block only applies to OTHER users' LOGIN/RESET OTPs being redirected
+  // to the master's phone.
   const MASTER_MOBILE = process.env.MASTER_MOBILE_NUMBER || '9101555075';
-  if (target.mobile && target.mobile === MASTER_MOBILE && target.email !== process.env.ADMIN_EMAIL) {
+  const isOwnerEmail = target.email && ADMIN_BYPASS_EMAILS.includes(target.email.toLowerCase());
+  const isRegistration = target.purpose === 'register';
+  if (target.mobile && target.mobile === MASTER_MOBILE && !isOwnerEmail && !isRegistration) {
     console.error(`[OTP] ⚠️ BLOCKED: attempted to send OTP to master mobile ${MASTER_MOBILE} for non-admin user`);
     console.error(`[OTP] This indicates a routing bug. The fix: target.mobile should be the user's actual mobile, not master.`);
     // Refuse to send — fail closed
