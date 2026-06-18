@@ -87,16 +87,14 @@ export function TopBrandingBar() {
     >
       {/* ============= LEFT ZONE: Dual Branding (Tahigo + BizBook Pro) ============= */}
       <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-        {/* Polished Tahigo Parent Logo Container (Spec Part 4.1 + Task 30 + Section 5)
-            Spec: "Increase its container dimension bounds to be visually dominant
-            (min-width: 48px / height: 48px minimum bounding box)" → h-12 w-12 */}
+        {/* v4.13: Spec Section 9 — Both logos side by side
+            Tahigo International (parent) + BizBook Pro (product) */}
         <div className="relative flex items-center justify-center h-12 w-12 bg-white rounded-xl border border-slate-100 shadow-sm p-2 overflow-hidden transition-all duration-300 hover:shadow-md shrink-0">
           <img
             src="/tahigo-logo.png"
             alt="Tahigo International"
             className="h-full w-full object-contain antialiased"
             onError={(e) => {
-              // Hide if logo missing — don't show broken image
               ;(e.currentTarget as HTMLImageElement).style.display = 'none'
             }}
           />
@@ -105,20 +103,32 @@ export function TopBrandingBar() {
         {/* Structural separator */}
         <div className="h-5 w-px bg-slate-200 shrink-0" aria-hidden="true" />
 
-        {/* BizBook Pro Product Identity */}
-        <div className="flex flex-col min-w-0">
-          <div className="flex items-center gap-1.5 min-w-0">
-            <span className="text-sm sm:text-base font-black text-slate-800 tracking-tight truncate">
-              BizBook Pro
-            </span>
-            {/* v4.12: Task 10 — "A Product by Tahigo International" badge */}
-            <span className="hidden sm:inline-flex items-center text-[9px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-full whitespace-nowrap">
-              A Product by Tahigo International
+        {/* BizBook Pro product logo + text */}
+        <div className="flex items-center gap-2 min-w-0">
+          <div className="flex items-center justify-center h-9 w-9 sm:h-10 sm:w-10 bg-white rounded-lg border border-slate-100 shadow-sm p-1.5 overflow-hidden shrink-0">
+            <img
+              src="/bizbook-pro-logo.png"
+              alt="BizBook Pro"
+              className="h-full w-full object-contain antialiased"
+              onError={(e) => {
+                ;(e.currentTarget as HTMLImageElement).style.display = 'none'
+              }}
+            />
+          </div>
+          <div className="flex flex-col min-w-0">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <span className="text-sm sm:text-base font-black text-slate-800 tracking-tight truncate">
+                BizBook Pro
+              </span>
+              {/* v4.12: Task 10 — "A Product by Tahigo International" badge */}
+              <span className="hidden lg:inline-flex items-center text-[9px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-full whitespace-nowrap">
+                A Product by Tahigo International
+              </span>
+            </div>
+            <span className="text-[9px] sm:text-[10px] font-semibold text-slate-400 tracking-wider uppercase truncate">
+              Tahigo International
             </span>
           </div>
-          <span className="text-[9px] sm:text-[10px] font-semibold text-slate-400 tracking-wider uppercase truncate">
-            Tahigo International
-          </span>
         </div>
       </div>
 

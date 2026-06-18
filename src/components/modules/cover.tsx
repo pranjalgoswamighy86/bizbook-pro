@@ -457,7 +457,7 @@ export function CoverPage() {
   }
 
   const features = [
-    { icon: <Zap className="h-5 w-5" />, title: 'Simple & Fast', desc: 'Easier than Tally Prime & Marg ERP. Clean interface, no complex menus.' },
+    { icon: <Zap className="h-5 w-5" />, title: 'Simple & Fast', desc: 'Clean interface, no complex menus. Designed for speed and simplicity.' },
     { icon: <BarChart3 className="h-5 w-5" />, title: 'Auto Reports', desc: 'P&L, Balance Sheet, Day Report - all auto-calculated from your entries.' },
     { icon: <Package className="h-5 w-5" />, title: 'Inventory + Value', desc: 'Track stock with real-time valuation. Low stock alerts included.' },
     { icon: <Users className="h-5 w-5" />, title: 'Multi-User Access', desc: 'View Only, Data Entry, Junior Admin & Main Admin - full control.' },
@@ -470,22 +470,46 @@ export function CoverPage() {
       {/* Hero */}
       <div className="max-w-7xl mx-auto px-4 py-8 sm:py-12">
         <div className="text-center mb-10">
+          {/* v4.13: Spec Section 9 — Dual-Branding Logo Alignment
+              Show BOTH Tahigo International (parent) + BizBook Pro (product) logos
+              with "A Product by Tahigo International" badge */}
           <div className="flex justify-center mb-6">
-            <img
-              src="/logo.png"
-              alt="BizBook Pro"
-              className="h-20 w-20 rounded-2xl shadow-lg object-contain"
-            />
+            <div className="flex items-center gap-4 p-3 bg-white/80 dark:bg-gray-800/80 rounded-2xl border border-slate-100 shadow-lg backdrop-blur-md">
+              {/* Tahigo International parent logo (48x48) */}
+              <div className="relative flex items-center justify-center h-12 w-12 sm:h-16 sm:w-16 bg-white rounded-xl border border-slate-100 p-2 shadow-sm overflow-hidden">
+                <img
+                  src="/tahigo-logo.png"
+                  alt="Tahigo International"
+                  className="h-full w-full object-contain antialiased"
+                  onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
+                />
+              </div>
+              {/* Separator */}
+              <div className="h-8 sm:h-12 w-px bg-slate-200" />
+              {/* BizBook Pro product logo */}
+              <div className="flex items-center justify-center h-12 w-12 sm:h-16 sm:w-16 bg-white rounded-xl border border-slate-100 p-2 shadow-sm overflow-hidden">
+                <img
+                  src="/bizbook-pro-logo.png"
+                  alt="BizBook Pro"
+                  className="h-full w-full object-contain antialiased"
+                  onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
+                />
+              </div>
+            </div>
           </div>
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-100 dark:bg-emerald-900 text-emerald-700 dark:text-emerald-300 text-sm font-medium mb-4">
-            <Building2 className="h-4 w-4" />
-            Simple Business Management
+          {/* Task 10: "A Product by Tahigo International" badge */}
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-100 dark:bg-emerald-900 text-emerald-700 dark:text-emerald-300 text-xs font-semibold mb-4">
+            <Building2 className="h-3.5 w-3.5" />
+            A Product by Tahigo International
           </div>
           <h1 className="text-4xl sm:text-5xl font-bold tracking-tight mb-4">
             <span className="text-emerald-600">BizBook</span> Pro
           </h1>
+          {/* v4.13: Remove competitor mention (Tally Prime / Marg ERP) —
+              user said "Can we use other company product name?" → No.
+              Replace with generic description that doesn't name competitors. */}
           <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-            The simplest billing & inventory software for businesses that find Tally Prime and Marg ERP too complex.
+            The simplest billing &amp; inventory software for growing businesses.
             Clean interface, powerful features, lifetime entry with minimal subscription.
           </p>
         </div>

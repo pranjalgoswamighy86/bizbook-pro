@@ -166,23 +166,36 @@ export function AppSidebar() {
   // Shared navigation content for both mobile and desktop sidebars
   const sidebarContent = (
     <>
-      {/* v4.12: Spec Section 5 + Task 10 — Top-left branding shows Tahigo (parent)
-          + "A Product by Tahigo International" badge.
-          Sidebar shows the Tahigo logo prominently, with the tenant (company) name below. */}
+      {/* v4.13: Spec Section 9 — Dual-Branding Logo Alignment
+          Sidebar shows BOTH logos (Tahigo International + BizBook Pro) with hierarchy:
+            Line 1: [Tahigo logo] [BizBook logo]
+            Line 2: "Tahigo International" (parent, small uppercase)
+            Line 3: "BizBook Pro" (product, bold)
+            Line 4: tenant.name (company being operated, muted) */}
       <div className="p-4 shrink-0">
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
+          {/* Tahigo International parent logo */}
           <img
             src="/tahigo-logo.png"
             alt="Tahigo International"
-            className="flex-shrink-0 h-12 w-12 rounded-xl object-contain border border-slate-100 shadow-sm p-1 bg-white"
+            className="flex-shrink-0 h-10 w-10 rounded-lg object-contain border border-slate-100 shadow-sm p-1 bg-white"
+            onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
+          />
+          {/* BizBook Pro product logo */}
+          <img
+            src="/bizbook-pro-logo.png"
+            alt="BizBook Pro"
+            className="flex-shrink-0 h-10 w-10 rounded-lg object-contain border border-slate-100 shadow-sm p-1 bg-white"
             onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
           />
           <div className="min-w-0 flex-1">
-            <h1 className="text-base font-black truncate">Tahigo</h1>
-            <p className="text-[10px] font-semibold text-slate-500 tracking-wider uppercase truncate">
+            <p className="text-[9px] font-semibold text-slate-500 tracking-wider uppercase truncate">
               Tahigo International
             </p>
-            <p className="text-xs text-muted-foreground truncate mt-0.5">
+            <h1 className="text-sm font-black text-slate-800 truncate leading-tight">
+              BizBook Pro
+            </h1>
+            <p className="text-[10px] text-muted-foreground truncate">
               {tenant?.name || 'Business'}
             </p>
           </div>
@@ -299,11 +312,13 @@ export function AppSidebar() {
           >
             <Menu className="h-5 w-5" />
           </Button>
-          <img src="/tahigo-logo.png" alt="Tahigo International" className="h-12 w-12 rounded-xl object-contain flex-shrink-0 p-1 border border-slate-100 bg-white shadow-sm" onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }} />
+          {/* v4.13: Dual logos on mobile top bar */}
+          <img src="/tahigo-logo.png" alt="Tahigo International" className="h-10 w-10 rounded-lg object-contain flex-shrink-0 p-1 border border-slate-100 bg-white shadow-sm" onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }} />
+          <img src="/bizbook-pro-logo.png" alt="BizBook Pro" className="h-10 w-10 rounded-lg object-contain flex-shrink-0 p-1 border border-slate-100 bg-white shadow-sm" onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }} />
           <div className="min-w-0 flex-1">
-            <h1 className="text-base font-black truncate">Tahigo</h1>
-            <p className="text-[10px] font-semibold text-slate-500 tracking-wider uppercase truncate">Tahigo International</p>
-            <p className="text-xs text-muted-foreground truncate">{tenant?.name || 'Business'}</p>
+            <p className="text-[9px] font-semibold text-slate-500 tracking-wider uppercase truncate">Tahigo International</p>
+            <h1 className="text-sm font-black text-slate-800 truncate leading-tight">BizBook Pro</h1>
+            <p className="text-[10px] text-muted-foreground truncate">{tenant?.name || 'Business'}</p>
           </div>
         </div>
 
@@ -342,18 +357,25 @@ export function AppSidebar() {
     >
       {/* Header */}
       <div className="p-4 shrink-0">
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
+          {/* v4.13: Dual logos (Tahigo + BizBook Pro) */}
           <img
             src="/tahigo-logo.png"
             alt="Tahigo International"
-            className="flex-shrink-0 h-12 w-12 rounded-xl object-contain p-1 border border-slate-100 bg-white shadow-sm"
+            className="flex-shrink-0 h-10 w-10 rounded-lg object-contain p-1 border border-slate-100 bg-white shadow-sm"
+            onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
+          />
+          <img
+            src="/bizbook-pro-logo.png"
+            alt="BizBook Pro"
+            className="flex-shrink-0 h-10 w-10 rounded-lg object-contain p-1 border border-slate-100 bg-white shadow-sm"
             onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
           />
           {sidebarOpen && (
             <div className="min-w-0 flex-1">
-              <h1 className="text-base font-black truncate">Tahigo</h1>
-              <p className="text-[10px] font-semibold text-slate-500 tracking-wider uppercase truncate">Tahigo International</p>
-              <p className="text-xs text-muted-foreground truncate">{tenant?.name || 'Business'}</p>
+              <p className="text-[9px] font-semibold text-slate-500 tracking-wider uppercase truncate">Tahigo International</p>
+              <h1 className="text-sm font-black text-slate-800 truncate leading-tight">BizBook Pro</h1>
+              <p className="text-[10px] text-muted-foreground truncate">{tenant?.name || 'Business'}</p>
             </div>
           )}
         </div>
