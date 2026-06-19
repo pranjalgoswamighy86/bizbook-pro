@@ -17,7 +17,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "BizBook Pro — A Product by Tahigo International",
-  description: "The simplest billing & inventory software for growing businesses. Clean interface, powerful features, flexible subscription plans with usage-based hours.",
+  description: "The simplest billing & inventory software for growing businesses. Clean interface, powerful features, brilliant Accounting.",
   icons: {
     icon: "/favicon.png",
   },
