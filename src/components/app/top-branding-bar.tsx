@@ -63,7 +63,11 @@ export function TopBrandingBar() {
     let cancelled = false
     const fetchSub = async () => {
       try {
-        const res = await authFetch('/api/subscription')
+        const res = await authFetch('/api/subscription', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'get-status', tenantId: tenant?.id }),
+        })
         if (!res.ok) return
         const data = await res.json()
         if (cancelled) return
