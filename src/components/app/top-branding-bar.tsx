@@ -112,69 +112,30 @@ export function TopBrandingBar() {
       className="h-14 w-full bg-white border-b border-slate-200 flex items-center justify-between px-3 sm:px-6 sticky top-0 z-40 shrink-0"
       role="banner"
     >
-      {/* ============= LEFT ZONE: Dual Branding (Tahigo + BizBook Pro) ============= */}
-      <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-        {/* v4.13: Spec Section 9 — Both logos side by side
-            Tahigo International (parent) + BizBook Pro (product) */}
-        <div className="relative flex items-center justify-center h-12 w-12 bg-white rounded-xl border border-slate-100 shadow-sm p-2 overflow-hidden transition-all duration-300 hover:shadow-md shrink-0">
-          <img
-            src="/tahigo-logo.png"
-            alt="Tahigo International"
-            className="h-full w-full object-contain antialiased"
-            onError={(e) => {
-              ;(e.currentTarget as HTMLImageElement).style.display = 'none'
-            }}
-          />
-        </div>
-
-        {/* Structural separator */}
-        <div className="h-5 w-px bg-slate-200 shrink-0" aria-hidden="true" />
-
-        {/* BizBook Pro product logo + text */}
-        <div className="flex items-center gap-2 min-w-0">
-          <div className="flex items-center justify-center h-9 w-9 sm:h-10 sm:w-10 bg-white rounded-lg border border-slate-100 shadow-sm p-1.5 overflow-hidden shrink-0">
-            <img
-              src="/bizbook-pro-logo.png"
-              alt="BizBook Pro"
-              className="h-full w-full object-contain antialiased"
-              onError={(e) => {
-                ;(e.currentTarget as HTMLImageElement).style.display = 'none'
-              }}
-            />
-          </div>
-          <div className="flex flex-col min-w-0">
-            <div className="flex items-center gap-1.5 min-w-0">
-              <span className="text-sm sm:text-base font-black text-slate-800 tracking-tight truncate">
-                BizBook Pro
-              </span>
-              {/* v4.12: Task 10 — "A Product by Tahigo International" badge */}
-              <span className="hidden lg:inline-flex items-center text-[9px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-full whitespace-nowrap">
-                A Product by Tahigo International
-              </span>
-            </div>
-            <span className="text-[9px] sm:text-[10px] font-semibold text-slate-400 tracking-wider uppercase truncate">
-              Tahigo International
-            </span>
-          </div>
-        </div>
+      {/* ============= LEFT ZONE: Tenant Name (branding is in sidebar) ============= */}
+      <div className="flex items-center gap-2 min-w-0">
+        <span className="text-sm sm:text-base font-bold text-slate-800 tracking-tight truncate max-w-[150px] sm:max-w-[250px]">
+          {tenant?.name || 'BizBook Pro'}
+        </span>
       </div>
 
-      {/* ============= CENTER ZONE: Clean Whitespace (Task 33) ============= */}
+      {/* ============= CENTER ZONE: Clean Whitespace ============= */}
       <div className="flex-1 hidden md:block" aria-hidden="true" />
 
       {/* ============= RIGHT ZONE: Download Desktop + Subscription + Profile + Logout ============= */}
       <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-        {/* v4.20: Download Desktop button (PWA install) */}
-        {deferredPrompt && (
-          <button
-            onClick={handleInstall}
-            className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-700 font-bold text-[11px] rounded-xl transition-all cursor-pointer"
-            title="Install BizBook Pro as a desktop app"
-          >
-            <Download className="h-3.5 w-3.5" />
-            <span className="hidden lg:inline">Download Desktop</span>
-          </button>
-        )}
+        {/* v4.23: Download Desktop button — always visible */}
+        <button
+          onClick={deferredPrompt ? handleInstall : () => {
+            // If PWA not installable yet, show instructions
+            alert('To install BizBook Pro as a desktop app:\n\nChrome/Edge: Click the install icon (⊕) in the address bar\nFirefox: Menu → Install this site as an app\n\nOr use Chrome/Edge for best PWA support.')
+          }}
+          className="flex items-center gap-1.5 px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-700 font-bold text-[11px] rounded-xl transition-all cursor-pointer"
+          title="Install BizBook Pro as a desktop app"
+        >
+          <Download className="h-3.5 w-3.5" />
+          <span className="hidden sm:inline">Download Desktop</span>
+        </button>
 
         {/* Subscription Badge — v4.20: Always show hours+minutes, even if 0h 0m */}
         <button
