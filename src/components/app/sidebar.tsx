@@ -165,18 +165,37 @@ export function AppSidebar() {
   }
 
   // Shared navigation content for both mobile and desktop sidebars
-  // v4.18: Branding removed — TopBrandingBar handles all branding.
   const sidebarContent = (
     <>
-      {/* Switch Company / Add Company / Import Backup buttons (NO branding) */}
-      <div className="p-3 shrink-0">
-        {isMobile && (
-          <div className="flex justify-end mb-2">
-            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={closeMobileDrawer}>
+      {/* Branding: Both logos + BizBook Pro / Tahigo International */}
+      <div className="p-3 shrink-0 border-b border-border">
+        <div className="flex items-center gap-2">
+          <img
+            src="/tahigo-logo.png"
+            alt="Tahigo International"
+            className="flex-shrink-0 h-10 w-10 rounded-lg object-contain p-1 border border-slate-100 bg-white shadow-sm"
+            onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
+          />
+          <img
+            src="/bizbook-pro-logo.png"
+            alt="BizBook Pro"
+            className="flex-shrink-0 h-10 w-10 rounded-lg object-contain p-1 border border-slate-100 bg-white shadow-sm"
+            onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
+          />
+          <div className="min-w-0 flex-1">
+            <h1 className="text-sm font-black text-slate-800 dark:text-slate-100 truncate leading-tight">BizBook Pro</h1>
+            <p className="text-[9px] font-semibold text-slate-500 tracking-wider uppercase truncate">Tahigo International</p>
+          </div>
+          {isMobile && (
+            <Button variant="ghost" size="icon" className="flex-shrink-0 h-7 w-7" onClick={closeMobileDrawer}>
               <X className="h-4 w-4" />
             </Button>
-          </div>
-        )}
+          )}
+        </div>
+      </div>
+
+      {/* Switch Company / Add Company / Import Backup buttons */}
+      <div className="p-3 shrink-0">
         <div className="space-y-1">
           <button
             onClick={handleSwitchCompany}
@@ -324,7 +343,31 @@ export function AppSidebar() {
         sidebarOpen ? 'w-64' : 'w-16'
       )}
     >
-      {/* Switch Company / Add Company / Import Backup buttons (NO branding — that's in TopBrandingBar) */}
+      {/* Branding: Both logos + BizBook Pro / Tahigo International */}
+      <div className="p-3 shrink-0 border-b border-border">
+        <div className="flex items-center gap-2">
+          <img
+            src="/tahigo-logo.png"
+            alt="Tahigo International"
+            className="flex-shrink-0 h-10 w-10 rounded-lg object-contain p-1 border border-slate-100 bg-white shadow-sm"
+            onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
+          />
+          <img
+            src="/bizbook-pro-logo.png"
+            alt="BizBook Pro"
+            className="flex-shrink-0 h-10 w-10 rounded-lg object-contain p-1 border border-slate-100 bg-white shadow-sm"
+            onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
+          />
+          {sidebarOpen && (
+            <div className="min-w-0 flex-1">
+              <h1 className="text-sm font-black text-slate-800 dark:text-slate-100 truncate leading-tight">BizBook Pro</h1>
+              <p className="text-[9px] font-semibold text-slate-500 tracking-wider uppercase truncate">Tahigo International</p>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Switch Company / Add Company / Import Backup buttons */}
       <div className="p-3 shrink-0">
         {sidebarOpen && (
           <div className="space-y-1">
