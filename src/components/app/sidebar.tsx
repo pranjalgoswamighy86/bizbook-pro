@@ -341,6 +341,10 @@ export function AppSidebar() {
           {sidebarContent}
         </div>
         {backupDialog}
+        {/* v4.51: Fix — HelpModal was only mounted on desktop, never on mobile.
+            Clicking Help button on mobile did nothing because the modal component
+            wasn't in the render tree. Now mounted in BOTH paths. */}
+        <HelpModal open={showHelp} onClose={() => setShowHelp(false)} />
       </>
     )
   }
