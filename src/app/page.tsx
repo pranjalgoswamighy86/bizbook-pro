@@ -111,6 +111,69 @@ export default function Home() {
     return () => { cancelled = true }
   }, [hydrated, isAuthenticated, logout])
 
+  // v4.49: AFK auto-logout after 5 minutes of inactivity (UPDATE.pdf A5)
+  // Spec: "TENANT / USER ID MUST BE AUTO LOGOUT AFTER 5 MINUTES TO PREVANTING SECURITY >
+  //        ONLY LOGIN TIME SHOULD BE COUNT AND REDUSED FROM SUBSCRIPTION PLAN TIME LIMIT COUNTDOWN"
+  //
+  // Behavior:
+  //   - Timer starts at 5 minutes (300s)
+  //   - Resets on user activity (mousemove, keydown, click, scroll, touchstart)
+  //   - Throttled to reset at most once every 10s (avoid CPU burn on continuous mouse move)
+  //   - When dialog/modal is open (e.g., UPI payment, form filling), timer is EXTENDED by 5 min
+  //     (so users don't get logged out mid-payment)
+  //   - When timer fires: clears localStorage + cookie + calls logout()
+  //   - Login time is the only time counted against subscription (per spec) — this is enforced
+  //     by the useSubscriptionUsageTracker hook which deducts 60s every minute while authenticated
+  useEffect(() => {
+    if (!hydrated || !isAuthenticated) return
+
+    let afkTimer: ReturnType<typeof setTimeout>
+    const AFK_TIMEOUT_MS = 5 * 60 * 1000 // 5 minutes
+    const AFK_EXTENDED_TIMEOUT_MS = 10 * 60 * 1000 // 10 minutes if dialog open
+
+    const resetAFKTimer = () => {
+      clearTimeout(afkTimer)
+      afkTimer = setTimeout(() => {
+        // Don't auto-logout if a dialog/modal is open — extend by 5 min instead
+        // (covers: UPI payment, file upload, form filling, OTP entry, etc.)
+        const hasOpenDialog = document.querySelector('[role="dialog"][data-state="open"]')
+        if (hasOpenDialog) {
+          console.log('[AFK] Open dialog detected — extending auto-logout by 5 minutes')
+          afkTimer = setTimeout(() => {
+            console.log('[AFK] Auto-logout after extended inactivity (dialog was open)')
+            try { localStorage.removeItem('bizbook-auth') } catch {}
+            document.cookie = 'bizbook_session=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;'
+            logout()
+          }, AFK_TIMEOUT_MS) // extend by another 5 min
+          return
+        }
+
+        console.log('[AFK] Auto-logout after 5 minutes of inactivity')
+        try { localStorage.removeItem('bizbook-auth') } catch {}
+        document.cookie = 'bizbook_session=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;'
+        logout()
+      }, AFK_TIMEOUT_MS)
+    }
+
+    // Track user activity (throttled to avoid CPU burn)
+    const events = ['mousedown', 'mousemove', 'keydown', 'scroll', 'touchstart', 'click']
+    let lastReset = 0
+    const throttledReset = () => {
+      const now = Date.now()
+      if (now - lastReset > 10000) { // at most once per 10 seconds
+        lastReset = now
+        resetAFKTimer()
+      }
+    }
+    events.forEach(e => window.addEventListener(e, throttledReset, { passive: true }))
+    resetAFKTimer() // initial timer
+
+    return () => {
+      clearTimeout(afkTimer)
+      events.forEach(e => window.removeEventListener(e, throttledReset))
+    }
+  }, [hydrated, isAuthenticated, logout])
+
   if (!hydrated) {
     return (
       <div className="flex h-dvh items-center justify-center bg-background">

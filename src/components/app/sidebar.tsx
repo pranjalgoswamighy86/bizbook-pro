@@ -34,6 +34,7 @@ import {
   Sparkles,
   Crown,
   ShieldCheck,
+  HelpCircle,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -43,6 +44,7 @@ import { getRoleLabel } from '@/store/app-store'
 import { useState, useEffect, useCallback } from 'react'
 import { useToast } from '@/hooks/use-toast'
 import { BackupImportDialog } from '@/components/modules/backup-import-dialog'
+import { HelpModal } from '@/components/app/help-modal' // v4.49: Help & Support modal
 import { authFetch } from '@/lib/auth-fetch'
 
 interface NavItem {
@@ -88,6 +90,7 @@ export function AppSidebar() {
   const [backupLoading, setBackupLoading] = useState(false)
   const [isMobile, setIsMobile] = useState(false)
   const [showBackupImport, setShowBackupImport] = useState(false)
+  const [showHelp, setShowHelp] = useState(false) // v4.49: Help modal state
 
   // Detect mobile screen size
   // Use 900px breakpoint so that small screens like 800x600
@@ -246,6 +249,16 @@ export function AppSidebar() {
               <span className="truncate">{item.label}</span>
             </button>
           ))}
+
+          {/* v4.49: Help button — opens Help modal with FAQ + guides + contact */}
+          <button
+            onClick={() => setShowHelp(true)}
+            className="w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors text-muted-foreground hover:bg-muted hover:text-foreground"
+            title={!sidebarOpen && !isMobile ? 'Help & Support' : undefined}
+          >
+            <HelpCircle className="h-4 w-4" />
+            <span className="truncate">Help &amp; Support</span>
+          </button>
         </nav>
       </ScrollArea>
 
@@ -430,6 +443,17 @@ export function AppSidebar() {
               {sidebarOpen && <span className="truncate">{item.label}</span>}
             </button>
           ))}
+
+          {/* v4.49: Help button — mobile drawer version */}
+          {sidebarOpen && (
+            <button
+              onClick={() => setShowHelp(true)}
+              className="w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors text-muted-foreground hover:bg-muted hover:text-foreground"
+            >
+              <HelpCircle className="h-4 w-4" />
+              <span className="truncate">Help &amp; Support</span>
+            </button>
+          )}
         </nav>
       </ScrollArea>
 
@@ -464,6 +488,9 @@ export function AppSidebar() {
           These now live in the TopBrandingBar (top-right corner, icon-only logout) */}
 
       {backupDialog}
+
+      {/* v4.49: Help modal — mounted at sidebar root so it works in both desktop and mobile drawer */}
+      <HelpModal open={showHelp} onClose={() => setShowHelp(false)} />
     </div>
   )
 }
