@@ -513,7 +513,10 @@ export async function POST(req: NextRequest) {
       }
 
       const rlKey = passwordResetRateLimitKey(`verify:${email}`)
-      const rl = checkRateLimit(rlKey, RATE_LIMITS.OTP_VERIFY)
+      // v4.44: BUG FIX — was RATE_LIMITS.OTP_VERIFY (doesn't exist in rate-limit.ts),
+      //   causing "Cannot read properties of undefined (reading 'windowMs')" crash
+      //   every time user submitted the login OTP. Use RATE_LIMITS.OTP instead.
+      const rl = checkRateLimit(rlKey, RATE_LIMITS.OTP)
       if (!rl.allowed) {
         return NextResponse.json({
           error: `Too many attempts. Try again in ${rl.retryAfterSeconds} seconds.`,
