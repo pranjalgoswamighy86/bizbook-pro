@@ -30,6 +30,7 @@ export type ViewType =
   | 'subscription'
   | 'ai-valuation'
   | 'super-admin-subscriptions'
+  | 'payment-proof-review'
 
 export type UserRole = 'VIEW_ONLY' | 'DATA_ENTRY' | 'JUNIOR_ADMIN' | 'MAIN_ADMIN'
 

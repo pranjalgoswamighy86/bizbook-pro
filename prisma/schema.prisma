@@ -676,7 +676,15 @@ model SubscriptionQueue {
   upiUri          String?
   createdAt       DateTime @default(now())
   completedAt     DateTime?
+  // v4.47: Payment proof fields (user uploads screenshot + UTR after paying)
+  utrNumber       String?  // 12-digit UPI transaction reference number
+  screenshotPath  String?  // Path to uploaded screenshot in /payment-proofs/
+  proofSubmittedAt DateTime? // When user submitted the proof
+  reviewedBy      String?  // Admin user ID who reviewed
+  reviewedAt      DateTime? // When admin reviewed
+  reviewNotes     String?  // Admin's notes (e.g., "UTR verified in bank statement")
 
   @@index([status, finalAmount])
   @@index([tenantId, status])
+  @@index([utrNumber]) // v4.47: for duplicate-UTR detection
 }

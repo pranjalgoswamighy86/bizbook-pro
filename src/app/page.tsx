@@ -32,6 +32,7 @@ import { AIImportPage } from '@/components/modules/ai-import'
 import { SubscriptionPage } from '@/components/modules/subscription'
 import { AIValuationPage } from '@/components/modules/ai-valuation'
 import { SuperAdminSubscriptionPanel } from '@/components/modules/super-admin-subscriptions'
+import { PaymentProofReview } from '@/components/modules/payment-proof-review'
 import { ErrorBoundary } from '@/components/app/error-boundary'
 import { Loader2 } from 'lucide-react'
 import { authFetch } from '@/lib/auth-fetch'
@@ -67,6 +68,7 @@ function ModuleRouter() {
     case 'subscription': return <SubscriptionPage />
     case 'ai-valuation': return <AIValuationPage />
     case 'super-admin-subscriptions': return <SuperAdminSubscriptionPanel />
+    case 'payment-proof-review': return <PaymentProofReview />
     case 'company-select': return <CompanySelectPage />
     default: return <Dashboard />
   }
