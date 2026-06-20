@@ -1,17 +1,10 @@
 'use client'
 
 /**
- * Download for Desktop — PWA Install Button
- *
- * Per spec: "If this application is running in a browser, there should be a
- * 'Download for Desktop' option on the software's dashboard page."
- *
- * Uses the browser's native `beforeinstallprompt` event to trigger
- * the PWA installation dialog. On Chrome/Edge, this installs the app
- * as a standalone desktop application.
- *
- * If the browser doesn't support PWA install (Firefox/Safari), the button
- * shows a tooltip explaining how to install manually.
+ * Download for Desktop — PWA Install Button (DESKTOP ONLY)
+ * =========================================================
+ * v4.43 UPDATE.pdf A6: Self-hides on mobile browsing.
+ * The "Download Desktop" feature is desktop-only per spec.
  */
 
 import { useState, useEffect } from 'react'
@@ -27,22 +20,30 @@ export function DownloadForDesktop() {
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null)
   const [installed, setInstalled] = useState(false)
   const [showHint, setShowHint] = useState(false)
+  // v4.43: Self-hide on mobile browsing (UPDATE.pdf A6)
+  const [isDesktop, setIsDesktop] = useState(false)
 
   useEffect(() => {
-    // Check if already installed (running as standalone PWA)
+    const checkDesktop = () => setIsDesktop(window.innerWidth >= 900)
+    checkDesktop()
+    window.addEventListener('resize', checkDesktop)
+    return () => window.removeEventListener('resize', checkDesktop)
+  }, [])
+
+  useEffect(() => {
+    if (!isDesktop) return
+
     if (window.matchMedia('(display-mode: standalone)').matches || (window.navigator as any).standalone === true) {
       setInstalled(true)
       return
     }
 
-    // Listen for beforeinstallprompt
     const handler = (e: Event) => {
       e.preventDefault()
       setInstallPrompt(e as BeforeInstallPromptEvent)
     }
     window.addEventListener('beforeinstallprompt', handler)
 
-    // Listen for appinstalled
     const installedHandler = () => { setInstalled(true); setInstallPrompt(null) }
     window.addEventListener('appinstalled', installedHandler)
 
@@ -50,7 +51,7 @@ export function DownloadForDesktop() {
       window.removeEventListener('beforeinstallprompt', handler)
       window.removeEventListener('appinstalled', installedHandler)
     }
-  }, [])
+  }, [isDesktop])
 
   const handleInstall = async () => {
     if (installPrompt) {
@@ -61,11 +62,12 @@ export function DownloadForDesktop() {
         setInstallPrompt(null)
       }
     } else {
-      // Browser doesn't support PWA install — show manual instructions
       setShowHint(!showHint)
     }
   }
 
+  // v4.43: Hard block — return null on mobile (not even rendered)
+  if (!isDesktop) return null
   if (installed) return null
 
   return (

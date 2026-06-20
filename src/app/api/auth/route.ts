@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db-soft-delete'
 import { sendOtpEmail, isEmailConfigured } from '@/lib/email'
-import { sendOtpSms, isSmsConfigured } from '@/lib/sms'
+// v4.43: SMS/2Factor imports removed — email-only OTP per user requirement
 import { dispatchOtp } from '@/lib/otp/dispatcher'
 import { checkRateLimit, RATE_LIMITS, otpRateLimitKey, loginRateLimitKey, passwordResetRateLimitKey } from '@/lib/rate-limit'
 // ---- SECURITY PATCH v1 imports ----

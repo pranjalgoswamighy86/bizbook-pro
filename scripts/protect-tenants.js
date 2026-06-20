@@ -25,10 +25,11 @@ const fs = require('fs');
 const path = require('path');
 
 // ---------- Configuration ----------
+// v4.43: Only kdhomesghy@gmail.com is protected (owner's primary tenant).
+// User clarified that goswamipranjalghy86@gmail.com and homesghy@gmail.com are
+// just regular tenant accounts — they have been removed from the protected list.
 const PROTECTED_TENANTS = [
   'kdhomesghy@gmail.com',
-  'goswamipranjalghy86@gmail.com',
-  'homesghy@gmail.com',
 ];
 
 const DB_PATH = process.env.DATABASE_URL?.replace('file:', '') || '/app/data/custom.db';

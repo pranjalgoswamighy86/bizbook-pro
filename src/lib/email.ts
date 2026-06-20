@@ -205,25 +205,44 @@ async function sendViaSmtp(
 
 // ---------------------------------------------------------------------------
 // PUBLIC API — send OTP email
+// v4.43: Pipeline reordered — Brevo FIRST (sends to ANY email, not just owner)
 // ---------------------------------------------------------------------------
 export async function sendOtpEmail(
   email: string,
   otp: string,
   userName?: string
 ): Promise<{ success: boolean; error?: string }> {
+  // === v4.43: Try Brevo FIRST ===
+  // Resend free tier ONLY delivers to the account owner's email (pranjalgoswamighy86@gmail.com).
+  // For ANY other recipient, Resend silently drops the email. So Brevo (which has no such
+  // restriction) is the correct primary provider for OTP-to-any-recipient.
+  try {
+    const { sendViaBrevo, isBrevoConfigured } = await import('./brevo')
+    if (isBrevoConfigured()) {
+      console.log(`[EMAIL] Trying Brevo (primary) for ${email}...`)
+      const brevoResult = await sendViaBrevo(email, otp, userName)
+      if (brevoResult.success) return brevoResult
+      console.warn('[EMAIL] Brevo failed, trying Resend...', brevoResult.error)
+    } else {
+      console.warn('[EMAIL] Brevo not configured (BREVO_API_KEY missing) — falling back to Resend')
+    }
+  } catch (err) {
+    console.warn('[EMAIL] Brevo import failed:', err)
+  }
+
   if (!isEmailConfigured()) {
-    console.error('[EMAIL] Cannot send OTP: no email provider configured (RESEND_API_KEY or SMTP_USER/SMTP_PASS)')
+    console.error('[EMAIL] Cannot send OTP: no email provider configured (BREVO_API_KEY, RESEND_API_KEY, or SMTP_USER/SMTP_PASS)')
     return { success: false, error: 'EMAIL_NOT_CONFIGURED' }
   }
 
-  // === Step 1: Try Resend API first (works on Railway) ===
+  // === Step 2: Try Resend API (only delivers to account owner on free tier) ===
   if (isResendConfigured()) {
     const result = await sendViaResend(email, otp, userName)
     if (result.success) return result
     console.warn('[EMAIL] Resend failed, falling back to SMTP...')
   }
 
-  // === Step 2: Fallback to SMTP ===
+  // === Step 3: Fallback to SMTP ===
   const smtpResult = await sendViaSmtp(email, otp, userName)
   if (smtpResult.success) return smtpResult
 

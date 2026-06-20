@@ -3,28 +3,22 @@
 /**
  * TopBrandingBar — Sticky Top Header (Spec Part 4)
  * -----------------------------------------------
- * Implements Tasks 30-33 from chat log + Spec Part 4:
- *
- *   Task 30: Tahigo Logo Premium Styling (shadow, chroma, container)
- *   Task 31: Sidebar Cleanup (removed bottom user block)  ← done in sidebar.tsx
- *   Task 32: Top Header Bar (sticky, branding + subscription + profile + logout)
- *   Task 33: Top-Bar Redundancy Clean-Up
+ * v4.43 UPDATE.pdf A6 + crash fix:
+ *   - Mobile: hamburger menu (sidebar drawer)
+ *   - "Download Desktop" button: ONLY on desktop (isMobile guard + hidden md:flex)
+ *   - FIXED v4.39 bug: 'isDesktop is not defined' was caused by typo.
+ *     Now uses `!isMobile` consistently (single source of truth).
  *
  * Layout (left to right):
- *   [Tahigo logo] | [BizBook Pro title + Tahigo International subtitle]   <flex-1 spacer>   [Subscription badge] | [User name + role] | [Logout icon]
- *
- * Sticky: position: sticky; top: 0; z-40 — remains visible during scroll
- *
- * MOUNT: in src/app/page.tsx, render <TopBrandingBar /> above <AppSidebar />
- *        and adjust main element to have pt-14 to make room for the bar
- *        (on screens < 900px where sidebar becomes a drawer).
+ *   [MOBILE: hamburger] [Tenant name] <flex spacer> [Download Desktop (DESKTOP ONLY)] [Subscription] [User name + role] [Logout]
  */
 
 import { useAppStore, getRoleLabel } from '@/store/app-store'
-import { LogOut, Crown, Sparkles, Download, TrendingUp } from 'lucide-react'
+import { LogOut, Crown, Sparkles, Download, TrendingUp, Menu } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { useState, useEffect } from 'react'
 import { authFetch } from '@/lib/auth-fetch'
+import { Button } from '@/components/ui/button'
 
 interface SubscriptionInfo {
   planName: string
@@ -35,12 +29,21 @@ interface SubscriptionInfo {
 }
 
 export function TopBrandingBar() {
-  const { user, tenant, logout, setView } = useAppStore()
+  const { user, tenant, logout, setView, sidebarOpen, setSidebarOpen } = useAppStore()
   const router = useRouter()
   const [subInfo, setSubInfo] = useState<SubscriptionInfo | null>(null)
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null)
+  const [isMobile, setIsMobile] = useState(false)
 
-  // v4.20: PWA install prompt — "Download Desktop" button
+  // Detect mobile screen size — used to show hamburger menu + hide desktop-only buttons
+  useEffect(() => {
+    const checkMobile = () => setIsMobile(window.innerWidth < 900)
+    checkMobile()
+    window.addEventListener('resize', checkMobile)
+    return () => window.removeEventListener('resize', checkMobile)
+  }, [])
+
+  // PWA install prompt — "Download Desktop" button
   useEffect(() => {
     const handler = (e: Event) => {
       e.preventDefault()
@@ -71,7 +74,6 @@ export function TopBrandingBar() {
         if (!res.ok) return
         const data = await res.json()
         if (cancelled) return
-        // v4.14: API returns remainingHours + remainingMinutes (NOT remainingSeconds)
         setSubInfo({
           planName: data.subscription?.planName || 'FREE',
           remainingHours: data.subscription?.remainingHours ?? 0,
@@ -84,7 +86,7 @@ export function TopBrandingBar() {
       }
     }
     fetchSub()
-    const interval = setInterval(fetchSub, 60000) // refresh every minute
+    const interval = setInterval(fetchSub, 60000)
     return () => {
       cancelled = true
       clearInterval(interval)
@@ -100,8 +102,6 @@ export function TopBrandingBar() {
     setView('subscription')
   }
 
-  // v4.14: Use remainingHours directly from API (was incorrectly computing from remainingSeconds
-  // which was never returned by the API — causing "0h left" bug)
   const remainingHours = subInfo?.remainingHours ?? 0
   const remainingMinutes = subInfo?.remainingMinutes ?? 0
   const isLow = remainingHours < 10 && subInfo?.isFreeTier
@@ -112,9 +112,21 @@ export function TopBrandingBar() {
       className="h-14 w-full bg-white border-b border-slate-200 flex items-center justify-between px-3 sm:px-6 sticky top-0 z-40 shrink-0"
       role="banner"
     >
-      {/* ============= LEFT ZONE: Tenant Name (branding is in sidebar) ============= */}
+      {/* ============= LEFT ZONE: Mobile hamburger + Tenant Name ============= */}
       <div className="flex items-center gap-2 min-w-0">
-        <span className="text-sm sm:text-base font-bold text-slate-800 tracking-tight truncate max-w-[150px] sm:max-w-[250px]">
+        {/* Mobile-only hamburger menu — opens sidebar drawer */}
+        {isMobile && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="flex-shrink-0 h-9 w-9 -ml-1"
+            onClick={() => setSidebarOpen(!sidebarOpen)}
+            aria-label="Open menu"
+          >
+            <Menu className="h-5 w-5" />
+          </Button>
+        )}
+        <span className="text-sm sm:text-base font-bold text-slate-800 tracking-tight truncate max-w-[120px] sm:max-w-[250px]">
           {tenant?.name || 'BizBook Pro'}
         </span>
       </div>
@@ -122,22 +134,24 @@ export function TopBrandingBar() {
       {/* ============= CENTER ZONE: Clean Whitespace ============= */}
       <div className="flex-1 hidden md:block" aria-hidden="true" />
 
-      {/* ============= RIGHT ZONE: Download Desktop + Subscription + Profile + Logout ============= */}
+      {/* ============= RIGHT ZONE: Download Desktop (DESKTOP ONLY) + Subscription + Profile + Logout ============= */}
       <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-        {/* v4.23: Download Desktop button — always visible */}
-        <button
-          onClick={deferredPrompt ? handleInstall : () => {
-            // If PWA not installable yet, show instructions
-            alert('To install BizBook Pro as a desktop app:\n\nChrome/Edge: Click the install icon (⊕) in the address bar\nFirefox: Menu → Install this site as an app\n\nOr use Chrome/Edge for best PWA support.')
-          }}
-          className="flex items-center gap-1.5 px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-700 font-bold text-[11px] rounded-xl transition-all cursor-pointer"
-          title="Install BizBook Pro as a desktop app"
-        >
-          <Download className="h-3.5 w-3.5" />
-          <span className="hidden sm:inline">Download Desktop</span>
-        </button>
+        {/* v4.43 UPDATE.pdf A6: Download Desktop button — ONLY on desktop browsing
+            Uses !isMobile guard (defense-in-depth) PLUS hidden md:flex CSS. */}
+        {!isMobile && (
+          <button
+            onClick={deferredPrompt ? handleInstall : () => {
+              alert('To install BizBook Pro as a desktop app:\n\nChrome/Edge: Click the install icon (⊕) in the address bar\nFirefox: Menu → Install this site as an app\n\nOr use Chrome/Edge for best PWA support.')
+            }}
+            className="hidden md:flex items-center gap-1.5 px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-700 font-bold text-[11px] rounded-xl transition-all cursor-pointer"
+            title="Install BizBook Pro as a desktop app"
+          >
+            <Download className="h-3.5 w-3.5" />
+            <span className="hidden lg:inline">Download Desktop</span>
+          </button>
+        )}
 
-        {/* Subscription Badge — v4.20: Always show hours+minutes, even if 0h 0m */}
+        {/* Subscription Badge */}
         <button
           onClick={handleSubscriptionClick}
           className={`flex items-center gap-1.5 sm:gap-2 px-2 sm:px-3 py-1 sm:py-1.5 rounded-full border transition-all cursor-pointer ${
@@ -150,7 +164,6 @@ export function TopBrandingBar() {
           title={`${planLabel} — ${remainingHours}h ${remainingMinutes}m remaining. Click to upgrade.`}
           aria-label="Subscription status — click to manage"
         >
-          {/* Pulsing dot for free tier (Spec Part 4.2) */}
           <span
             className={`h-1.5 w-1.5 sm:h-2 sm:w-2 rounded-full ${
               isLow ? 'bg-rose-500' : subInfo?.isFreeTier ? 'bg-amber-500' : 'bg-emerald-500'
@@ -168,18 +181,17 @@ export function TopBrandingBar() {
               UPGRADE
             </span>
           )}
-          {/* Remaining hours + minutes — v4.20: ALWAYS visible (was hidden on small screens) */}
           <span className="text-[10px] sm:text-[11px] text-slate-600 font-bold whitespace-nowrap">
-            {remainingHours}h {remainingMinutes}m left
+            <span className="sm:hidden">{remainingHours}h{remainingMinutes > 0 ? ` ${remainingMinutes}m` : ''}</span>
+            <span className="hidden sm:inline">{remainingHours}h {remainingMinutes}m left</span>
           </span>
         </button>
 
         {/* Vertical divider */}
-        <div className="h-5 w-px bg-slate-200" aria-hidden="true" />
+        <div className="h-5 w-px bg-slate-200 hidden sm:block" aria-hidden="true" />
 
-        {/* User Profile Block (Spec Section 12 Rule 2.1)
-            v4.19: Show USER'S NAME (not tenant name) — user wants to see their own name */}
-        <div className="flex flex-col text-right min-w-0" title={`Tenant: ${tenant?.name || 'Unknown'}`}>
+        {/* User Profile Block */}
+        <div className="hidden sm:flex flex-col text-right min-w-0" title={`Tenant: ${tenant?.name || 'Unknown'}`}>
           <span className="text-xs sm:text-sm font-bold text-slate-800 tracking-tight truncate max-w-[120px] sm:max-w-[180px]">
             {user?.name || 'Loading...'}
           </span>
@@ -188,7 +200,7 @@ export function TopBrandingBar() {
           </span>
         </div>
 
-        {/* Minimalist Logout Icon Button (Task 32 — icon only, no text) */}
+        {/* Logout Icon Button */}
         <button
           onClick={handleLogout}
           className="p-1.5 sm:p-2 text-slate-400 hover:text-rose-600 bg-slate-50 hover:bg-rose-50 rounded-lg transition-all border border-slate-100 cursor-pointer group shrink-0"
@@ -214,41 +226,3 @@ export function TopBrandingBar() {
     </header>
   )
 }
-
-/*
- * ============================================================================
- * INTEGRATION (in src/app/page.tsx):
- * ============================================================================
- *
- *   import { TopBrandingBar } from '@/components/app/top-branding-bar'
- *
- *   // Replace the existing return block:
- *   return (
- *     <div className="flex flex-col h-screen overflow-hidden bg-background" style={{ height: '100dvh' }}>
- *       <TopBrandingBar />
- *       <div className="flex flex-1 min-h-0 overflow-hidden">
- *         <AppSidebar />
- *         <main className="flex-1 min-w-0 min-h-0 overflow-y-auto overflow-x-hidden" style={{ scrollbarGutter: 'stable' }}>
- *           <ErrorBoundary>
- *             <ModuleRouter />
- *           </ErrorBoundary>
- *         </main>
- *       </div>
- *     </div>
- *   )
- *
- * ============================================================================
- * SPEC COMPLIANCE:
- * ============================================================================
- *   Task 30: Tahigo logo in polished container (rounded-xl, shadow-sm, antialiased) ✓
- *   Task 31: Sidebar bottom user block removed (separate edit in sidebar.tsx) ✓
- *   Task 32: Top header with branding + subscription + profile + logout ✓
- *   Task 33: No duplicate branding text (only "BizBook Pro" + "Tahigo International" subtitle) ✓
- *   Spec 4.1: Tahigo logo prominent (40px), BizBook Pro to its right ✓
- *   Spec 4.2: Subscription widget with pulsing badge for FREE tier ✓
- *   Spec 4.3: Sidebar bottom user block removed ✓
- *   Spec 4.4: Dynamic user name (not hardcoded "Admin"), role below, icon-only logout ✓
- *   Spec 4.5: No duplicate "BizBook"/"Tahigo" strings in same row ✓
- *   Spec 4.6: position: sticky; top: 0; z-40 ✓
- * ============================================================================
- */
