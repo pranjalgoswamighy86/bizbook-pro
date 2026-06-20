@@ -1,17 +1,26 @@
 'use client'
 
 /**
- * UPI Checkout Modal — Zero-Cost Autonomous Payment
- * ==================================================
- * v4.43: Added "I've Paid — Verify Now" button (manual verify fallback)
- *        Better error handling for 401/session expired
- *        Auto-poll every 5s for first 2 min, then every 15s
+ * UPI Checkout Modal — Zero-Cost Autonomous Payment (v4.45)
+ * =========================================================
+ * v4.45 SECURITY FIX:
+ *   - "I've Paid — Verify Now" button NO LONGER auto-activates.
+ *   - It now calls 'verify-payment' action which ONLY triggers IMAP scan.
+ *   - If IMAP confirms payment → SUCCESS (auto-activate via IMAP cron).
+ *   - If IMAP doesn't confirm → "Payment not detected yet" message.
+ *   - User CANNOT activate without actual payment.
+ *
+ * Admin Override:
+ *   - Super Admin can manually activate via Super Admin Panel
+ *     (uses 'admin-override-verify' action — SUPER_ADMIN only).
+ *   - This is for cases where bank alert didn't arrive but admin
+ *     verified payment externally (e.g., checked bank statement).
  */
 
 import { useState, useEffect, useRef } from 'react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
-import { Loader2, CheckCircle2, AlertTriangle, Copy, ShieldCheck, Clock } from 'lucide-react'
+import { Loader2, CheckCircle2, AlertTriangle, Copy, ShieldCheck, Clock, InfoIcon } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import { authFetch } from '@/lib/auth-fetch'
 
@@ -33,6 +42,7 @@ export function UPICheckoutModal({ open, onClose, onSuccess, tenantId, planHours
   const [verifying, setVerifying] = useState(false)
   const [imapEnabled, setImapEnabled] = useState<boolean | null>(null)
   const [elapsedSec, setElapsedSec] = useState(0)
+  const [verifyMessage, setVerifyMessage] = useState<string | null>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined)
   const elapsedRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined)
   const startedAtRef = useRef<number>(0)
@@ -50,6 +60,7 @@ export function UPICheckoutModal({ open, onClose, onSuccess, tenantId, planHours
     setStatus('initiating'); setLoading(true)
     startedAtRef.current = Date.now()
     setElapsedSec(0)
+    setVerifyMessage(null)
     try {
       const res = await authFetch('/api/upi-checkout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'initiate', tenantId, planHours }) })
       const data = await res.json()
@@ -79,10 +90,6 @@ export function UPICheckoutModal({ open, onClose, onSuccess, tenantId, planHours
           if (elapsedRef.current) clearInterval(elapsedRef.current)
           toast({ title: '✅ Payment Verified!', description: `${planName} activated!`, duration: 6000 })
           setTimeout(() => { onSuccess(); onClose() }, 2000)
-        } else if (data.status === 'EXPIRED' && data.canManualVerify === false) {
-          setStatus('expired')
-          if (pollRef.current) clearInterval(pollRef.current)
-          if (elapsedRef.current) clearInterval(elapsedRef.current)
         }
         // After 2 minutes of polling (24 polls × 5s = 120s), slow down to every 15s
         if (pollCount === 24 && pollRef.current) {
@@ -106,16 +113,20 @@ export function UPICheckoutModal({ open, onClose, onSuccess, tenantId, planHours
     }, 5000)
   }
 
+  // v4.45: "I've Paid" button now ONLY triggers IMAP verification.
+  // It does NOT auto-activate. If IMAP confirms → SUCCESS. Otherwise, error.
   const handleManualVerify = async () => {
     if (!checkout?.queueId) return
     setVerifying(true)
+    setVerifyMessage(null)
     try {
       const res = await authFetch('/api/upi-checkout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'admin-verify', tenantId, queueId: checkout.queueId }),
+        body: JSON.stringify({ action: 'verify-payment', tenantId, queueId: checkout.queueId }),
       })
       const data = await res.json()
+
       if (res.ok && data.success) {
         setStatus('success')
         if (pollRef.current) clearInterval(pollRef.current)
@@ -123,30 +134,43 @@ export function UPICheckoutModal({ open, onClose, onSuccess, tenantId, planHours
         toast({ title: '✅ Payment Verified!', description: `${planName} activated!`, duration: 6000 })
         setTimeout(() => { onSuccess(); onClose() }, 2000)
       } else if (res.status === 401) {
+        setVerifyMessage('Your login session expired. Please log in again, then click "I\'ve Paid" once more.')
         toast({
           title: 'Session Expired',
-          description: 'Your login session expired. Please log in again, then click "I\'ve Paid" once more.',
+          description: 'Please log in again, then click "I\'ve Paid" once more.',
           variant: 'destructive',
           duration: 10000,
         })
-      } else if (res.status === 400 && data.error === 'Already verified') {
-        setStatus('success')
-        if (pollRef.current) clearInterval(pollRef.current)
-        if (elapsedRef.current) clearInterval(elapsedRef.current)
-        toast({ title: '✅ Already Verified!', description: `${planName} is already active.`, duration: 6000 })
-        setTimeout(() => { onSuccess(); onClose() }, 2000)
+      } else if (data.status === 'imap_not_configured') {
+        setVerifyMessage('Auto-verification is not configured on the server. Please contact support with your UTR number to activate your plan manually.')
+        toast({
+          title: 'Auto-Verify Unavailable',
+          description: 'Contact support with your UTR number.',
+          variant: 'destructive',
+          duration: 10000,
+        })
+      } else if (data.status === 'payment_not_detected') {
+        setVerifyMessage('Payment not detected yet. Bank alerts can take 2-5 minutes to arrive. Please wait 2-3 minutes and try again. If you have already paid, your UTR number is in your UPI app.')
+        toast({
+          title: 'Payment Not Detected Yet',
+          description: 'Bank alerts take 2-5 minutes. Try again in 2-3 minutes.',
+          variant: 'default',
+          duration: 10000,
+        })
       } else {
+        setVerifyMessage(data.error || 'Could not verify payment. Please try again in 1 minute.')
         toast({
           title: 'Verification Issue',
-          description: data.error || 'We could not verify your payment. Please wait 30 seconds and try again.',
+          description: data.error || 'Please try again.',
           variant: 'destructive',
           duration: 8000,
         })
       }
     } catch (err: any) {
+      setVerifyMessage('Network error. Please check your connection and try again.')
       toast({
         title: 'Network Error',
-        description: err.message || 'Network error. Please try again.',
+        description: err.message || 'Network error.',
         variant: 'destructive',
       })
     } finally {
@@ -229,37 +253,53 @@ export function UPICheckoutModal({ open, onClose, onSuccess, tenantId, planHours
               )}
             </div>
 
+            {/* v4.45: IMAP auto-verification info banner */}
+            {imapEnabled === true && (
+              <div className="text-[11px] text-emerald-700 bg-emerald-50 p-2.5 rounded-xl border border-emerald-200 text-left flex gap-2">
+                <InfoIcon className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
+                <span>✅ <strong>Auto-verification is ON.</strong> After paying, your plan will activate automatically within 2-5 minutes. No need to click anything.</span>
+              </div>
+            )}
             {imapEnabled === false && (
-              <div className="text-[11px] text-blue-700 bg-blue-50 p-2.5 rounded-xl border border-blue-200 text-left">
-                💡 Auto-verification is not configured. After paying, click <strong>"I've Paid — Verify Now"</strong> below.
+              <div className="text-[11px] text-blue-700 bg-blue-50 p-2.5 rounded-xl border border-blue-200 text-left flex gap-2">
+                <InfoIcon className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
+                <span>💡 <strong>Auto-verification is OFF.</strong> After paying, click "I've Paid — Check Status" below. If payment is not detected, contact support with your UTR number.</span>
               </div>
             )}
 
             <div className="flex items-center justify-center gap-2 text-xs text-slate-400">
               <Loader2 className="h-3 w-3 animate-spin" />
-              {imapEnabled === false
-                ? 'Click below after paying to verify instantly'
-                : 'Auto-verifying... (checks every 5s)'}
+              {imapEnabled === true
+                ? 'Auto-verifying... (checks every 5s)'
+                : 'Click below after paying to check status'}
             </div>
 
+            {/* v4.45: "I've Paid — Check Status" button (NOT auto-activate) */}
             <Button
               onClick={handleManualVerify}
               disabled={verifying}
-              className={`w-full ${imapEnabled === false ? 'bg-emerald-600 hover:bg-emerald-700' : ''}`}
-              variant={imapEnabled === false ? 'default' : 'outline'}
+              className="w-full"
+              variant="outline"
             >
               {verifying ? (
                 <>
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Verifying payment...
+                  Checking payment status...
                 </>
               ) : (
                 <>
                   <ShieldCheck className="h-4 w-4 mr-2" />
-                  I've Paid — Verify Now
+                  I've Paid — Check Status
                 </>
               )}
             </Button>
+
+            {/* v4.45: Show verify message */}
+            {verifyMessage && (
+              <div className="text-[11px] text-amber-700 bg-amber-50 p-2.5 rounded-xl border border-amber-200 text-left">
+                {verifyMessage}
+              </div>
+            )}
 
             <p className="text-[10px] text-center text-slate-400">
               Time remaining: {formatElapsed(remainingSec)}

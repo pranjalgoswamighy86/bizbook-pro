@@ -24,8 +24,8 @@ export async function POST(req: NextRequest) {
       }
       const plan = PLANS[Number(planHours)]
 
-      // Expire old pending entries (cleanup — but doesn't auto-expire current)
-      const expiry = new Date(Date.now() - 30 * 60 * 1000) // 30 min grace (was 15)
+      // Expire old pending entries (cleanup — 30 min grace)
+      const expiry = new Date(Date.now() - 30 * 60 * 1000)
       await db.subscriptionQueue.updateMany({ where: { status: 'PENDING', createdAt: { lt: expiry } }, data: { status: 'EXPIRED' } })
 
       // Find unique paise
@@ -61,12 +61,10 @@ export async function POST(req: NextRequest) {
       const entry = await db.subscriptionQueue.findUnique({ where: { id: queueId } })
       if (!entry) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-      // v4.43: DON'T auto-expire in check-status. Keep PENDING until admin-verify.
-      // The 30-min timer is just a UI hint, not a hard server-side expiry.
-
       const imapEnabled = !!(process.env.AUTO_ALERT_EMAIL_USER && process.env.AUTO_ALERT_EMAIL_PASSWORD)
 
-      if (entry.status === 'PENDING' && imapEnabled) {
+      // v4.45: AUTO-VERIFY — always trigger IMAP scan when PENDING (even if not enabled, returns disabled status)
+      if (entry.status === 'PENDING') {
         try {
           const imapRes = await fetch(`http://localhost:${process.env.PORT || 8080}/api/cron/imap-scan${process.env.CRON_SECRET ? '?secret=' + process.env.CRON_SECRET : ''}`)
           if (imapRes.ok) {
@@ -95,62 +93,156 @@ export async function POST(req: NextRequest) {
         finalAmount: entry.finalAmount,
         imapEnabled,
         queueAgeSec,
-        canManualVerify: entry.status === 'PENDING' || entry.status === 'EXPIRED',
       })
     }
 
-    if (action === 'admin-verify') {
-      // v4.43: Added detailed logging for payment verification debugging
-      console.log('[UPI-VERIFY] admin-verify called', { queueId: body.queueId, tenantId: body.tenantId })
+    // v4.45: SECURITY FIX — "I've Paid" button now ONLY triggers IMAP verification.
+    // It does NOT auto-activate. If IMAP confirms payment → SUCCESS.
+    // If IMAP can't confirm → returns 'payment_not_detected' (user must wait or contact admin).
+    // This prevents the critical security bug where users could click "I've Paid"
+    // without paying and still get the plan activated.
+    if (action === 'verify-payment') {
+      console.log('[UPI-VERIFY] verify-payment called (IMAP-only)', { queueId: body.queueId, tenantId: body.tenantId })
       const auth = await requireAuth(req)
       if (auth instanceof NextResponse) {
         console.error('[UPI-VERIFY] Auth failed — session expired or invalid')
         return auth
       }
-      console.log('[UPI-VERIFY] Auth OK', { userId: auth.userId })
       const { queueId } = body
       if (!queueId) {
-        console.error('[UPI-VERIFY] Missing queueId')
         return NextResponse.json({ error: 'queueId required' }, { status: 400 })
       }
       const entry = await db.subscriptionQueue.findUnique({ where: { id: queueId } })
       if (!entry) {
-        console.error('[UPI-VERIFY] Queue entry not found:', queueId)
         return NextResponse.json({ error: 'Not found' }, { status: 404 })
       }
-      console.log('[UPI-VERIFY] Queue entry found', {
-        queueId, tenantId: entry.tenantId, planName: entry.planName,
-        finalAmount: entry.finalAmount, status: entry.status,
-        age: Math.round((Date.now() - entry.createdAt.getTime()) / 1000) + 's'
-      })
       if (entry.status === 'SUCCESS') {
-        console.warn('[UPI-VERIFY] Already verified:', queueId)
+        return NextResponse.json({ success: true, status: 'SUCCESS', message: 'Already activated', planName: entry.planName })
+      }
+
+      const imapEnabled = !!(process.env.AUTO_ALERT_EMAIL_USER && process.env.AUTO_ALERT_EMAIL_PASSWORD)
+      console.log('[UPI-VERIFY] IMAP enabled:', imapEnabled)
+
+      if (!imapEnabled) {
+        console.warn('[UPI-VERIFY] IMAP not configured — cannot auto-verify')
+        return NextResponse.json({
+          success: false,
+          status: 'imap_not_configured',
+          error: 'Auto-verification is not configured. Please wait for an admin to manually verify your payment, or contact support with your UTR number.',
+          requiresAdmin: true,
+        }, { status: 403 })
+      }
+
+      // Trigger IMAP scan immediately
+      try {
+        console.log('[UPI-VERIFY] Triggering IMAP scan...')
+        const imapRes = await fetch(`http://localhost:${process.env.PORT || 8080}/api/cron/imap-scan${process.env.CRON_SECRET ? '?secret=' + process.env.CRON_SECRET : ''}`)
+        if (imapRes.ok) {
+          const imapData = await imapRes.json()
+          console.log('[UPI-VERIFY] IMAP scan result:', imapData.status, 'matched:', imapData.matched)
+        } else {
+          console.error('[UPI-VERIFY] IMAP scan failed:', imapRes.status)
+        }
+
+        // Re-check status after IMAP scan
+        const updated = await db.subscriptionQueue.findUnique({ where: { id: queueId } })
+        if (updated?.status === 'SUCCESS') {
+          console.log('[UPI-VERIFY] ✅ Payment auto-verified via IMAP')
+          return NextResponse.json({
+            success: true,
+            status: 'SUCCESS',
+            planName: entry.planName,
+            message: 'Payment verified automatically!'
+          })
+        }
+
+        // IMAP didn't match — payment not detected yet
+        console.warn('[UPI-VERIFY] Payment not detected yet')
+        return NextResponse.json({
+          success: false,
+          status: 'payment_not_detected',
+          error: 'Payment not detected yet. Bank alerts can take 2-5 minutes to arrive. Please wait and try again, or contact support with your UTR number.',
+          requiresAdmin: false,
+        }, { status: 202 })
+      } catch (imapErr: any) {
+        console.error('[UPI-VERIFY] IMAP scan exception:', imapErr?.message)
+        return NextResponse.json({
+          success: false,
+          status: 'imap_error',
+          error: 'Could not run payment verification. Please try again in 1 minute.',
+        }, { status: 500 })
+      }
+    }
+
+    // v4.45: NEW — admin-override-verify action
+    // Super Admin ONLY — manually activates a subscription after EXTERNAL verification
+    // (e.g., admin checked bank statement and confirmed payment received).
+    // This is the ONLY way to manually activate a plan.
+    // The tenant user CANNOT use this action — they can only request admin review.
+    if (action === 'admin-override-verify') {
+      console.log('[UPI-VERIFY] admin-override-verify called', { queueId: body.queueId, tenantId: body.tenantId })
+      // Require SUPER_ADMIN role
+      const auth = await requireAuthAndRole(req, body.tenantId || '', ['SUPER_ADMIN'] as any)
+      if (auth instanceof NextResponse) {
+        // Fallback: also accept MAIN_ADMIN if SUPER_ADMIN check fails (single-tenant scenarios)
+        const auth2 = await requireAuth(req)
+        if (auth2 instanceof NextResponse) {
+          console.error('[UPI-VERIFY] Admin override — auth failed')
+          return auth2
+        }
+        // Check if user is admin@bizbook.pro or pranjalgoswamighy86@gmail.com
+        const user = await db.user.findUnique({ where: { id: auth2.userId } })
+        const ADMIN_OVERRIDE_EMAILS = [
+          'admin@bizbook.pro',
+          'pranjalgoswamighy86@gmail.com',
+          (process.env.ADMIN_EMAIL || '').toLowerCase(),
+        ].filter(Boolean)
+        if (!user || !ADMIN_OVERRIDE_EMAILS.includes(user.email.toLowerCase())) {
+          return NextResponse.json({ error: 'Only Super Admin can manually override payment verification' }, { status: 403 })
+        }
+      }
+      console.log('[UPI-VERIFY] Admin override — auth OK')
+
+      const { queueId, overrideReason } = body
+      if (!queueId) {
+        return NextResponse.json({ error: 'queueId required' }, { status: 400 })
+      }
+      const entry = await db.subscriptionQueue.findUnique({ where: { id: queueId } })
+      if (!entry) {
+        return NextResponse.json({ error: 'Not found' }, { status: 404 })
+      }
+      if (entry.status === 'SUCCESS') {
         return NextResponse.json({ error: 'Already verified' }, { status: 400 })
       }
 
-      // v4.43: Allow re-verification even if EXPIRED (user might have paid just before expiry)
+      console.log('[UPI-VERIFY] Admin override — activating', {
+        queueId, tenantId: entry.tenantId, planName: entry.planName,
+        finalAmount: entry.finalAmount, reason: overrideReason || 'no reason given'
+      })
+
       try {
-        console.log('[UPI-VERIFY] Activating plan...', { queueId, planHours: entry.planHours })
         await db.$transaction([
-          db.subscriptionQueue.update({ where: { id: queueId }, data: { status: 'SUCCESS', completedAt: new Date() } }),
+          db.subscriptionQueue.update({
+            where: { id: queueId },
+            data: { status: 'SUCCESS', completedAt: new Date() }
+          }),
           db.subscription.upsert({
             where: { tenantId: entry.tenantId },
             create: { tenantId: entry.tenantId, planHours: entry.planHours, planName: entry.planName, totalSeconds: entry.planHours * 3600, remainingSeconds: entry.planHours * 3600, status: 'ACTIVE', isFreeTier: false },
             update: { planHours: entry.planHours, planName: entry.planName, remainingSeconds: { increment: entry.planHours * 3600 }, status: 'ACTIVE', isFreeTier: false },
           }),
         ])
-        console.log('[UPI-VERIFY] ✅ Transaction committed — queue + subscription updated')
+        console.log('[UPI-VERIFY] ✅ Admin override — transaction committed')
 
         const sub = await db.subscription.findUnique({ where: { tenantId: entry.tenantId } })
         if (sub) {
-          await db.recharge.create({ data: { subscriptionId: sub.id, planHours: entry.planHours, planName: entry.planName, mrp: entry.baseAmount, discountPercent: 0, discountAmount: entry.finalAmount, totalSeconds: entry.planHours * 3600, paymentMode: 'UPI_AUTO', paymentRef: queueId, status: 'COMPLETED' } })
-          console.log('[UPI-VERIFY] ✅ Recharge record created')
+          await db.recharge.create({ data: { subscriptionId: sub.id, planHours: entry.planHours, planName: entry.planName, mrp: entry.baseAmount, discountPercent: 0, discountAmount: entry.finalAmount, totalSeconds: entry.planHours * 3600, paymentMode: 'ADMIN_OVERRIDE', paymentRef: queueId, status: 'COMPLETED' } })
         }
 
-        console.log('[UPI-VERIFY] ✅ Plan activated successfully:', { queueId, planName: entry.planName })
-        return NextResponse.json({ success: true, message: `${entry.planName} activated!` })
+        console.log('[UPI-VERIFY] ✅ Admin override — plan activated:', entry.planName)
+        return NextResponse.json({ success: true, message: `${entry.planName} activated via admin override` })
       } catch (txErr: any) {
-        console.error('[UPI-VERIFY] ❌ Transaction failed:', txErr?.message, txErr?.code)
+        console.error('[UPI-VERIFY] ❌ Admin override — transaction failed:', txErr?.message)
         return NextResponse.json({ error: `Activation failed: ${txErr?.message || 'DB error'}` }, { status: 500 })
       }
     }
