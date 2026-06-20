@@ -18,7 +18,7 @@
  *   - On controllerchange → window.location.reload()
  */
 
-const CACHE_VERSION = 'bizbook-pro-v4.8-2026-06-19';
+const CACHE_VERSION = 'bizbook-pro-v4.48-2026-06-20';
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 
@@ -48,8 +48,10 @@ self.addEventListener('install', (event) => {
       );
     })
   );
-  // Don't skipWaiting — let the update modal prompt user
-  // self.skipWaiting() would force-update without asking
+  // v4.48: Force skipWaiting — critical updates need to activate immediately
+  // Previous behavior waited for user to click "Update" in modal, which led to
+  // stale JS bundles causing "Invalid action" errors when API contract changed.
+  self.skipWaiting();
 });
 
 // ---------- Activate: cleanup old caches ----------

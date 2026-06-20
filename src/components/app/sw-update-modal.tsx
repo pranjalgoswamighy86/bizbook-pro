@@ -80,12 +80,14 @@ export function SWUpdateModal() {
           }
         });
 
-        // Check for updates every 60 minutes
+        // v4.48: Check for updates every 5 minutes (was 60 min — too slow for critical fixes)
+        // Also check immediately on mount (catches updates that happened while tab was closed)
+        registration.update().catch(() => {});
         setInterval(() => {
           registration.update().catch(() => {
             // Silent fail — updates are best-effort
           });
-        }, 60 * 60 * 1000);
+        }, 5 * 60 * 1000);
       } catch (err) {
         console.warn('[SW-UPDATE] Registration failed:', err);
       }

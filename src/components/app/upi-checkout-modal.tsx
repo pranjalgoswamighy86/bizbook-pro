@@ -164,8 +164,17 @@ export function UPICheckoutModal({ open, onClose, onSuccess, tenantId, planHours
       } else if (data.status === 'payment_not_detected') {
         setVerifyMessage('Payment not detected automatically. Please submit payment proof (screenshot + UTR) using the button below for admin review.')
         toast({ title: 'Payment Not Detected', description: 'Submit proof below.', variant: 'default', duration: 10000 })
+      } else if (data.error === 'Invalid action' || (data.error || '').includes('Invalid action')) {
+        // v4.48: Stale JS bundle — user's browser has cached old modal that calls removed action
+        setVerifyMessage('Your browser is running an outdated version of the app. Please HARD-REFRESH the page: On Windows/Linux: Ctrl+Shift+R. On Mac: Cmd+Shift+R. On iPhone: Settings → Safari → Clear History and Website Data, OR close and reopen Safari. Then try again.')
+        toast({
+          title: '⚠️ Outdated App Version',
+          description: 'Hard-refresh the page (Ctrl+Shift+R) to get the latest version.',
+          variant: 'destructive',
+          duration: 15000,
+        })
       } else {
-        setVerifyMessage(data.error || 'Could not verify payment.')
+        setVerifyMessage(data.error || 'Could not verify payment. If this persists, hard-refresh the page (Ctrl+Shift+R).')
         toast({ title: 'Verification Issue', description: data.error || 'Please try again.', variant: 'destructive', duration: 8000 })
       }
     } catch (err: any) {
@@ -180,8 +189,8 @@ export function UPICheckoutModal({ open, onClose, onSuccess, tenantId, planHours
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
-    if (file.size > 5 * 1024 * 1024) {
-      toast({ title: 'File too large', description: 'Max 5MB.', variant: 'destructive' })
+    if (file.size > 1 * 1024 * 1024) {
+      toast({ title: 'File too large', description: 'Max 1MB. Please crop or compress the screenshot.', variant: 'destructive' })
       return
     }
     const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'application/pdf']
@@ -421,7 +430,7 @@ export function UPICheckoutModal({ open, onClose, onSuccess, tenantId, planHours
                     </div>
                   )}
                   <p className="text-[10px] text-slate-500 mt-1">
-                    Take screenshot of UPI success screen showing UTR + amount + date. Max 5MB. JPG/PNG/WEBP/PDF.
+                    Take screenshot of UPI success screen showing UTR + amount + date. Max 1MB. JPG/PNG/WEBP/PDF. Crop to just the payment success area.
                   </p>
                 </div>
 

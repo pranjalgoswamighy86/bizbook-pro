@@ -16,7 +16,7 @@
  *
  * SECURITY:
  *   - Only the tenant who owns the queue entry can upload proof
- *   - File size limit: 5MB
+ *   - File size limit: 1MB (v4.48: reduced from 5MB per user request)
  *   - Allowed file types: jpg, jpeg, png, webp, pdf
  *   - UTR validated: 12 digits (UPI) OR 22 chars alphanumeric (NEFT/RTGS)
  *   - Duplicate UTR detection across all queue entries
@@ -30,7 +30,7 @@ import { join } from 'path'
 import { randomBytes } from 'crypto'
 
 const UPLOAD_DIR = join(process.cwd(), 'payment-proofs')
-const MAX_FILE_SIZE = 5 * 1024 * 1024 // 5MB
+const MAX_FILE_SIZE = 1 * 1024 * 1024 // 1MB (v4.48: was 5MB, reduced per user request)
 const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'application/pdf']
 const ALLOWED_EXTENSIONS = ['jpg', 'jpeg', 'png', 'webp', 'pdf']
 
