@@ -127,6 +127,16 @@ export function AppSidebar() {
     closeMobileDrawer()
   }
 
+  // v4.51: Fix Help button on mobile — close drawer BEFORE opening modal
+  // Without this, the drawer (z-50) and Dialog (z-50) compete for the same
+  // z-index level, and the drawer's translate-x transform creates a stacking
+  // context that traps the dialog behind it.
+  const handleHelpClick = useCallback(() => {
+    closeMobileDrawer() // Close drawer first (mobile)
+    // Small delay to let drawer close animation finish before opening modal
+    setTimeout(() => setShowHelp(true), 100)
+  }, [closeMobileDrawer])
+
   const handleDownloadBackup = async (format: 'json' | 'tally') => {
     if (!tenant) return
     setBackupLoading(true)
@@ -250,9 +260,10 @@ export function AppSidebar() {
             </button>
           ))}
 
-          {/* v4.49: Help button — opens Help modal with FAQ + guides + contact */}
+          {/* v4.49: Help button — opens Help modal with FAQ + guides + contact
+              v4.51: Use handleHelpClick to close mobile drawer first (fixes z-index conflict) */}
           <button
-            onClick={() => setShowHelp(true)}
+            onClick={handleHelpClick}
             className="w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors text-muted-foreground hover:bg-muted hover:text-foreground"
             title={!sidebarOpen && !isMobile ? 'Help & Support' : undefined}
           >
@@ -448,9 +459,10 @@ export function AppSidebar() {
             </button>
           ))}
 
-          {/* v4.50: Help button — mobile drawer version (always show, even when collapsed) */}
+          {/* v4.50: Help button — desktop sidebar version (always show, even when collapsed)
+              v4.51: Use handleHelpClick for consistent behavior */}
           <button
-            onClick={() => setShowHelp(true)}
+            onClick={handleHelpClick}
             className="w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors text-muted-foreground hover:bg-muted hover:text-foreground"
             title="Help & Support"
           >
