@@ -1,16 +1,23 @@
 'use client'
 
 /**
- * Help Modal — v4.49
- * ==================
- * Provides users with quick access to:
- *   - FAQ (common questions)
- *   - Step-by-step guides (registration, OTP, payment, etc.)
- *   - Contact support info
- *   - Keyboard shortcuts
+ * Help Modal — v4.52 (Mobile-compatible)
+ * =======================================
+ * v4.52 FIX: Screen not compatible on mobile devices
+ *   - Tabs: scrollable horizontally on mobile (overflow-x-auto)
+ *   - Tab labels: short on mobile, full on desktop (responsive)
+ *   - Dialog: full-width on mobile, max-w-2xl on desktop
+ *   - Padding: p-3 on mobile, p-6 on desktop
+ *   - Font sizes: smaller on mobile
+ *   - Safe area: respects iPhone notch (env(safe-area-inset-*))
+ *   - Contact cards: 1 column on mobile, 2 on desktop
+ *   - Guide cards: stack vertically on mobile
+ *   - Touch-friendly: larger tap targets (min-h-11 = 44px)
  *
- * Mounted in sidebar (Help menu item with HelpCircle icon).
- * Open state controlled by parent (AppSidebar) via `open` prop.
+ * Mounted in:
+ *   - Sidebar (Help menu item)
+ *   - Login page (floating Help button)
+ *   - Add Company page (floating Help button)
  */
 
 import { useState } from 'react'
@@ -136,42 +143,76 @@ export function HelpModal({ open, onClose }: HelpModalProps) {
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <HelpCircle className="h-5 w-5 text-emerald-600" />
-            Help &amp; Support
+      <DialogContent
+        className="
+          // v4.52: Mobile-first responsive sizing
+          w-[calc(100vw-1rem)]
+          max-w-[calc(100vw-1rem)]
+          sm:max-w-2xl
+          max-h-[90vh]
+          sm:max-h-[85vh]
+          overflow-y-auto
+          p-3 sm:p-6
+          // iPhone safe area support
+          [padding-top:max(0.75rem,env(safe-area-inset-top))]
+          [padding-bottom:max(0.75rem,env(safe-area-inset-bottom))]
+        "
+      >
+        <DialogHeader className="space-y-2">
+          <DialogTitle className="flex items-center gap-2 text-base sm:text-lg">
+            <HelpCircle className="h-5 w-5 text-emerald-600 flex-shrink-0" />
+            <span>Help &amp; Support</span>
           </DialogTitle>
         </DialogHeader>
 
-        {/* Tabs */}
-        <div className="flex gap-2 border-b pb-2 mb-4">
+        {/* Tabs — scrollable horizontally on mobile */}
+        <div className="
+          flex gap-1.5 sm:gap-2 border-b pb-2 mb-3 sm:mb-4
+          overflow-x-auto [scrollbar-width:none] [-ms-overflow-style:none]
+          [&::-webkit-scrollbar]:hidden
+          -mx-1 px-1
+        ">
           <Button
             variant={activeTab === 'faq' ? 'default' : 'ghost'}
             size="sm"
             onClick={() => setActiveTab('faq')}
-            className={activeTab === 'faq' ? 'bg-emerald-600 hover:bg-emerald-700' : ''}
+            className={`
+              flex-shrink-0 min-h-11 px-3 sm:px-4
+              ${activeTab === 'faq' ? 'bg-emerald-600 hover:bg-emerald-700' : ''}
+            `}
           >
-            <HelpCircle className="h-4 w-4 mr-1.5" />
-            FAQ
+            <HelpCircle className="h-4 w-4 sm:mr-1.5 flex-shrink-0" />
+            <span className="text-xs sm:text-sm">FAQ</span>
           </Button>
           <Button
             variant={activeTab === 'guides' ? 'default' : 'ghost'}
             size="sm"
             onClick={() => setActiveTab('guides')}
-            className={activeTab === 'guides' ? 'bg-emerald-600 hover:bg-emerald-700' : ''}
+            className={`
+              flex-shrink-0 min-h-11 px-3 sm:px-4
+              ${activeTab === 'guides' ? 'bg-emerald-600 hover:bg-emerald-700' : ''}
+            `}
           >
-            <BookOpen className="h-4 w-4 mr-1.5" />
-            Step-by-Step Guides
+            <BookOpen className="h-4 w-4 sm:mr-1.5 flex-shrink-0" />
+            <span className="text-xs sm:text-sm">
+              <span className="sm:hidden">Guides</span>
+              <span className="hidden sm:inline">Step-by-Step Guides</span>
+            </span>
           </Button>
           <Button
             variant={activeTab === 'contact' ? 'default' : 'ghost'}
             size="sm"
             onClick={() => setActiveTab('contact')}
-            className={activeTab === 'contact' ? 'bg-emerald-600 hover:bg-emerald-700' : ''}
+            className={`
+              flex-shrink-0 min-h-11 px-3 sm:px-4
+              ${activeTab === 'contact' ? 'bg-emerald-600 hover:bg-emerald-700' : ''}
+            `}
           >
-            <Mail className="h-4 w-4 mr-1.5" />
-            Contact Support
+            <Mail className="h-4 w-4 sm:mr-1.5 flex-shrink-0" />
+            <span className="text-xs sm:text-sm">
+              <span className="sm:hidden">Contact</span>
+              <span className="hidden sm:inline">Contact Support</span>
+            </span>
           </Button>
         </div>
 
@@ -182,17 +223,21 @@ export function HelpModal({ open, onClose }: HelpModalProps) {
               <div key={idx} className="border rounded-lg overflow-hidden">
                 <button
                   onClick={() => setExpandedFAQ(expandedFAQ === idx ? null : idx)}
-                  className="w-full px-4 py-3 text-left flex items-start gap-2 hover:bg-slate-50 transition-colors"
+                  className="
+                    w-full px-3 sm:px-4 py-3 text-left flex items-start gap-2
+                    hover:bg-slate-50 active:bg-slate-100 transition-colors
+                    min-h-11
+                  "
                 >
                   {expandedFAQ === idx ? (
                     <ChevronDown className="h-4 w-4 mt-0.5 text-slate-400 flex-shrink-0" />
                   ) : (
                     <ChevronRight className="h-4 w-4 mt-0.5 text-slate-400 flex-shrink-0" />
                   )}
-                  <span className="font-medium text-sm text-slate-800">{faq.q}</span>
+                  <span className="font-medium text-xs sm:text-sm text-slate-800 leading-snug">{faq.q}</span>
                 </button>
                 {expandedFAQ === idx && (
-                  <div className="px-4 pb-3 pl-10 text-sm text-slate-600 leading-relaxed">
+                  <div className="px-3 sm:px-4 pb-3 pl-9 sm:pl-10 text-xs sm:text-sm text-slate-600 leading-relaxed">
                     {faq.a}
                   </div>
                 )}
@@ -203,22 +248,22 @@ export function HelpModal({ open, onClose }: HelpModalProps) {
 
         {/* Guides Tab */}
         {activeTab === 'guides' && (
-          <div className="space-y-4">
+          <div className="space-y-3 sm:space-y-4">
             {GUIDES.map((guide, idx) => (
-              <div key={idx} className="border rounded-lg p-4">
+              <div key={idx} className="border rounded-lg p-3 sm:p-4">
                 <div className="flex items-center gap-2 mb-3">
-                  <div className="h-8 w-8 rounded-lg bg-emerald-100 flex items-center justify-center">
+                  <div className="h-8 w-8 rounded-lg bg-emerald-100 flex items-center justify-center flex-shrink-0">
                     <guide.icon className="h-4 w-4 text-emerald-600" />
                   </div>
-                  <h3 className="font-semibold text-slate-800">{guide.title}</h3>
+                  <h3 className="font-semibold text-sm sm:text-base text-slate-800">{guide.title}</h3>
                 </div>
-                <ol className="space-y-1.5 text-sm text-slate-600">
+                <ol className="space-y-1.5 text-xs sm:text-sm text-slate-600">
                   {guide.steps.map((step, stepIdx) => (
                     <li key={stepIdx} className="flex gap-2">
                       <span className="flex-shrink-0 h-5 w-5 rounded-full bg-emerald-100 text-emerald-700 text-xs font-bold flex items-center justify-center">
                         {stepIdx + 1}
                       </span>
-                      <span className="pt-0.5">{step}</span>
+                      <span className="pt-0.5 leading-snug">{step}</span>
                     </li>
                   ))}
                 </ol>
@@ -229,34 +274,35 @@ export function HelpModal({ open, onClose }: HelpModalProps) {
 
         {/* Contact Tab */}
         {activeTab === 'contact' && (
-          <div className="space-y-4">
-            <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-4">
+          <div className="space-y-3 sm:space-y-4">
+            <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 sm:p-4">
               <div className="flex items-center gap-2 mb-2">
-                <ShieldCheck className="h-5 w-5 text-emerald-600" />
-                <h3 className="font-semibold text-emerald-800">Tahigo International Support</h3>
+                <ShieldCheck className="h-5 w-5 text-emerald-600 flex-shrink-0" />
+                <h3 className="font-semibold text-sm sm:text-base text-emerald-800">Tahigo International Support</h3>
               </div>
-              <p className="text-sm text-emerald-700 mb-3">
+              <p className="text-xs sm:text-sm text-emerald-700">
                 BizBook Pro is a product by Tahigo International. We're here to help you with any issues.
               </p>
             </div>
 
-            <div className="grid sm:grid-cols-2 gap-3">
+            {/* v4.52: 1 column on mobile, 2 on sm+ */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <a
                 href="mailto:pranjalgoswamighy86@gmail.com?subject=BizBook%20Pro%20Support%20Request"
-                className="block p-4 border rounded-lg hover:border-emerald-300 hover:bg-emerald-50 transition-colors"
+                className="block p-3 sm:p-4 border rounded-lg hover:border-emerald-300 hover:bg-emerald-50 transition-colors min-h-11"
               >
-                <Mail className="h-6 w-6 text-emerald-600 mb-2" />
-                <div className="font-semibold text-sm text-slate-800">Email Support</div>
-                <div className="text-xs text-slate-600 mt-1">pranjalgoswamighy86@gmail.com</div>
+                <Mail className="h-5 w-5 sm:h-6 sm:w-6 text-emerald-600 mb-2" />
+                <div className="font-semibold text-xs sm:text-sm text-slate-800">Email Support</div>
+                <div className="text-xs text-slate-600 mt-1 break-all">pranjalgoswamighy86@gmail.com</div>
                 <div className="text-[11px] text-slate-500 mt-1">Response within 24 hours</div>
               </a>
 
               <a
                 href="tel:+919101555075"
-                className="block p-4 border rounded-lg hover:border-emerald-300 hover:bg-emerald-50 transition-colors"
+                className="block p-3 sm:p-4 border rounded-lg hover:border-emerald-300 hover:bg-emerald-50 transition-colors min-h-11"
               >
-                <Phone className="h-6 w-6 text-emerald-600 mb-2" />
-                <div className="font-semibold text-sm text-slate-800">Phone Support</div>
+                <Phone className="h-5 w-5 sm:h-6 sm:w-6 text-emerald-600 mb-2" />
+                <div className="font-semibold text-xs sm:text-sm text-slate-800">Phone Support</div>
                 <div className="text-xs text-slate-600 mt-1">+91 91015 55075</div>
                 <div className="text-[11px] text-slate-500 mt-1">Mon-Sat, 10 AM - 7 PM IST</div>
               </a>
@@ -265,33 +311,34 @@ export function HelpModal({ open, onClose }: HelpModalProps) {
                 href="https://wa.me/919101555075?text=Hi%20BizBook%20Pro%20Support%2C%20I%20need%20help%20with%3A%20"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="block p-4 border rounded-lg hover:border-emerald-300 hover:bg-emerald-50 transition-colors"
+                className="block p-3 sm:p-4 border rounded-lg hover:border-emerald-300 hover:bg-emerald-50 transition-colors min-h-11"
               >
-                <MessageCircle className="h-6 w-6 text-emerald-600 mb-2" />
-                <div className="font-semibold text-sm text-slate-800">WhatsApp</div>
+                <MessageCircle className="h-5 w-5 sm:h-6 sm:w-6 text-emerald-600 mb-2" />
+                <div className="font-semibold text-xs sm:text-sm text-slate-800">WhatsApp</div>
                 <div className="text-xs text-slate-600 mt-1">+91 91015 55075</div>
                 <div className="text-[11px] text-slate-500 mt-1">Fastest response</div>
               </a>
 
-              <div className="p-4 border rounded-lg bg-slate-50">
-                <Lightbulb className="h-6 w-6 text-amber-600 mb-2" />
-                <div className="font-semibold text-sm text-slate-800">Need UTR Help?</div>
+              <div className="p-3 sm:p-4 border rounded-lg bg-slate-50 min-h-11">
+                <Lightbulb className="h-5 w-5 sm:h-6 sm:w-6 text-amber-600 mb-2" />
+                <div className="font-semibold text-xs sm:text-sm text-slate-800">Need UTR Help?</div>
                 <div className="text-xs text-slate-600 mt-1">
                   For payment issues, include your UTR number (12-digit UPI Ref No) in your message.
                 </div>
               </div>
             </div>
 
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-xs text-blue-800">
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-xs text-blue-800 leading-relaxed">
               <strong>Tip:</strong> For faster support, include a screenshot of any error you're seeing.
               On iPhone: press Power + Volume Up simultaneously. On desktop: use Windows Snipping Tool or Cmd+Shift+4 (Mac).
             </div>
           </div>
         )}
 
-        <div className="border-t pt-3 mt-4 flex items-center justify-between text-xs text-slate-500">
-          <span>BizBook Pro v4.49 — A Product by Tahigo International</span>
-          <Button variant="outline" size="sm" onClick={onClose}>Close</Button>
+        <div className="border-t pt-3 mt-3 sm:mt-4 flex items-center justify-between text-xs text-slate-500 gap-2">
+          <span className="hidden sm:inline">BizBook Pro v4.52 — A Product by Tahigo International</span>
+          <span className="sm:hidden text-[11px]">v4.52 — Tahigo International</span>
+          <Button variant="outline" size="sm" onClick={onClose} className="min-h-9">Close</Button>
         </div>
       </DialogContent>
     </Dialog>
