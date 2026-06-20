@@ -41,6 +41,8 @@ export function UPICheckoutModal({ open, onClose, onSuccess, tenantId, planHours
   const [lastChecked, setLastChecked] = useState<Date | null>(null)
   const [verifying, setVerifying] = useState(false)
   const [imapEnabled, setImapEnabled] = useState<boolean | null>(null)
+  const [smsWebhookEnabled, setSmsWebhookEnabled] = useState<boolean | null>(null)
+  const [autoVerifyEnabled, setAutoVerifyEnabled] = useState<boolean | null>(null)
   const [elapsedSec, setElapsedSec] = useState(0)
   const [verifyMessage, setVerifyMessage] = useState<string | null>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined)
@@ -83,6 +85,10 @@ export function UPICheckoutModal({ open, onClose, onSuccess, tenantId, planHours
         setLastChecked(new Date())
         if (data.imapEnabled === false) setImapEnabled(false)
         else if (data.imapEnabled === true) setImapEnabled(true)
+        if (data.smsWebhookEnabled === false) setSmsWebhookEnabled(false)
+        else if (data.smsWebhookEnabled === true) setSmsWebhookEnabled(true)
+        if (data.autoVerifyEnabled === false) setAutoVerifyEnabled(false)
+        else if (data.autoVerifyEnabled === true) setAutoVerifyEnabled(true)
 
         if (data.status === 'SUCCESS') {
           setStatus('success')
@@ -141,7 +147,7 @@ export function UPICheckoutModal({ open, onClose, onSuccess, tenantId, planHours
           variant: 'destructive',
           duration: 10000,
         })
-      } else if (data.status === 'imap_not_configured') {
+      } else if (data.status === 'auto_verify_not_configured' || data.status === 'imap_not_configured') {
         setVerifyMessage('Auto-verification is not configured on the server. Please contact support with your UTR number to activate your plan manually.')
         toast({
           title: 'Auto-Verify Unavailable',
@@ -253,14 +259,14 @@ export function UPICheckoutModal({ open, onClose, onSuccess, tenantId, planHours
               )}
             </div>
 
-            {/* v4.45: IMAP auto-verification info banner */}
-            {imapEnabled === true && (
+            {/* v4.46: Auto-verification info banner — shows IMAP OR SMS webhook status */}
+            {autoVerifyEnabled === true && (
               <div className="text-[11px] text-emerald-700 bg-emerald-50 p-2.5 rounded-xl border border-emerald-200 text-left flex gap-2">
                 <InfoIcon className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
-                <span>✅ <strong>Auto-verification is ON.</strong> After paying, your plan will activate automatically within 2-5 minutes. No need to click anything.</span>
+                <span>✅ <strong>Auto-verification is ON.</strong> After paying, your plan will activate automatically within 30 seconds (via SMS alert) or 2-5 minutes (via email alert). No need to click anything.</span>
               </div>
             )}
-            {imapEnabled === false && (
+            {autoVerifyEnabled === false && (
               <div className="text-[11px] text-blue-700 bg-blue-50 p-2.5 rounded-xl border border-blue-200 text-left flex gap-2">
                 <InfoIcon className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
                 <span>💡 <strong>Auto-verification is OFF.</strong> After paying, click "I've Paid — Check Status" below. If payment is not detected, contact support with your UTR number.</span>
@@ -269,8 +275,8 @@ export function UPICheckoutModal({ open, onClose, onSuccess, tenantId, planHours
 
             <div className="flex items-center justify-center gap-2 text-xs text-slate-400">
               <Loader2 className="h-3 w-3 animate-spin" />
-              {imapEnabled === true
-                ? 'Auto-verifying... (checks every 5s)'
+              {autoVerifyEnabled === true
+                ? 'Auto-verifying... (payment detected instantly)'
                 : 'Click below after paying to check status'}
             </div>
 

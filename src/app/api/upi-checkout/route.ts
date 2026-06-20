@@ -62,9 +62,15 @@ export async function POST(req: NextRequest) {
       if (!entry) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
       const imapEnabled = !!(process.env.AUTO_ALERT_EMAIL_USER && process.env.AUTO_ALERT_EMAIL_PASSWORD)
+      // v4.46: SMS webhook auto-verification is enabled if SMS_WEBHOOK_SECRET is set
+      // User has Android SMS forwarder app installed that POSTs to /api/cron/sms-webhook
+      const smsWebhookEnabled = !!process.env.SMS_WEBHOOK_SECRET || !!process.env.CRON_SECRET
+      const autoVerifyEnabled = imapEnabled || smsWebhookEnabled
 
       // v4.45: AUTO-VERIFY — always trigger IMAP scan when PENDING (even if not enabled, returns disabled status)
-      if (entry.status === 'PENDING') {
+      // v4.46: Note — SMS webhook is PUSH-based (Android app POSTs immediately on SMS arrival)
+      //        so we don't need to poll it. We only trigger IMAP scan as fallback if configured.
+      if (entry.status === 'PENDING' && imapEnabled) {
         try {
           const imapRes = await fetch(`http://localhost:${process.env.PORT || 8080}/api/cron/imap-scan${process.env.CRON_SECRET ? '?secret=' + process.env.CRON_SECRET : ''}`)
           if (imapRes.ok) {
@@ -77,6 +83,8 @@ export async function POST(req: NextRequest) {
                 planName: entry.planName,
                 finalAmount: entry.finalAmount,
                 imapEnabled,
+                smsWebhookEnabled,
+                autoVerifyEnabled,
                 message: 'Payment verified automatically!'
               })
             }
@@ -92,6 +100,8 @@ export async function POST(req: NextRequest) {
         planName: entry.planName,
         finalAmount: entry.finalAmount,
         imapEnabled,
+        smsWebhookEnabled,
+        autoVerifyEnabled,
         queueAgeSec,
       })
     }
@@ -121,57 +131,60 @@ export async function POST(req: NextRequest) {
       }
 
       const imapEnabled = !!(process.env.AUTO_ALERT_EMAIL_USER && process.env.AUTO_ALERT_EMAIL_PASSWORD)
-      console.log('[UPI-VERIFY] IMAP enabled:', imapEnabled)
+      const smsWebhookEnabled = !!process.env.SMS_WEBHOOK_SECRET || !!process.env.CRON_SECRET
+      const autoVerifyEnabled = imapEnabled || smsWebhookEnabled
+      console.log('[UPI-VERIFY] Auto-verify options:', { imapEnabled, smsWebhookEnabled, autoVerifyEnabled })
 
-      if (!imapEnabled) {
-        console.warn('[UPI-VERIFY] IMAP not configured — cannot auto-verify')
+      if (!autoVerifyEnabled) {
+        console.warn('[UPI-VERIFY] No auto-verification configured — cannot verify')
         return NextResponse.json({
           success: false,
-          status: 'imap_not_configured',
+          status: 'auto_verify_not_configured',
           error: 'Auto-verification is not configured. Please wait for an admin to manually verify your payment, or contact support with your UTR number.',
           requiresAdmin: true,
         }, { status: 403 })
       }
 
-      // Trigger IMAP scan immediately
-      try {
-        console.log('[UPI-VERIFY] Triggering IMAP scan...')
-        const imapRes = await fetch(`http://localhost:${process.env.PORT || 8080}/api/cron/imap-scan${process.env.CRON_SECRET ? '?secret=' + process.env.CRON_SECRET : ''}`)
-        if (imapRes.ok) {
-          const imapData = await imapRes.json()
-          console.log('[UPI-VERIFY] IMAP scan result:', imapData.status, 'matched:', imapData.matched)
-        } else {
-          console.error('[UPI-VERIFY] IMAP scan failed:', imapRes.status)
+      // v4.46: SMS webhook is PUSH-based — Android app POSTs immediately when SMS arrives.
+      //        So we don't need to "trigger" it — it's already running on the user's phone.
+      //        We only need to trigger IMAP scan as fallback if IMAP is configured.
+      if (imapEnabled) {
+        try {
+          console.log('[UPI-VERIFY] Triggering IMAP scan as fallback...')
+          const imapRes = await fetch(`http://localhost:${process.env.PORT || 8080}/api/cron/imap-scan${process.env.CRON_SECRET ? '?secret=' + process.env.CRON_SECRET : ''}`)
+          if (imapRes.ok) {
+            const imapData = await imapRes.json()
+            console.log('[UPI-VERIFY] IMAP scan result:', imapData.status, 'matched:', imapData.matched)
+          }
+        } catch (imapErr: any) {
+          console.warn('[UPI-VERIFY] IMAP scan failed (SMS webhook may still work):', imapErr?.message)
         }
-
-        // Re-check status after IMAP scan
-        const updated = await db.subscriptionQueue.findUnique({ where: { id: queueId } })
-        if (updated?.status === 'SUCCESS') {
-          console.log('[UPI-VERIFY] ✅ Payment auto-verified via IMAP')
-          return NextResponse.json({
-            success: true,
-            status: 'SUCCESS',
-            planName: entry.planName,
-            message: 'Payment verified automatically!'
-          })
-        }
-
-        // IMAP didn't match — payment not detected yet
-        console.warn('[UPI-VERIFY] Payment not detected yet')
-        return NextResponse.json({
-          success: false,
-          status: 'payment_not_detected',
-          error: 'Payment not detected yet. Bank alerts can take 2-5 minutes to arrive. Please wait and try again, or contact support with your UTR number.',
-          requiresAdmin: false,
-        }, { status: 202 })
-      } catch (imapErr: any) {
-        console.error('[UPI-VERIFY] IMAP scan exception:', imapErr?.message)
-        return NextResponse.json({
-          success: false,
-          status: 'imap_error',
-          error: 'Could not run payment verification. Please try again in 1 minute.',
-        }, { status: 500 })
       }
+
+      // Re-check status after IMAP scan (and give SMS webhook a chance to fire if user just paid)
+      // Wait 2 seconds then re-check (allows time for SMS webhook POST to arrive)
+      await new Promise(r => setTimeout(r, 2000))
+      const updated = await db.subscriptionQueue.findUnique({ where: { id: queueId } })
+      if (updated?.status === 'SUCCESS') {
+        console.log('[UPI-VERIFY] ✅ Payment auto-verified (IMAP or SMS webhook)')
+        return NextResponse.json({
+          success: true,
+          status: 'SUCCESS',
+          planName: entry.planName,
+          message: 'Payment verified automatically!'
+        })
+      }
+
+      // Auto-verification didn't match yet — payment not detected
+      console.warn('[UPI-VERIFY] Payment not detected yet')
+      return NextResponse.json({
+        success: false,
+        status: 'payment_not_detected',
+        error: smsWebhookEnabled
+          ? 'Payment not detected yet. SMS alerts usually arrive within 30 seconds. Wait 1-2 minutes and try again. If still not detected, contact support with your UTR number.'
+          : 'Payment not detected yet. Bank alerts can take 2-5 minutes to arrive. Please wait and try again, or contact support with your UTR number.',
+        requiresAdmin: false,
+      }, { status: 202 })
     }
 
     // v4.45: NEW — admin-override-verify action
