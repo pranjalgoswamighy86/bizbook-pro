@@ -34,7 +34,9 @@ export async function POST(req: NextRequest) {
 
     // Call ZAI
     const ZAI = (await import('z-ai-web-dev-sdk')).default
-    const zai = await ZAI.create()
+    // v4.50: Use getZaiClient() for Railway fallback config
+    const { getZaiClient } = await import('@/lib/zai-client')
+    const zai = await getZaiClient()
 
     const completion = await zai.chat.completions.create({
       messages: [

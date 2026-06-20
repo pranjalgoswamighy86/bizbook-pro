@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import ZAI from 'z-ai-web-dev-sdk'
+import { getZaiClient } from '@/lib/zai-client' // v4.50: Fallback config for Railway
 import { db } from '@/lib/db-soft-delete'
 import { writeFile, mkdir, unlink, readdir, readFile } from 'fs/promises'
 import { join } from 'path'
@@ -96,7 +97,8 @@ export async function POST(req: NextRequest) {
     }
 
     const isPdf = invoiceImage.startsWith('data:application/pdf') || fileType === 'pdf'
-    const zai = await ZAI.create()
+    // v4.50: Use getZaiClient() for Railway fallback config
+    const zai = await getZaiClient()
 
     let contentItems: Array<Record<string, unknown>> = []
     let usedMethod = 'image'

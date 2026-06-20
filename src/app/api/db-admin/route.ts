@@ -22,7 +22,7 @@ const BACKUP_DIR = path.join(process.cwd(), 'db', 'backups')
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
-    const { action } = body
+    const { action, tenantId } = body // v4.50: Fix — tenantId was not destructured (caused ReferenceError)
 
     if (action === 'stats') {
       // ---- SECURITY PATCH v1: auth + tenant access ----

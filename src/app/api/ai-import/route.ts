@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import ZAI from 'z-ai-web-dev-sdk'
+import { getZaiClient } from '@/lib/zai-client' // v4.50: Fallback config for Railway
 import { db } from '@/lib/db-soft-delete'
 import { writeFile, mkdir } from 'fs/promises'
 import { join } from 'path'
@@ -445,7 +446,9 @@ function parseCSVToStructured(csv: string, isTSV: boolean): string {
 // ============================================
 
 async function analyzeFileWithAI(file: File, buffer: Buffer, tenantInfo: string = ''): Promise<any> {
-  const zai = await ZAI.create()
+  // v4.50: Use getZaiClient() which has fallback config for Railway
+  // (was: const zai = await ZAI.create() — failed with "Configuration file not found")
+  const zai = await getZaiClient()
   const fileName = file.name.toLowerCase()
   const mimeType = file.type || 'application/octet-stream'
   const systemPrompt = tenantInfo

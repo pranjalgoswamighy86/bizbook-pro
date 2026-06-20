@@ -9,8 +9,9 @@ import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
-import { Building2, Shield, Zap, BarChart3, Package, Users, KeyRound, ArrowLeft, Loader2, Phone, MailCheck } from 'lucide-react'
+import { Building2, Shield, Zap, BarChart3, Package, Users, KeyRound, ArrowLeft, Loader2, Phone, MailCheck, HelpCircle } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
+import { HelpModal } from '@/components/app/help-modal' // v4.50: Help on login page
 
 type ResetStep = 'idle' | 'request' | 'verify' | 'done'
 type RegStep = 'form' | 'verify-otp'
@@ -21,6 +22,7 @@ export function CoverPage() {
   const [tab, setTab] = useState('login')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [showHelp, setShowHelp] = useState(false) // v4.50: Help modal on login page
 
   // v4.11: Spec Section 24 — Developer fallback message for missing env vars
   // "If any core variable is evaluated as undefined at runtime, the application
@@ -467,6 +469,17 @@ export function CoverPage() {
 
   return (
     <div className="app-fullpage bg-gradient-to-br from-emerald-50 via-white to-teal-50 dark:from-gray-950 dark:via-gray-900 dark:to-emerald-950 overflow-y-auto">
+      {/* v4.50: Floating Help button (top-right) — always visible on login page */}
+      <button
+        onClick={() => setShowHelp(true)}
+        className="fixed top-4 right-4 z-50 flex items-center gap-2 px-3 py-2 bg-white/90 hover:bg-white border border-slate-200 rounded-full shadow-lg text-sm font-medium text-slate-700 hover:text-emerald-700 transition-colors backdrop-blur-md"
+        title="Help & Support"
+        aria-label="Help & Support"
+      >
+        <HelpCircle className="h-4 w-4" />
+        <span className="hidden sm:inline">Help</span>
+      </button>
+
       {/* Hero */}
       <div className="max-w-7xl mx-auto px-4 py-8 sm:py-12">
         <div className="text-center mb-10">
@@ -921,6 +934,9 @@ export function CoverPage() {
           setError('Workspace selection cancelled. Please log in again.')
         }}
       />
+
+      {/* v4.50: Help modal — accessible from login page */}
+      <HelpModal open={showHelp} onClose={() => setShowHelp(false)} />
     </div>
   )
 }

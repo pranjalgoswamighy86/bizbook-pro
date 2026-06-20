@@ -3,13 +3,14 @@
 import { useAppStore, type CompanyInfo } from '@/store/app-store'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Building2, Plus, ChevronRight, Loader2, Check, ArrowLeft, FileSpreadsheet } from 'lucide-react'
+import { Building2, Plus, ChevronRight, Loader2, Check, ArrowLeft, FileSpreadsheet, HelpCircle } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useState, useEffect } from 'react'
 import { useToast } from '@/hooks/use-toast'
 import { BackupImportDialog } from '@/components/modules/backup-import-dialog'
+import { HelpModal } from '@/components/app/help-modal' // v4.50: Help on Add Company page
 import { authFetch } from '@/lib/auth-fetch'
 
 export function CompanySelectPage() {
@@ -23,6 +24,7 @@ export function CompanySelectPage() {
   const [bizGst, setBizGst] = useState('')
   const [showBackupImport, setShowBackupImport] = useState(false)
   const [backupCompanyName, setBackupCompanyName] = useState('')
+  const [showHelp, setShowHelp] = useState(false) // v4.50: Help modal state
 
   const handleSelectCompany = async (company: CompanyInfo) => {
     try {
@@ -98,6 +100,17 @@ export function CompanySelectPage() {
 
   return (
     <div className="app-fullpage bg-gradient-to-br from-emerald-50 via-white to-teal-50 dark:from-gray-950 dark:via-gray-900 dark:to-emerald-950 flex items-center justify-center p-4 overflow-y-auto">
+      {/* v4.50: Floating Help button (top-right) — always visible on Add Company page */}
+      <button
+        onClick={() => setShowHelp(true)}
+        className="fixed top-4 right-4 z-50 flex items-center gap-2 px-3 py-2 bg-white/90 hover:bg-white border border-slate-200 rounded-full shadow-lg text-sm font-medium text-slate-700 hover:text-emerald-700 transition-colors backdrop-blur-md"
+        title="Help & Support"
+        aria-label="Help & Support"
+      >
+        <HelpCircle className="h-4 w-4" />
+        <span className="hidden sm:inline">Help</span>
+      </button>
+
       <div className="w-full max-w-lg">
         <div className="text-center mb-8">
           <div className="flex justify-center mb-4">
@@ -233,6 +246,9 @@ export function CompanySelectPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* v4.50: Help modal — accessible from Add Company page */}
+      <HelpModal open={showHelp} onClose={() => setShowHelp(false)} />
     </div>
   )
 }

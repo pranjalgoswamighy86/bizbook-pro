@@ -444,16 +444,15 @@ export function AppSidebar() {
             </button>
           ))}
 
-          {/* v4.49: Help button — mobile drawer version */}
-          {sidebarOpen && (
-            <button
-              onClick={() => setShowHelp(true)}
-              className="w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors text-muted-foreground hover:bg-muted hover:text-foreground"
-            >
-              <HelpCircle className="h-4 w-4" />
-              <span className="truncate">Help &amp; Support</span>
-            </button>
-          )}
+          {/* v4.50: Help button — mobile drawer version (always show, even when collapsed) */}
+          <button
+            onClick={() => setShowHelp(true)}
+            className="w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors text-muted-foreground hover:bg-muted hover:text-foreground"
+            title="Help & Support"
+          >
+            <HelpCircle className="h-4 w-4 flex-shrink-0" />
+            {sidebarOpen && <span className="truncate">Help &amp; Support</span>}
+          </button>
         </nav>
       </ScrollArea>
 
