@@ -610,8 +610,8 @@ export function SettingsPage() {
                   </div>
                   <div className="bg-muted/50 p-3 rounded-lg">
                     <p className="text-xs text-muted-foreground">Version</p>
-                    <p className="font-semibold">v4.52.0</p>
-                    <p className="text-xs text-muted-foreground">Built with Next.js 16 + Prisma + SQLite</p>
+                    <p className="font-semibold">v4.57.0</p>
+                    <p className="text-xs text-muted-foreground">Built with Next.js 16 + Prisma + PostgreSQL</p>
                     <p className="text-[10px] text-muted-foreground mt-1">A Product by Tahigo International</p>
                   </div>
                   <div className="bg-muted/50 p-3 rounded-lg">
@@ -626,7 +626,7 @@ export function SettingsPage() {
                   </div>
                   <div className="bg-muted/50 p-3 rounded-lg">
                     <p className="text-xs text-muted-foreground">Database</p>
-                    <p className="font-semibold text-xs break-all">{dbPath || 'SQLite'}</p>
+                    <p className="font-semibold text-xs break-all">PostgreSQL</p>
                     <p className="text-xs text-muted-foreground">Storage engine</p>
                   </div>
                   <div className="bg-muted/50 p-3 rounded-lg">
