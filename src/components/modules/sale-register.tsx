@@ -144,14 +144,23 @@ export function SaleRegister() {
   const totalDiscount = items.reduce((s, i) => s + i.discount, 0)
   const totalAmount = subtotal + totalTax
 
-  // Auto-set payment for Cash sales
+  // v4.62.1: Auto-set payment for Cash sales — Total Amount = Amount Received, Balance Due = 0
   useEffect(() => {
     const isCash = form.partyName.trim().toLowerCase() === 'cash'
     if (isCash) {
       const currentTotal = totalAmount
       setForm(prev => {
-        if (prev.paymentStatus === 'RECEIVED' && prev.amountReceived === currentTotal) return prev
-        return { ...prev, paymentStatus: 'RECEIVED', amountReceived: currentTotal, amountPaid: currentTotal }
+        // Force paymentMode to CASH, full amount received, status RECEIVED
+        if (prev.paymentMode === 'CASH' && prev.paymentStatus === 'RECEIVED' && prev.amountReceived === currentTotal) return prev
+        return {
+          ...prev,
+          paymentMode: 'CASH',
+          paymentStatus: 'RECEIVED',
+          amountReceived: currentTotal,
+          amountPaid: currentTotal,
+          // Reset part payment fields
+          ppCash: 0, ppCard: 0, ppUpi: 0, ppOther: 0, ppCredit: 0, ppOtherRemarks: '',
+        }
       })
     }
   }, [form.partyName, totalAmount])
@@ -1038,8 +1047,22 @@ export function SaleRegister() {
                 <div className="flex justify-between"><span>Subtotal</span><span>{formatCurrency(subtotal, tenant?.currency)}</span></div>
                 <div className="flex justify-between"><span>GST / Tax</span><span>{formatCurrency(totalTax, tenant?.currency)}</span></div>
                 <div className="flex justify-between font-bold text-base"><span>Total Amount</span><span>{formatCurrency(totalAmount, tenant?.currency)}</span></div>
-                <div className="flex justify-between text-emerald-600"><span>Amount Received</span><span>{formatCurrency(form.paymentMode === 'PART_PAYMENT' ? ((Number(form.ppCash) || 0) + (Number(form.ppCard) || 0) + (Number(form.ppUpi) || 0) + (Number(form.ppOther) || 0)) : (form.paymentMode === 'CASH' || form.paymentMode === 'UPI' || form.paymentMode === 'CARD' || form.paymentMode === 'OTHERS' ? totalAmount : 0), tenant?.currency)}</span></div>
-                <div className="flex justify-between text-rose-600"><span>Balance Due</span><span>{formatCurrency(Math.max(0, totalAmount - (form.paymentMode === 'PART_PAYMENT' ? ((Number(form.ppCash) || 0) + (Number(form.ppCard) || 0) + (Number(form.ppUpi) || 0) + (Number(form.ppOther) || 0)) : (form.paymentMode === 'CASH' || form.paymentMode === 'UPI' || form.paymentMode === 'CARD' || form.paymentMode === 'OTHERS' ? totalAmount : 0))), tenant?.currency)}</span></div>
+                {(() => {
+                  // v4.62.1: If customer is Cash, Amount Received = Total, Balance Due = 0
+                  const isCashCustomer = form.partyName.trim().toLowerCase() === 'cash'
+                  if (isCashCustomer) {
+                    return <>
+                      <div className="flex justify-between text-emerald-600"><span>Amount Received</span><span>{formatCurrency(totalAmount, tenant?.currency)}</span></div>
+                      <div className="flex justify-between text-emerald-600"><span>Balance Due</span><span>{formatCurrency(0, tenant?.currency)}</span></div>
+                    </>
+                  }
+                  const partPaymentTotal = (Number(form.ppCash) || 0) + (Number(form.ppCard) || 0) + (Number(form.ppUpi) || 0) + (Number(form.ppOther) || 0)
+                  const amountReceived = form.paymentMode === 'PART_PAYMENT' ? partPaymentTotal : (form.paymentMode === 'CASH' || form.paymentMode === 'UPI' || form.paymentMode === 'CARD' || form.paymentMode === 'OTHERS' ? totalAmount : 0)
+                  return <>
+                    <div className="flex justify-between text-emerald-600"><span>Amount Received</span><span>{formatCurrency(amountReceived, tenant?.currency)}</span></div>
+                    <div className="flex justify-between text-rose-600"><span>Balance Due</span><span>{formatCurrency(Math.max(0, totalAmount - amountReceived), tenant?.currency)}</span></div>
+                  </>
+                })()}
               </div>
 
               <div><Label>Notes</Label><Textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Optional notes" /></div>
