@@ -1,5 +1,13 @@
+# ============================================================
+# BizBook Pro — Nixpacks Config (v4.56 — PostgreSQL)
+# ============================================================
+# v4.56: Removed all SQLite references. Build no longer pushes
+# schema during build (push happens at runtime via railway-start.js).
+# This ensures the build works with PostgreSQL DATABASE_URL.
+# ============================================================
+
 [phases.setup]
-nixPkgs = ['nodejs_20', 'openssl', 'postgresql_15']
+nixPkgs = ['nodejs_20', 'openssl']
 providers = ['node']
 
 [phases.install]
