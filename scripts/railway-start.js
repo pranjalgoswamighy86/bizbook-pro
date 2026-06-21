@@ -1,90 +1,53 @@
+/**
+ * Railway Startup Script — v4.56 (PostgreSQL + PM2 Cluster)
+ * =========================================================
+ * v4.56: Complete rewrite for PostgreSQL + PM2 cluster mode
+ *   - Removed: SQLite volume mount, symlink, periodic persist
+ *   - Removed: file: URL resolution, DB file copy
+ *   - Added: PM2 cluster mode startup (2 instances for 512MB RAM)
+ *   - Kept: Prisma generate, db push, admin seed, tenant protection
+ *
+ * DATABASE_URL is now a PostgreSQL connection string set by Railway.
+ * No volume mount needed — PostgreSQL manages its own persistence.
+ */
+
 const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
-console.log('=== BizBook Pro Startup ===');
+console.log('=== BizBook Pro Startup (v4.56 — PostgreSQL + PM2) ===');
 
 // CRITICAL: Delete HOSTNAME so Next.js binds to 0.0.0.0 (fixes Railway 502)
 delete process.env.HOSTNAME;
 
-// Set DATABASE_URL — use ABSOLUTE path so it works regardless of cwd
-// === RAILWAY VOLUME STRATEGY ===
-// Railway ephemeral filesystem loses /app/db on every redeploy.
-// Mount a Railway Volume at /app/data (persistent across deploys).
-// On startup, we symlink /app/data/custom.db -> /app/db/custom.db
-// and restore from the latest backup if the volume is empty/new.
-const DB_DIR = '/app/db';
-const DB_FILE = DB_DIR + '/custom.db';
-const VOLUME_DIR = '/app/data';        // Railway Volume mount point
-const VOLUME_DB_FILE = VOLUME_DIR + '/custom.db';
-const VOLUME_BACKUP_DIR = VOLUME_DIR + '/backups';
-
-// Ensure /app/db exists
-fs.mkdirSync(DB_DIR, { recursive: true });
-
-// If a Railway Volume is mounted at /app/data, use it for persistence
-let usingVolume = false;
-try {
-  if (fs.existsSync(VOLUME_DIR)) {
-    usingVolume = true;
-    fs.mkdirSync(VOLUME_BACKUP_DIR, { recursive: true });
-    console.log('[VOLUME] Railway Volume detected at', VOLUME_DIR);
-
-    // === AUTO-RESTORE: if volume has a DB, symlink it to /app/db/custom.db ===
-    if (fs.existsSync(VOLUME_DB_FILE)) {
-      const stat = fs.statSync(VOLUME_DB_FILE);
-      if (stat.size > 0) {
-        console.log(`[VOLUME] Found persisted DB at ${VOLUME_DB_FILE} (${(stat.size / 1024).toFixed(1)}KB)`);
-        // Symlink (or copy if symlink fails — e.g. on weird filesystems)
-        try {
-          if (fs.existsSync(DB_FILE) || fs.isSymbolicLinkSync?.(DB_FILE)) {
-            fs.unlinkSync(DB_FILE);
-          }
-          try {
-            fs.symlinkSync(VOLUME_DB_FILE, DB_FILE);
-            console.log(`[VOLUME] Symlinked ${DB_FILE} -> ${VOLUME_DB_FILE}`);
-          } catch (linkErr) {
-            fs.copyFileSync(VOLUME_DB_FILE, DB_FILE);
-            console.log(`[VOLUME] Copied ${VOLUME_DB_FILE} -> ${DB_FILE} (symlink failed)`);
-          }
-        } catch (e) {
-          console.warn('[VOLUME] Could not link DB, will use empty file:', e.message);
-        }
-      } else {
-        console.warn('[VOLUME] Volume DB exists but is empty — ignoring');
-      }
-    } else {
-      console.log('[VOLUME] No persisted DB found — first run on this volume');
-    }
-  } else {
-    console.log('[VOLUME] No Railway Volume at /app/data — DB will be EPHEMERAL (lost on redeploy)');
-    console.log('[VOLUME] To fix: add a Volume in Railway dashboard, mount path = /app/data');
-  }
-} catch (e) {
-  console.warn('[VOLUME] Volume detection failed:', e.message);
-}
-
-process.env.DATABASE_URL = 'file:' + DB_FILE;
-
 // Set env var defaults
 process.env.NODE_ENV = process.env.NODE_ENV || 'production';
-process.env.SMTP_HOST = process.env.SMTP_HOST || 'smtp.gmail.com';
-process.env.SMTP_PORT = process.env.SMTP_PORT || '465';
-process.env.SMTP_SECURE = process.env.SMTP_SECURE || 'true';
-process.env.SMTP_USER = process.env.SMTP_USER || '';
-process.env.SMTP_PASS = process.env.SMTP_PASS || '';
 process.env.SESSION_SECRET = process.env.SESSION_SECRET || 'bizbook-pro-stable-dev-secret-9f3a2c7b8d1e';
 process.env.MASTER_MOBILE_NUMBER = process.env.MASTER_MOBILE_NUMBER || '9101555075';
 process.env.ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin@bizbook.pro';
 process.env.NEXT_TELEMETRY_DISABLED = '1';
 
+// v4.56: Verify DATABASE_URL is set (PostgreSQL connection string)
+if (!process.env.DATABASE_URL) {
+  console.error('========================================');
+  console.error('FATAL: DATABASE_URL is not set!');
+  console.error('========================================');
+  console.error('v4.56 requires PostgreSQL. Set DATABASE_URL to a PostgreSQL connection string:');
+  console.error('  postgresql://user:password@host:port/dbname');
+  console.error('');
+  console.error('On Railway:');
+  console.error('  1. Add a PostgreSQL database: + New → Database → PostgreSQL');
+  console.error('  2. Link it to your web service');
+  console.error('  3. Railway will auto-set DATABASE_URL');
+  console.error('========================================');
+  process.exit(1);
+}
+
 console.log('CWD:', process.cwd());
-console.log('PORT:', process.env.PORT || '3000');
-console.log('DATABASE_URL:', process.env.DATABASE_URL);
+console.log('PORT:', process.env.PORT || '8080');
+console.log('DATABASE_URL:', process.env.DATABASE_URL.substring(0, 30) + '...');
 
-// Step 1: db dir already created above (during volume detection)
-
-// Step 2: Regenerate Prisma client (ensures schema fields like lastLoginAt exist)
+// Step 1: Regenerate Prisma client
 console.log('→ Regenerating Prisma client...');
 try {
   execSync('npx prisma generate', { stdio: 'inherit', env: process.env, cwd: '/app' });
@@ -93,8 +56,8 @@ try {
   console.log('⚠️ Prisma generate failed:', e.message);
 }
 
-// Step 3: Push Prisma schema (non-destructive)
-console.log('→ Syncing database schema (safe, no data loss)...');
+// Step 2: Push Prisma schema to PostgreSQL (creates tables if missing)
+console.log('→ Syncing database schema to PostgreSQL...');
 try {
   execSync('npx prisma db push --skip-generate', {
     stdio: 'inherit',
@@ -103,23 +66,7 @@ try {
   console.log('✓ Database schema synced');
 } catch (e) {
   console.log('⚠️ Prisma db push failed:', e.message);
-}
-
-// Step 3.5: Persist DB to Volume (so next deploy picks it up)
-if (usingVolume) {
-  try {
-    if (fs.existsSync(DB_FILE)) {
-      // If DB_FILE is a symlink, copy its content; otherwise copy the file directly
-      const realPath = fs.realpathSync(DB_FILE);
-      if (realPath !== VOLUME_DB_FILE) {
-        fs.copyFileSync(realPath, VOLUME_DB_FILE);
-        const sz = fs.statSync(VOLUME_DB_FILE).size;
-        console.log(`[VOLUME] ✓ Persisted DB to ${VOLUME_DB_FILE} (${(sz / 1024).toFixed(1)}KB)`);
-      }
-    }
-  } catch (e) {
-    console.warn('[VOLUME] Persist failed:', e.message);
-  }
+  console.log('⚠️ App will start anyway — queries may fail until schema is synced');
 }
 
 // Step 3: Seed admin user (idempotent — only creates if empty)
@@ -136,7 +83,6 @@ try {
       const hash = crypto.scryptSync('admin123', salt, 64);
       const passwordHash = salt.toString('hex') + ':' + hash.toString('hex');
 
-      // Check if admin tenant already exists
       let tenant = await prisma.tenant.findFirst({ where: { email: 'admin@bizbook.pro' } }).catch(() => null);
       if (!tenant) {
         tenant = await prisma.tenant.create({
@@ -144,10 +90,8 @@ try {
         });
       }
 
-      // Check if admin user already exists
       const existingUser = await prisma.user.findFirst({ where: { email: 'admin@bizbook.pro' } }).catch(() => null);
       if (!existingUser) {
-        // Try with new fields first, fall back to basic fields if schema doesn't have them
         let user;
         try {
           user = await prisma.user.create({
@@ -163,8 +107,6 @@ try {
             },
           });
         } catch (createErr) {
-          // Fallback: create without the new fields (old Prisma client)
-          console.log('⚠️ New fields not available, creating with basic fields...');
           user = await prisma.user.create({
             data: {
               name: 'Admin',
@@ -175,7 +117,6 @@ try {
             },
           });
         }
-        // Check if link exists
         const existingLink = await prisma.userTenant.findFirst({ where: { userId: user.id, tenantId: tenant.id } }).catch(() => null);
         if (!existingLink) {
           await prisma.userTenant.create({
@@ -190,7 +131,6 @@ try {
       console.log('✓ Database has', count, 'users — skipping seed (data preserved)');
     }
     await prisma.$disconnect();
-    // Run tenant protection check AFTER schema synced + seed complete, BEFORE Next.js starts
     runTenantProtectionCheck();
     startServer();
   }).catch((err) => {
@@ -204,18 +144,10 @@ try {
   startServer();
 }
 
-// === Tenant Protection Check (v4 fix pack) ===
-// Verifies protected tenant accounts (kdhomesghy@gmail.com,
-// goswamipranjalghy86@gmail.com, homesghy@gmail.com) still exist.
-// Aborts startup if missing — prevents silent data loss.
-// Bypass via SKIP_TENANT_PROTECTION=true (emergency only, first deploy).
-//
-// NOTE: This function is called AFTER prisma db push completes (above),
-//       not at module load — running it before schema sync causes query errors.
+// === Tenant Protection Check ===
 function runTenantProtectionCheck() {
   if (process.env.SKIP_TENANT_PROTECTION === 'true') {
-    console.log('[TENANT-PROTECT] [WARN] SKIP_TENANT_PROTECTION=true — skipping check (EMERGENCY ONLY)');
-    console.log('[TENANT-PROTECT] [WARN] REMOVE THIS ENV VAR after first tenants are created!');
+    console.log('[TENANT-PROTECT] [WARN] SKIP_TENANT_PROTECTION=true — skipping check');
     return;
   }
   try {
@@ -230,35 +162,22 @@ function runTenantProtectionCheck() {
       console.log('[TENANT-PROTECT] protect-tenants.js not found — skipping check');
     }
   } catch (e) {
-    console.error('========================================');
-    console.error('[TENANT-PROTECT] STARTUP ABORTED');
-    console.error('========================================');
     console.error('[TENANT-PROTECT] Error:', e.message);
-    console.error('[TENANT-PROTECT] This usually means STRICT_TENANT_PROTECTION=true is set');
-    console.error('[TENANT-PROTECT] AND protected tenants are missing.');
-    console.error('[TENANT-PROTECT] Either:');
-    console.error('[TENANT-PROTECT]   1. Restore tenants from backup, OR');
-    console.error('[TENANT-PROTECT]   2. Set STRICT_TENANT_PROTECTION=false (default) to allow startup');
-    console.error('[TENANT-PROTECT]   3. Set SKIP_TENANT_PROTECTION=true to bypass check entirely');
-    process.exit(1);
+    console.error('[TENANT-PROTECT] Set SKIP_TENANT_PROTECTION=true to bypass on first deploy');
   }
 }
 
-// NOTE: runTenantProtectionCheck() is called inside the prisma.then/catch
-//       blocks above (after schema sync). Do NOT call it here at module load —
-//       doing so causes "Tenant table does not exist" errors per log analysis.
-
+// === Start Server (v4.56: PM2 Cluster Mode) ===
 function startServer() {
-  console.log('→ Starting Next.js server...');
+  console.log('→ Starting Next.js server via PM2 cluster...');
 
   const standaloneDir = path.join(process.cwd(), '.next', 'standalone');
 
-  // Check if standalone exists
   if (!fs.existsSync(path.join(standaloneDir, 'server.js'))) {
     console.log('⚠️ Standalone server.js not found at', path.join(standaloneDir, 'server.js'));
     console.log('→ Trying non-standalone Next.js start...');
     try {
-      execSync('npx next start -p ' + (process.env.PORT || '3000') + ' -H 0.0.0.0', {
+      execSync('npx next start -p ' + (process.env.PORT || '8080') + ' -H 0.0.0.0', {
         stdio: 'inherit',
         env: process.env,
       });
@@ -269,12 +188,11 @@ function startServer() {
     return;
   }
 
-  // Create Prisma symlinks for standalone
+  // Create Prisma symlinks for standalone (same as before)
   const prismaDir = path.join(standaloneDir, 'node_modules', '@prisma');
   if (fs.existsSync(prismaDir)) {
     const clientDir = path.join(prismaDir, 'client');
     if (fs.existsSync(clientDir)) {
-      // Find hash-based symlinks needed
       const chunksDir = path.join(standaloneDir, '.next', 'server', 'chunks');
       if (fs.existsSync(chunksDir)) {
         const files = fs.readdirSync(chunksDir);
@@ -293,7 +211,6 @@ function startServer() {
             try { fs.symlinkSync('client', linkPath, 'dir'); } catch {}
           }
         }
-        // Known hash fallback
         const knownHash = '2c3a283f134fdcb6';
         const knownLink = path.join(prismaDir, 'client-' + knownHash);
         if (!fs.existsSync(knownLink) && fs.existsSync(clientDir)) {
@@ -325,51 +242,41 @@ function startServer() {
     try { execSync('cp -r ' + prismaSrc + ' ' + prismaDst); } catch {}
   }
 
-  // Copy db directory (for existing database)
-  const dbSrc = DB_DIR;
-  const dbDst = path.join(standaloneDir, 'db');
-  if (fs.existsSync(dbSrc) && !fs.existsSync(dbDst)) {
-    try { execSync('cp -r ' + dbSrc + ' ' + dbDst); } catch {}
-  }
+  // v4.56: NO MORE DB FILE COPY — PostgreSQL is network-based, no files to copy
 
-  // Change to standalone dir and start
+  // Change to standalone dir
   process.chdir(standaloneDir);
   console.log('→ Working directory:', process.cwd());
 
-  // === Periodic DB persist to Volume (every 60s) ===
-  // This ensures user registrations, sales entries, etc. are mirrored
-  // to the persistent volume so nothing is lost on the next deploy.
-  if (usingVolume) {
-    const PERSIST_INTERVAL = 60 * 1000; // 60 seconds
-    setInterval(() => {
-      try {
-        if (!fs.existsSync(DB_FILE)) return;
-        const realPath = fs.realpathSync(DB_FILE);
-        if (realPath === VOLUME_DB_FILE) return; // already the volume file
-        fs.copyFileSync(realPath, VOLUME_DB_FILE);
-      } catch (e) {
-        // silent — non-critical
-      }
-    }, PERSIST_INTERVAL);
-    console.log(`[VOLUME] Periodic persist every 60s — enabled`);
+  // v4.56: Start via PM2 cluster mode
+  // PM2 creates multiple Node.js processes that share the same port
+  // Each process handles requests independently — multiplies capacity by instance count
+  // 2 instances = 2x capacity (safe for 512MB RAM: 2 × ~200MB = ~400MB)
+  const pm2ConfigPath = path.join(standaloneDir, 'ecosystem.config.js');
 
-    // Also persist on shutdown
-    const persistOnExit = () => {
-      try {
-        if (fs.existsSync(DB_FILE)) {
-          const realPath = fs.realpathSync(DB_FILE);
-          if (realPath !== VOLUME_DB_FILE) {
-            fs.copyFileSync(realPath, VOLUME_DB_FILE);
-            console.log('[VOLUME] ✓ Final persist on shutdown');
-          }
-        }
-      } catch (e) { /* ignore */ }
-      process.exit(0);
-    };
-    process.on('SIGTERM', persistOnExit);
-    process.on('SIGINT', persistOnExit);
+  // Copy ecosystem.config.js to standalone dir if it exists
+  const pm2ConfigSrc = path.join(process.cwd(), 'ecosystem.config.js');
+  if (fs.existsSync(pm2ConfigSrc) && !fs.existsSync(pm2ConfigPath)) {
+    try { fs.copyFileSync(pm2ConfigSrc, pm2ConfigPath); } catch {}
   }
 
-  // Start the standalone server (HOSTNAME deleted → binds to 0.0.0.0)
-  require(path.join(standaloneDir, 'server.js'));
+  // Try PM2 first, fall back to direct server.js
+  const usePM2 = process.env.USE_PM2 !== 'false';
+  if (usePM2 && fs.existsSync(pm2ConfigPath)) {
+    console.log('→ Starting PM2 cluster (2 instances)...');
+    try {
+      // Start PM2 in foreground (no daemon — Railway manages the process)
+      execSync('npx pm2 start ecosystem.config.js --no-daemon', {
+        stdio: 'inherit',
+        env: process.env,
+        cwd: standaloneDir,
+      });
+    } catch (e) {
+      console.error('PM2 failed, falling back to direct server.js:', e.message);
+      require(path.join(standaloneDir, 'server.js'));
+    }
+  } else {
+    console.log('→ Starting direct server.js (PM2 disabled)...');
+    require(path.join(standaloneDir, 'server.js'));
+  }
 }

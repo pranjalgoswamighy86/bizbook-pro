@@ -33,39 +33,15 @@
  */
 
 import { Prisma, PrismaClient } from '@prisma/client'
-import path from 'path'
-import fs from 'fs'
 
 // ============================================================
-// Smart DATABASE_URL resolution (same logic as db.ts)
+// v4.56: PostgreSQL connection (was SQLite)
+// No more file path resolution, no more PRAGMA optimizations.
 // ============================================================
-function resolveDatabaseUrl(): string {
-  const envUrl = process.env.DATABASE_URL
-  const toAbsoluteUrl = (url: string): string => {
-    if (!url.startsWith('file:')) return url
-    let filePath = url.replace(/^file:/, '')
-    if (!path.isAbsolute(filePath)) {
-      filePath = path.resolve(process.cwd(), filePath)
-    }
-    return `file:${filePath}`
-  }
-
-  if (envUrl) {
-    const absoluteUrl = toAbsoluteUrl(envUrl)
-    const dbPath = absoluteUrl.replace(/^file:/, '')
-    if (fs.existsSync(dbPath)) return absoluteUrl
-    console.warn(`[DB-SD] Database not found at ${dbPath}, trying fallbacks...`)
-  }
-
-  const cwdPath = path.join(process.cwd(), 'db', 'custom.db')
-  if (fs.existsSync(cwdPath)) return `file:${cwdPath}`
-
-  for (const p of ['/app/db/custom.db', '/home/z/my-project/db/custom.db']) {
-    if (fs.existsSync(p)) return `file:${p}`
-  }
-
-  return envUrl || 'file:./db/custom.db'
-}
+const databaseUrl = process.env.DATABASE_URL || ''
+const connectionUrl = databaseUrl
+  ? databaseUrl + (databaseUrl.includes('?') ? '&' : '?') + 'connection_limit=5&pool_timeout=30'
+  : databaseUrl
 
 // ============================================================
 // Models that have soft-delete columns
@@ -150,13 +126,11 @@ function mergeSoftDeleteFilter(where: any): any {
 }
 
 // ============================================================
-// Create the base Prisma client (same as db.ts)
+// Create the base Prisma client (v4.56: PostgreSQL)
 // ============================================================
-const resolvedDatabaseUrl = resolveDatabaseUrl()
-
 const basePrisma = new PrismaClient({
   log: [{ emit: 'event', level: 'query' }],
-  datasources: { db: { url: resolvedDatabaseUrl } },
+  datasources: { db: { url: connectionUrl } },
 })
 
 // Log hard-delete operations (from v1's db.ts)
@@ -167,28 +141,7 @@ const basePrisma = new PrismaClient({
   }
 })
 
-// Enable SQLite optimizations in background (same as db.ts)
-async function optimizeDatabase() {
-  const optimizations = [
-    'PRAGMA journal_mode=WAL',
-    'PRAGMA busy_timeout=10000',
-    'PRAGMA synchronous=NORMAL',
-    'PRAGMA cache_size=-131072',
-    'PRAGMA temp_store=MEMORY',
-    'PRAGMA mmap_size=268435456',
-  ]
-  for (const sql of optimizations) {
-    try {
-      await basePrisma.$queryRawUnsafe(sql)
-    } catch (err: any) {
-      const msg = err?.message || ''
-      if (msg.includes('returned results') || msg.includes('already in sync')) {
-        // PRAGMA succeeded but returned a row — expected for WAL mode
-      }
-    }
-  }
-}
-optimizeDatabase().catch(() => {})
+// v4.56: No more SQLite PRAGMA optimizations — PostgreSQL handles this internally
 
 // ============================================================
 // Create the extended client with auto soft-delete filtering

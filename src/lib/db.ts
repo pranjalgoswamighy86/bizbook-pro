@@ -1,76 +1,37 @@
 import { PrismaClient } from '@prisma/client'
-import path from 'path'
-import fs from 'fs'
 
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined
 }
 
 // ============================================================
-// Smart DATABASE_URL resolution
+// v4.56: PostgreSQL connection (was SQLite)
 // ============================================================
-// The DATABASE_URL must work in ALL environments:
-//   1. Local dev:   file:/home/z/my-project/db/custom.db (from .env)
-//   2. PM2 cluster: file:/home/z/my-project/db/custom.db (from ecosystem.config.js)
-//   3. Space-Z deploy: file:/app/db/custom.db (from start.sh)
-//   4. Standalone:  file:./db/custom.db (relative fallback)
+// DATABASE_URL is now a PostgreSQL connection string:
+//   postgresql://user:password@host:port/dbname
 //
-// Priority: env var > .env file > auto-detect
+// No more file path resolution, no more SQLite PRAGMA optimizations,
+// no more volume mount symlinks. PostgreSQL is a network database.
+//
+// PM2 cluster mode: each worker process creates its own PrismaClient.
+// connection_limit=5 per worker × 2 workers = 10 max connections.
+// PostgreSQL on Railway supports 100+ connections — well within limits.
 // ============================================================
-function resolveDatabaseUrl(): string {
-  const envUrl = process.env.DATABASE_URL
-  
-  // Helper: resolve a file: URL to an absolute path for Prisma
-  // Prisma SQLite requires absolute paths — relative paths fail in standalone mode
-  const toAbsoluteUrl = (url: string): string => {
-    if (!url.startsWith('file:')) return url
-    let filePath = url.replace(/^file:/, '')
-    // If the path is relative, resolve it from CWD to absolute
-    if (!path.isAbsolute(filePath)) {
-      filePath = path.resolve(process.cwd(), filePath)
-    }
-    return `file:${filePath}`
-  }
-  
-  if (envUrl) {
-    // Convert to absolute path and verify the database file exists
-    const absoluteUrl = toAbsoluteUrl(envUrl)
-    const dbPath = absoluteUrl.replace(/^file:/, '')
-    if (fs.existsSync(dbPath)) {
-      return absoluteUrl
-    }
-    // File doesn't exist at the specified path — try fallbacks
-    console.warn(`[DB] Database not found at ${dbPath}, trying fallbacks...`)
-  }
 
-  // Fallback 1: relative to CWD
-  const cwdPath = path.join(process.cwd(), 'db', 'custom.db')
-  if (fs.existsSync(cwdPath)) {
-    console.log(`[DB] Using database at: ${cwdPath}`)
-    return `file:${cwdPath}`
-  }
-
-  // Fallback 2: common deployed paths
-  const deployPaths = [
-    '/app/db/custom.db',           // Space-Z platform
-    '/home/z/my-project/db/custom.db', // Local dev/PM2
-  ]
-  for (const p of deployPaths) {
-    if (fs.existsSync(p)) {
-      console.log(`[DB] Using database at: ${p}`)
-      return `file:${p}`
-    }
-  }
-
-  // Fallback 3: use the env var anyway (Prisma will create the DB if needed)
-  console.warn('[DB] Could not find database file, using configured URL')
-  return envUrl || 'file:./db/custom.db'
+const databaseUrl = process.env.DATABASE_URL || ''
+if (!databaseUrl) {
+  console.error('[DB] FATAL: DATABASE_URL is not set!')
+  console.error('[DB] Set DATABASE_URL to a PostgreSQL connection string:')
+  console.error('[DB]   postgresql://user:password@host:port/dbname')
 }
 
-const resolvedDatabaseUrl = resolveDatabaseUrl()
+// v4.56: Connection pool settings for PM2 cluster mode
+// Each PM2 worker gets 5 connections. With 2 workers = 10 total.
+// Add pg_bouncer mode if available (transaction pooling).
+const connectionUrl = databaseUrl
+  ? databaseUrl + (databaseUrl.includes('?') ? '&' : '?') + 'connection_limit=5&pool_timeout=30'
+  : databaseUrl
 
-// Create Prisma client with optimized connection settings for cluster mode
-// v4.55: Added connection_limit + pool_timeout for 1000+ user scalability
 export const db =
   globalForPrisma.prisma ??
   new PrismaClient({
@@ -79,10 +40,7 @@ export const db =
     ],
     datasources: {
       db: {
-        // v4.55: Add connection_limit + pool_timeout for high concurrency
-        // SQLite doesn't use connection pools like PostgreSQL, but these
-        // settings help Prisma manage query queueing better
-        url: resolvedDatabaseUrl + (resolvedDatabaseUrl.includes('?') ? '&' : '?') + 'connection_limit=20&pool_timeout=30',
+        url: connectionUrl,
       },
     },
   })
@@ -97,58 +55,9 @@ if (!globalForPrisma.prisma) {
     }
   })
 
-  // Enable SQLite WAL mode and performance optimizations
-  // ALL errors are non-fatal — the app works fine without these optimizations
-  async function optimizeDatabase() {
-    const optimizations = [
-      { name: 'WAL mode', sql: 'PRAGMA journal_mode=WAL' },
-      { name: 'busy_timeout=10000ms', sql: 'PRAGMA busy_timeout=10000' },
-      { name: 'synchronous=NORMAL', sql: 'PRAGMA synchronous=NORMAL' },
-      { name: 'cache_size=128MB', sql: 'PRAGMA cache_size=-131072' },
-      { name: 'temp_store=MEMORY', sql: 'PRAGMA temp_store=MEMORY' },
-      { name: 'mmap_size=256MB', sql: 'PRAGMA mmap_size=268435456' },
-    ]
-
-    for (const opt of optimizations) {
-      try {
-        await db.$queryRawUnsafe(opt.sql)
-        console.log(`[DB-OPTIMIZE] ${opt.name} — enabled`)
-      } catch (err: any) {
-        // PRAGMA journal_mode=WAL returns a result row which causes
-        // "Execute returned results" error — but the PRAGMA actually succeeded
-        const msg = err?.message || ''
-        if (msg.includes('returned results') || msg.includes('already in sync')) {
-          console.log(`[DB-OPTIMIZE] ${opt.name} — enabled`)
-        } else {
-          // Non-fatal: the app works fine without these optimizations
-          console.log(`[DB-OPTIMIZE] ${opt.name} — skipped (non-fatal)`)
-        }
-      }
-    }
-  }
-
-  // Run optimizations in background — never block server startup
-  optimizeDatabase().catch(() => {})
-
-  // Auto-backup on server startup — fully async and non-blocking
-  // Uses dynamic import() instead of require() to avoid circular dependency
-  // and temporal dead zone errors in minified production code
-  ;(async () => {
-    try {
-      const { backupDatabase } = await import('./db-protection')
-      // Run backup in a microtask to avoid blocking Prisma initialization
-      await new Promise(resolve => setTimeout(resolve, 1000))
-      const result = backupDatabase('startup')
-      if (result.success) {
-        console.log('[DB-PROTECTION] Startup backup created successfully')
-      } else {
-        console.warn('[DB-PROTECTION] Startup backup skipped:', result.error)
-      }
-    } catch (err) {
-      // Non-fatal: backup failure should never prevent the app from starting
-      console.warn('[DB-PROTECTION] Startup backup failed (non-fatal):', err)
-    }
-  })()
+  // v4.56: No more SQLite PRAGMA optimizations — PostgreSQL handles this internally
+  // v4.56: No more file-based backup — PostgreSQL manages its own persistence
+  console.log('[DB] PostgreSQL Prisma client initialized')
 }
 
 if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = db

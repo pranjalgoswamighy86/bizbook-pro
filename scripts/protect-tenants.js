@@ -32,8 +32,9 @@ const PROTECTED_TENANTS = [
   'kdhomesghy@gmail.com',
 ];
 
-const DB_PATH = process.env.DATABASE_URL?.replace('file:', '') || '/app/data/custom.db';
-const BACKUP_DIR = process.env.BACKUP_DIR || path.join(path.dirname(DB_PATH), 'backups');
+// v4.56: No more SQLite file path — PostgreSQL is network-based
+// BACKUP_DIR is unused with PostgreSQL but kept for compatibility
+const BACKUP_DIR = process.env.BACKUP_DIR || '/tmp/backups';
 
 // ---------- Helpers ----------
 function log(level, msg) {
