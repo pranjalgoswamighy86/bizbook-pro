@@ -82,6 +82,11 @@ export function SaleRegister() {
     invoiceNumber: '', date: new Date().toISOString().split('T')[0],
     partyName: 'Cash', partyAddress: '', partyGst: '',
     paymentStatus: 'RECEIVED', amountPaid: 0, amountReceived: 0, notes: '',
+    // v4.61: Payment Option dropdown
+    paymentMode: 'CASH' as 'CASH' | 'UPI' | 'CARD' | 'PART_PAYMENT' | 'OTHERS',
+    partPaymentMode: 'CASH' as 'CASH' | 'UPI' | 'CARD' | 'OTHERS',
+    partPaymentAmount: 0, // amount paid now in part payment
+    paymentRemarks: '', // remarks when OTHERS is selected
   })
   const [items, setItems] = useState<SaleItem[]>([emptyItem()])
   const [finishedProductNames, setFinishedProductNames] = useState<string[]>([])
@@ -235,6 +240,7 @@ export function SaleRegister() {
       invoiceNumber: `INV-${Date.now().toString().slice(-6)}`, date: new Date().toISOString().split('T')[0],
       partyName: 'Cash', partyAddress: '', partyGst: '',
       paymentStatus: 'RECEIVED', amountPaid: 0, amountReceived: 0, notes: '',
+      paymentMode: 'CASH', partPaymentMode: 'CASH', partPaymentAmount: 0, paymentRemarks: '',
     })
     setItems([emptyItem()])
     setEditingId(null)
@@ -290,15 +296,30 @@ export function SaleRegister() {
 
     setSaving(true)
     try {
+      // v4.61: Calculate payment based on paymentMode
+      let finalAmountReceived = 0
+      let finalPaymentStatus = form.paymentStatus
+
+      if (form.paymentMode === 'CASH' || form.paymentMode === 'UPI' || form.paymentMode === 'CARD') {
+        finalAmountReceived = totalAmount
+        finalPaymentStatus = 'RECEIVED'
+      } else if (form.paymentMode === 'PART_PAYMENT') {
+        finalAmountReceived = Number(form.partPaymentAmount) || 0
+        finalPaymentStatus = finalAmountReceived >= totalAmount ? 'RECEIVED' : 'PARTIAL'
+      } else if (form.paymentMode === 'OTHERS') {
+        finalAmountReceived = totalAmount
+        finalPaymentStatus = 'RECEIVED'
+      }
+
       const payload: Record<string, unknown> = {
         invoiceNumber: form.invoiceNumber || `INV-${Date.now().toString().slice(-6)}`,
         date: new Date(form.date).toISOString(),
         partyName: form.partyName,
         partyAddress: form.partyAddress || null,
         partyGst: form.partyGst || null,
-        paymentStatus: form.paymentStatus || 'PENDING',
-        amountPaid: Number.isFinite(form.amountReceived) ? form.amountReceived : (Number.isFinite(form.amountPaid) ? form.amountPaid : 0),
-        amountReceived: Number.isFinite(form.amountReceived) ? form.amountReceived : 0,
+        paymentStatus: finalPaymentStatus,
+        amountPaid: finalAmountReceived,
+        amountReceived: finalAmountReceived,
         notes: form.notes || null,
         items: JSON.stringify(items),
         subtotal: Number.isFinite(subtotal) ? subtotal : 0,
@@ -856,36 +877,110 @@ export function SaleRegister() {
                 <div className="flex justify-between font-bold text-base"><span>Total</span><span>{formatCurrency(totalAmount, tenant?.currency)}</span></div>
               </div>
 
-              {/* Payment */}
+              {/* v4.61: Payment Option dropdown — CASH, UPI, CARD, PART PAYMENT, OTHERS */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <Label>Payment Status</Label>
-                  <Select value={form.paymentStatus} onValueChange={(v) => {
-                    const currentTotal = totalAmount
-                    const newForm = { ...form, paymentStatus: v }
-                    if (v === 'RECEIVED') {
-                      newForm.amountReceived = currentTotal
-                      newForm.amountPaid = currentTotal
-                    } else if (v === 'PENDING') {
-                      newForm.amountReceived = 0
-                      newForm.amountPaid = 0
-                    }
-                    setForm(newForm)
-                  }} disabled={form.partyName.trim().toLowerCase() === 'cash'}>
+                  <Label>Payment Option</Label>
+                  <Select
+                    value={form.paymentMode}
+                    onValueChange={(v: 'CASH' | 'UPI' | 'CARD' | 'PART_PAYMENT' | 'OTHERS') => {
+                      const newForm: typeof form = { ...form, paymentMode: v }
+                      if (v === 'CASH' || v === 'UPI' || v === 'CARD' || v === 'OTHERS') {
+                        newForm.paymentStatus = 'RECEIVED'
+                        newForm.amountReceived = totalAmount
+                        newForm.amountPaid = totalAmount
+                      } else if (v === 'PART_PAYMENT') {
+                        newForm.paymentStatus = 'PARTIAL'
+                        newForm.partPaymentAmount = 0
+                      }
+                      setForm(newForm)
+                    }}
+                  >
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="PENDING">Pending</SelectItem>
-                      <SelectItem value="PARTIAL">Partial</SelectItem>
-                      <SelectItem value="RECEIVED">Received</SelectItem>
+                      <SelectItem value="CASH">Cash</SelectItem>
+                      <SelectItem value="UPI">UPI</SelectItem>
+                      <SelectItem value="CARD">Card</SelectItem>
+                      <SelectItem value="PART_PAYMENT">Part Payment</SelectItem>
+                      <SelectItem value="OTHERS">Others</SelectItem>
                     </SelectContent>
                   </Select>
-                  {form.partyName.trim().toLowerCase() === 'cash' && <p className="text-xs text-muted-foreground mt-1">Cash sales are auto-marked as Received</p>}
                 </div>
-                <div><Label>Amount Received</Label><Input type="number" value={form.amountReceived || ''} onChange={(e) => {
-                  const val = Number(e.target.value)
-                  setForm({ ...form, amountReceived: val, amountPaid: val })
-                }} disabled={form.partyName.trim().toLowerCase() === 'cash'} /></div>
+
+                {/* Part Payment: show sub-mode + amount */}
+                {form.paymentMode === 'PART_PAYMENT' && (
+                  <>
+                    <div>
+                      <Label>Part Payment Mode</Label>
+                      <Select
+                        value={form.partPaymentMode}
+                        onValueChange={(v: 'CASH' | 'UPI' | 'CARD' | 'OTHERS') => setForm({ ...form, partPaymentMode: v })}
+                      >
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="CASH">Cash</SelectItem>
+                          <SelectItem value="UPI">UPI</SelectItem>
+                          <SelectItem value="CARD">Card</SelectItem>
+                          <SelectItem value="OTHERS">Others</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label>Amount Paid Now</Label>
+                      <Input
+                        type="number"
+                        value={form.partPaymentAmount || ''}
+                        onChange={(e) => {
+                          const val = Number(e.target.value)
+                          setForm({
+                            ...form,
+                            partPaymentAmount: val,
+                            amountReceived: val,
+                            amountPaid: val,
+                            paymentStatus: val >= totalAmount ? 'RECEIVED' : val > 0 ? 'PARTIAL' : 'PENDING',
+                          })
+                        }}
+                        placeholder="Enter amount paid now"
+                      />
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Total: {formatCurrency(totalAmount, tenant?.currency)} | Due: {formatCurrency(Math.max(0, totalAmount - (form.partPaymentAmount || 0)), tenant?.currency)}
+                      </p>
+                    </div>
+                    {form.partPaymentMode === 'OTHERS' && (
+                      <div className="col-span-2">
+                        <Label>Part Payment Remarks</Label>
+                        <Input
+                          value={form.paymentRemarks}
+                          onChange={(e) => setForm({ ...form, paymentRemarks: e.target.value })}
+                          placeholder="e.g., Cheque #12345, Bank Transfer, etc."
+                        />
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {/* Others: show remarks */}
+                {form.paymentMode === 'OTHERS' && (
+                  <div className="col-span-2">
+                    <Label>Payment Remarks</Label>
+                    <Input
+                      value={form.paymentRemarks}
+                      onChange={(e) => setForm({ ...form, paymentRemarks: e.target.value })}
+                      placeholder="e.g., Cheque #12345, Bank Transfer, NEFT, etc."
+                    />
+                  </div>
+                )}
               </div>
+
+              {/* Summary line showing payment calculation */}
+              <div className="bg-slate-50 dark:bg-slate-900 p-3 rounded-lg border text-sm space-y-1">
+                <div className="flex justify-between"><span>Subtotal</span><span>{formatCurrency(subtotal, tenant?.currency)}</span></div>
+                <div className="flex justify-between"><span>GST / Tax</span><span>{formatCurrency(totalTax, tenant?.currency)}</span></div>
+                <div className="flex justify-between font-bold text-base"><span>Total Amount</span><span>{formatCurrency(totalAmount, tenant?.currency)}</span></div>
+                <div className="flex justify-between text-emerald-600"><span>Amount Received</span><span>{formatCurrency(form.paymentMode === 'PART_PAYMENT' ? (form.partPaymentAmount || 0) : (form.paymentMode === 'CASH' || form.paymentMode === 'UPI' || form.paymentMode === 'CARD' || form.paymentMode === 'OTHERS' ? totalAmount : 0), tenant?.currency)}</span></div>
+                <div className="flex justify-between text-rose-600"><span>Balance Due</span><span>{formatCurrency(Math.max(0, totalAmount - (form.paymentMode === 'PART_PAYMENT' ? (form.partPaymentAmount || 0) : (form.paymentMode === 'CASH' || form.paymentMode === 'UPI' || form.paymentMode === 'CARD' || form.paymentMode === 'OTHERS' ? totalAmount : 0))), tenant?.currency)}</span></div>
+              </div>
+
               <div><Label>Notes</Label><Textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Optional notes" /></div>
 
 

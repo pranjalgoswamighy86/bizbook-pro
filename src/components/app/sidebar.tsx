@@ -78,8 +78,8 @@ const navItems: NavItem[] = [
   { id: 'ai-import', label: 'AI Smart Import', icon: <Sparkles className="h-4 w-4" /> },
   { id: 'subscription', label: 'Subscription', icon: <Crown className="h-4 w-4" /> },
   { id: 'ai-valuation', label: 'Smart AI Company Valuation', icon: <Sparkles className="h-4 w-4" /> },
-  { id: 'super-admin-subscriptions', label: 'Super Admin Panel', icon: <Crown className="h-4 w-4" />, minRole: 'MAIN_ADMIN' },
-  { id: 'payment-proof-review', label: 'Payment Proofs', icon: <ShieldCheck className="h-4 w-4" />, minRole: 'MAIN_ADMIN' },
+  { id: 'super-admin-subscriptions', label: 'Super Admin Panel', icon: <Crown className="h-4 w-4" />, minRole: 'SUPER_ADMIN' },
+  { id: 'payment-proof-review', label: 'Payment Proofs', icon: <ShieldCheck className="h-4 w-4" />, minRole: 'SUPER_ADMIN' },
   { id: 'backup', label: 'Backup & Restore', icon: <HardDrive className="h-4 w-4" />, minRole: 'MAIN_ADMIN' },
   { id: 'settings', label: 'Settings', icon: <Settings className="h-4 w-4" />, minRole: 'MAIN_ADMIN' },
 ]
@@ -109,6 +109,11 @@ export function AppSidebar() {
   const filteredItems = navItems.filter((item) => {
     if (!item.minRole) return true
     if (!user) return false
+    // v4.61: SUPER_ADMIN items only visible to admin@bizbook.pro / pranjalgoswamighy86@gmail.com
+    if (item.minRole === 'SUPER_ADMIN') {
+      const SUPER_ADMIN_EMAILS = ['admin@bizbook.pro', 'pranjalgoswamighy86@gmail.com']
+      return SUPER_ADMIN_EMAILS.includes(user.email.toLowerCase())
+    }
     if (item.minRole === 'MAIN_ADMIN') return canManage(user.role)
     return true
   })

@@ -179,5 +179,6 @@ export function getRoleLabel(role: UserRole): string {
     case 'DATA_ENTRY': return 'Data Entry'
     case 'JUNIOR_ADMIN': return 'Junior Admin'
     case 'MAIN_ADMIN': return 'Main Admin'
+    case 'SUPER_ADMIN': return 'Super Admin'
   }
 }
