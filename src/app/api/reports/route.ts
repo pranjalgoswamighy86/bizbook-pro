@@ -175,7 +175,8 @@ export async function POST(req: NextRequest) {
         db.inventoryItem.aggregate({ where: { tenantId, isDeleted: false }, _sum: { value: true }, _count: true }),
         db.debtor.aggregate({ where: { tenantId, isDeleted: false }, _sum: { currentBalance: true } }),
         db.creditor.aggregate({ where: { tenantId, isDeleted: false }, _sum: { currentBalance: true } }),
-        db.bankTransaction.findMany({ where: { tenantId, isDeleted: false }, orderBy: { date: 'desc' }, take: 5, select: { id: true, date: true, description: true, amount: true, type: true, balance: true } }),
+        // v4.59.1: Fix — BankTransaction has deposit/withdrawal/balance, NOT amount/type
+        db.bankTransaction.findMany({ where: { tenantId, isDeleted: false }, orderBy: { date: 'desc' }, take: 5, select: { id: true, date: true, description: true, deposit: true, withdrawal: true, balance: true, category: true, bankName: true } }),
         db.receipt.aggregate({ where: dateFilter, _sum: { amount: true }, _count: true }),
         db.payment.aggregate({ where: dateFilter, _sum: { amount: true }, _count: true }),
         db.inventoryItem.count({ where: { tenantId, isDeleted: false, currentStock: { lte: 0 } } }),
