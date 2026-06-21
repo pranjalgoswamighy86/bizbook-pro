@@ -183,6 +183,8 @@ const essentialModules = [
   ".prisma",
   "resend",
   "nodemailer",
+  "pm2",        // v4.56.2: PM2 for cluster mode
+  "axios",      // v4.56.2: Used by Brevo + health monitor
 ];
 const nmDest = path.join(STANDALONE_DIR, "node_modules");
 ensureDir(nmDest);

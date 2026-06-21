@@ -248,10 +248,8 @@ function startServer() {
   process.chdir(standaloneDir);
   console.log('→ Working directory:', process.cwd());
 
-  // v4.56: Start via PM2 cluster mode
-  // PM2 creates multiple Node.js processes that share the same port
-  // Each process handles requests independently — multiplies capacity by instance count
-  // 2 instances = 2x capacity (safe for 512MB RAM: 2 × ~200MB = ~400MB)
+  // v4.56.2: Try PM2 first, fall back to direct server.js
+  // PM2 is optional — if not installed or fails, use direct server.js
   const pm2ConfigPath = path.join(standaloneDir, 'ecosystem.config.js');
 
   // Copy ecosystem.config.js to standalone dir if it exists
@@ -260,23 +258,34 @@ function startServer() {
     try { fs.copyFileSync(pm2ConfigSrc, pm2ConfigPath); } catch {}
   }
 
-  // Try PM2 first, fall back to direct server.js
   const usePM2 = process.env.USE_PM2 !== 'false';
-  if (usePM2 && fs.existsSync(pm2ConfigPath)) {
-    console.log('→ Starting PM2 cluster (2 instances)...');
+  if (usePM2) {
+    // Check if pm2 is available
     try {
-      // Start PM2 in foreground (no daemon — Railway manages the process)
-      execSync('npx pm2 start ecosystem.config.js --no-daemon', {
-        stdio: 'inherit',
-        env: process.env,
-        cwd: standaloneDir,
-      });
+      require.resolve('pm2');
+      console.log('→ PM2 found, starting cluster (2 instances)...');
+      const pm2Path = path.join(standaloneDir, 'node_modules', 'pm2', 'bin', 'pm2');
+      const pm2Exists = fs.existsSync(pm2Path) || fs.existsSync(path.join(process.cwd(), 'node_modules', 'pm2'));
+      if (pm2Exists && fs.existsSync(pm2ConfigPath)) {
+        try {
+          execSync('npx pm2 start ecosystem.config.js --no-daemon', {
+            stdio: 'inherit',
+            env: process.env,
+            cwd: standaloneDir,
+          });
+          return; // PM2 started successfully — don't fall through
+        } catch (e) {
+          console.warn('PM2 start failed, falling back to direct server.js:', e.message);
+        }
+      } else {
+        console.log('→ PM2 not found in standalone, starting direct server.js...');
+      }
     } catch (e) {
-      console.error('PM2 failed, falling back to direct server.js:', e.message);
-      require(path.join(standaloneDir, 'server.js'));
+      console.log('→ PM2 not installed, starting direct server.js...');
     }
-  } else {
-    console.log('→ Starting direct server.js (PM2 disabled)...');
-    require(path.join(standaloneDir, 'server.js'));
   }
+
+  // Direct server.js (fallback when PM2 is not available or disabled)
+  console.log('→ Starting direct server.js...');
+  require(path.join(standaloneDir, 'server.js'));
 }

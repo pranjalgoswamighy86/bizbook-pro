@@ -21,7 +21,7 @@ cmds = [
 cmds = [
   'rm -f tsconfig.tsbuildinfo',
   'npx prisma generate',
-  'NODE_OPTIONS="--max-old-space-size=2048" npx next build --webpack',
+  'NODE_OPTIONS="--max-old-space-size=2048" npx next build',
   'node postbuild.js'
 ]
 

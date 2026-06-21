@@ -24,8 +24,8 @@ COPY . .
 # Generate Prisma client (uses schema.prisma which now has provider = "postgresql")
 RUN npx prisma generate
 
-# Build Next.js
-RUN NODE_OPTIONS="--max-old-space-size=2048" npx next build --webpack
+# Build Next.js (v4.56.2: removed --webpack flag — causes standalone build issues)
+RUN NODE_OPTIONS="--max-old-space-size=2048" npx next build
 
 # Run postbuild (copies files to standalone)
 RUN node postbuild.js
