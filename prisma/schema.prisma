@@ -231,8 +231,6 @@ model Purchase {
   @@index([tenantId, date])
   @@index([tenantId, isDeleted])
 
-  @@index([tenantId, date])
-  @@index([tenantId, isDeleted])
 }
 
 model Expense {
@@ -253,8 +251,6 @@ model Expense {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  @@index([tenantId, date])
-  @@index([tenantId, isDeleted])
   @@index([tenantId, date])
   @@index([tenantId, isDeleted])
 }
