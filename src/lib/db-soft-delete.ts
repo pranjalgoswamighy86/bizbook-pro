@@ -39,8 +39,9 @@ import { Prisma, PrismaClient } from '@prisma/client'
 // No more file path resolution, no more PRAGMA optimizations.
 // ============================================================
 const databaseUrl = process.env.DATABASE_URL || ''
+// v4.57: PostgreSQL connection pool — 10 per worker, 2 workers = 20 total
 const connectionUrl = databaseUrl
-  ? databaseUrl + (databaseUrl.includes('?') ? '&' : '?') + 'connection_limit=5&pool_timeout=30'
+  ? databaseUrl + (databaseUrl.includes('?') ? '&' : '?') + 'connection_limit=10&pool_timeout=30'
   : databaseUrl
 
 // ============================================================

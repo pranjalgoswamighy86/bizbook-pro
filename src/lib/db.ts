@@ -25,11 +25,11 @@ if (!databaseUrl) {
   console.error('[DB]   postgresql://user:password@host:port/dbname')
 }
 
-// v4.56: Connection pool settings for PM2 cluster mode
-// Each PM2 worker gets 5 connections. With 2 workers = 10 total.
-// Add pg_bouncer mode if available (transaction pooling).
+// v4.57: Connection pool settings for PM2 cluster mode + PostgreSQL
+// Each PM2 worker gets 10 connections. With 2 workers = 20 total.
+// PostgreSQL on Railway supports 500 connections — well within limits.
 const connectionUrl = databaseUrl
-  ? databaseUrl + (databaseUrl.includes('?') ? '&' : '?') + 'connection_limit=5&pool_timeout=30'
+  ? databaseUrl + (databaseUrl.includes('?') ? '&' : '?') + 'connection_limit=10&pool_timeout=30'
   : databaseUrl
 
 export const db =

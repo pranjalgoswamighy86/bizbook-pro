@@ -248,8 +248,8 @@ function startServer() {
   process.chdir(standaloneDir);
   console.log('→ Working directory:', process.cwd());
 
-  // v4.56.2: Try PM2 first, fall back to direct server.js
-  // PM2 is optional — if not installed or fails, use direct server.js
+  // v4.57: Fixed PM2 startup — use require('pm2') API directly instead of execSync
+  // This avoids the "pm2 binary not found" issue in standalone mode
   const pm2ConfigPath = path.join(standaloneDir, 'ecosystem.config.js');
 
   // Copy ecosystem.config.js to standalone dir if it exists
@@ -259,29 +259,33 @@ function startServer() {
   }
 
   const usePM2 = process.env.USE_PM2 !== 'false';
-  if (usePM2) {
-    // Check if pm2 is available
+  if (usePM2 && fs.existsSync(pm2ConfigPath)) {
+    console.log('→ Starting PM2 cluster (2 instances)...');
     try {
-      require.resolve('pm2');
-      console.log('→ PM2 found, starting cluster (2 instances)...');
-      const pm2Path = path.join(standaloneDir, 'node_modules', 'pm2', 'bin', 'pm2');
-      const pm2Exists = fs.existsSync(pm2Path) || fs.existsSync(path.join(process.cwd(), 'node_modules', 'pm2'));
-      if (pm2Exists && fs.existsSync(pm2ConfigPath)) {
-        try {
-          execSync('npx pm2 start ecosystem.config.js --no-daemon', {
-            stdio: 'inherit',
-            env: process.env,
-            cwd: standaloneDir,
-          });
-          return; // PM2 started successfully — don't fall through
-        } catch (e) {
-          console.warn('PM2 start failed, falling back to direct server.js:', e.message);
+      // Use PM2 programmatic API instead of CLI
+      const PM2 = require('pm2');
+      PM2.connect(true, (err) => {
+        if (err) {
+          console.warn('PM2 connect failed, falling back to direct server.js:', err.message);
+          require(path.join(standaloneDir, 'server.js'));
+          return;
         }
-      } else {
-        console.log('→ PM2 not found in standalone, starting direct server.js...');
-      }
+        PM2.start(pm2ConfigPath, (err) => {
+          if (err) {
+            console.warn('PM2 start failed, falling back to direct server.js:', err.message);
+            PM2.disconnect();
+            require(path.join(standaloneDir, 'server.js'));
+            return;
+          }
+          console.log('✓ PM2 cluster started — 2 instances running');
+          PM2.disconnect();
+          // Keep the process alive — PM2 manages the workers
+          // The workers will serve requests on the shared port
+        });
+      });
+      return; // Don't fall through to direct server.js
     } catch (e) {
-      console.log('→ PM2 not installed, starting direct server.js...');
+      console.warn('PM2 module not available, starting direct server.js:', e.message);
     }
   }
 
