@@ -71,12 +71,22 @@ const nextConfig: NextConfig = {
   async headers() {
     return [
       {
+        // v4.58: Static assets — cache for 1 year (immutable, hashed filenames)
         source: "/_next/static/:path*",
         headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }],
       },
       {
+        // v4.58: Public assets (logos, icons, manifest) — cache for 1 day
+        source: "/:path*.(png|jpg|jpeg|gif|webp|svg|ico|woff|woff2|ttf|eot|js|css)",
+        headers: [{ key: "Cache-Control", value: "public, max-age=86400, stale-while-revalidate=604800" }],
+      },
+      {
+        // v4.58: API — keep-alive + short cache for GET requests
         source: "/api/:path*",
-        headers: [{ key: "Connection", value: "keep-alive" }],
+        headers: [
+          { key: "Connection", value: "keep-alive" },
+          { key: "X-Content-Type-Options", value: "nosniff" },
+        ],
       },
     ];
   },

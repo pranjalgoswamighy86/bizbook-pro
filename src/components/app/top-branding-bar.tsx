@@ -86,7 +86,10 @@ export function TopBrandingBar() {
       }
     }
     fetchSub()
-    const interval = setInterval(fetchSub, 60000)
+    // v4.58: Reduced polling from 60s to 300s (5 min) — subscription badge
+    // doesn't need real-time updates. Saves 1 API call per minute per user.
+    // With 1000 users: 1000 req/min → 200 req/min (80% less load)
+    const interval = setInterval(fetchSub, 5 * 60 * 1000)
     return () => {
       cancelled = true
       clearInterval(interval)

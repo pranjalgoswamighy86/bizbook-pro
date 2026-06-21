@@ -18,7 +18,7 @@
  *   - On controllerchange → window.location.reload()
  */
 
-const CACHE_VERSION = 'bizbook-pro-v4.57-2026-06-22';
+const CACHE_VERSION = 'bizbook-pro-v4.58-2026-06-22';
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 
