@@ -84,9 +84,14 @@ export function SaleRegister() {
     paymentStatus: 'RECEIVED', amountPaid: 0, amountReceived: 0, notes: '',
     // v4.61: Payment Option dropdown
     paymentMode: 'CASH' as 'CASH' | 'UPI' | 'CARD' | 'PART_PAYMENT' | 'OTHERS',
-    partPaymentMode: 'CASH' as 'CASH' | 'UPI' | 'CARD' | 'OTHERS',
-    partPaymentAmount: 0, // amount paid now in part payment
-    paymentRemarks: '', // remarks when OTHERS is selected
+    // v4.62: Part payment — multiple payment methods simultaneously
+    ppCash: 0,      // amount paid via Cash
+    ppCard: 0,      // amount paid via Card
+    ppUpi: 0,       // amount paid via UPI
+    ppOther: 0,     // amount paid via Other method
+    ppCredit: 0,    // remaining credit (NOT applicable if customer name is "Cash")
+    ppOtherRemarks: '', // remarks when ppOther > 0
+    paymentRemarks: '',
   })
   const [items, setItems] = useState<SaleItem[]>([emptyItem()])
   const [finishedProductNames, setFinishedProductNames] = useState<string[]>([])
@@ -240,7 +245,7 @@ export function SaleRegister() {
       invoiceNumber: `INV-${Date.now().toString().slice(-6)}`, date: new Date().toISOString().split('T')[0],
       partyName: 'Cash', partyAddress: '', partyGst: '',
       paymentStatus: 'RECEIVED', amountPaid: 0, amountReceived: 0, notes: '',
-      paymentMode: 'CASH', partPaymentMode: 'CASH', partPaymentAmount: 0, paymentRemarks: '',
+      paymentMode: 'CASH', ppCash: 0, ppCard: 0, ppUpi: 0, ppOther: 0, ppCredit: 0, ppOtherRemarks: '', paymentRemarks: '',
     })
     setItems([emptyItem()])
     setEditingId(null)
@@ -296,19 +301,52 @@ export function SaleRegister() {
 
     setSaving(true)
     try {
-      // v4.61: Calculate payment based on paymentMode
+      // v4.62: Calculate payment based on paymentMode
       let finalAmountReceived = 0
       let finalPaymentStatus = form.paymentStatus
+      let finalNotes = form.notes || ''
 
       if (form.paymentMode === 'CASH' || form.paymentMode === 'UPI' || form.paymentMode === 'CARD') {
         finalAmountReceived = totalAmount
         finalPaymentStatus = 'RECEIVED'
       } else if (form.paymentMode === 'PART_PAYMENT') {
-        finalAmountReceived = Number(form.partPaymentAmount) || 0
-        finalPaymentStatus = finalAmountReceived >= totalAmount ? 'RECEIVED' : 'PARTIAL'
+        // v4.62: Multiple payment methods — sum all paid amounts
+        const cashPaid = Number(form.ppCash) || 0
+        const cardPaid = Number(form.ppCard) || 0
+        const upiPaid = Number(form.ppUpi) || 0
+        const otherPaid = Number(form.ppOther) || 0
+        finalAmountReceived = cashPaid + cardPaid + upiPaid + otherPaid
+
+        // Credit = remaining amount (only if customer is NOT "Cash")
+        const isCashCustomer = form.partyName.trim().toLowerCase() === 'cash'
+        const creditAmount = isCashCustomer ? 0 : Math.max(0, totalAmount - finalAmountReceived)
+
+        // If credit > 0, status is PARTIAL; if everything paid, RECEIVED
+        if (finalAmountReceived >= totalAmount) {
+          finalPaymentStatus = 'RECEIVED'
+        } else if (finalAmountReceived > 0) {
+          finalPaymentStatus = 'PARTIAL'
+        } else {
+          finalPaymentStatus = 'PENDING'
+        }
+
+        // Build payment details note
+        const paymentParts: string[] = []
+        if (cashPaid > 0) paymentParts.push(`Cash: ${cashPaid}`)
+        if (cardPaid > 0) paymentParts.push(`Card: ${cardPaid}`)
+        if (upiPaid > 0) paymentParts.push(`UPI: ${upiPaid}`)
+        if (otherPaid > 0) paymentParts.push(`Other: ${otherPaid}`)
+        if (creditAmount > 0) paymentParts.push(`Credit: ${creditAmount}`)
+        if (form.ppOtherRemarks) paymentParts.push(`Remarks: ${form.ppOtherRemarks}`)
+        if (paymentParts.length > 0) {
+          finalNotes = `[Payment: ${paymentParts.join(', ')}]${finalNotes ? ' | ' + finalNotes : ''}`
+        }
       } else if (form.paymentMode === 'OTHERS') {
         finalAmountReceived = totalAmount
         finalPaymentStatus = 'RECEIVED'
+        if (form.paymentRemarks) {
+          finalNotes = `[Payment: ${form.paymentRemarks}]${finalNotes ? ' | ' + finalNotes : ''}`
+        }
       }
 
       const payload: Record<string, unknown> = {
@@ -320,7 +358,7 @@ export function SaleRegister() {
         paymentStatus: finalPaymentStatus,
         amountPaid: finalAmountReceived,
         amountReceived: finalAmountReceived,
-        notes: form.notes || null,
+        notes: finalNotes || null,
         items: JSON.stringify(items),
         subtotal: Number.isFinite(subtotal) ? subtotal : 0,
         gstAmount: Number.isFinite(totalTax) ? totalTax : 0,
@@ -907,57 +945,80 @@ export function SaleRegister() {
                   </Select>
                 </div>
 
-                {/* Part Payment: show sub-mode + amount */}
-                {form.paymentMode === 'PART_PAYMENT' && (
-                  <>
-                    <div>
-                      <Label>Part Payment Mode</Label>
-                      <Select
-                        value={form.partPaymentMode}
-                        onValueChange={(v: 'CASH' | 'UPI' | 'CARD' | 'OTHERS') => setForm({ ...form, partPaymentMode: v })}
-                      >
-                        <SelectTrigger><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="CASH">Cash</SelectItem>
-                          <SelectItem value="UPI">UPI</SelectItem>
-                          <SelectItem value="CARD">Card</SelectItem>
-                          <SelectItem value="OTHERS">Others</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div>
-                      <Label>Amount Paid Now</Label>
-                      <Input
-                        type="number"
-                        value={form.partPaymentAmount || ''}
-                        onChange={(e) => {
-                          const val = Number(e.target.value)
-                          setForm({
-                            ...form,
-                            partPaymentAmount: val,
-                            amountReceived: val,
-                            amountPaid: val,
-                            paymentStatus: val >= totalAmount ? 'RECEIVED' : val > 0 ? 'PARTIAL' : 'PENDING',
-                          })
-                        }}
-                        placeholder="Enter amount paid now"
-                      />
-                      <p className="text-xs text-muted-foreground mt-1">
-                        Total: {formatCurrency(totalAmount, tenant?.currency)} | Due: {formatCurrency(Math.max(0, totalAmount - (form.partPaymentAmount || 0)), tenant?.currency)}
-                      </p>
-                    </div>
-                    {form.partPaymentMode === 'OTHERS' && (
+                {/* v4.62: Part Payment — multiple payment methods simultaneously */}
+                {form.paymentMode === 'PART_PAYMENT' && (() => {
+                  const isCashCustomer = form.partyName.trim().toLowerCase() === 'cash'
+                  const cashPaid = Number(form.ppCash) || 0
+                  const cardPaid = Number(form.ppCard) || 0
+                  const upiPaid = Number(form.ppUpi) || 0
+                  const otherPaid = Number(form.ppOther) || 0
+                  const totalPaid = cashPaid + cardPaid + upiPaid + otherPaid
+                  const creditAmt = isCashCustomer ? 0 : Math.max(0, totalAmount - totalPaid)
+                  const balanceDue = Math.max(0, totalAmount - totalPaid - (isCashCustomer ? 0 : creditAmt))
+
+                  return (
+                    <>
                       <div className="col-span-2">
-                        <Label>Part Payment Remarks</Label>
-                        <Input
-                          value={form.paymentRemarks}
-                          onChange={(e) => setForm({ ...form, paymentRemarks: e.target.value })}
-                          placeholder="e.g., Cheque #12345, Bank Transfer, etc."
-                        />
+                        <p className="text-xs font-semibold text-slate-600 mb-2">Enter amount for each payment method:</p>
                       </div>
-                    )}
-                  </>
-                )}
+                      <div>
+                        <Label>Cash</Label>
+                        <Input type="number" value={form.ppCash || ''} onChange={(e) => setForm({ ...form, ppCash: Number(e.target.value) || 0 })} placeholder="0" />
+                      </div>
+                      <div>
+                        <Label>Card</Label>
+                        <Input type="number" value={form.ppCard || ''} onChange={(e) => setForm({ ...form, ppCard: Number(e.target.value) || 0 })} placeholder="0" />
+                      </div>
+                      <div>
+                        <Label>UPI</Label>
+                        <Input type="number" value={form.ppUpi || ''} onChange={(e) => setForm({ ...form, ppUpi: Number(e.target.value) || 0 })} placeholder="0" />
+                      </div>
+                      <div>
+                        <Label>Other</Label>
+                        <Input type="number" value={form.ppOther || ''} onChange={(e) => setForm({ ...form, ppOther: Number(e.target.value) || 0 })} placeholder="0" />
+                      </div>
+                      {/* Other Remarks — only if Other amount > 0 */}
+                      {otherPaid > 0 && (
+                        <div className="col-span-2">
+                          <Label>Other Payment Remarks</Label>
+                          <Input value={form.ppOtherRemarks} onChange={(e) => setForm({ ...form, ppOtherRemarks: e.target.value })} placeholder="e.g., Cheque #12345, NEFT, Bank Transfer" />
+                        </div>
+                      )}
+                      {/* Credit — NOT applicable if customer name is "Cash" */}
+                      {!isCashCustomer && (
+                        <div>
+                          <Label>Credit (Balance Due)</Label>
+                          <Input type="number" value={creditAmt || ''} readOnly className="bg-slate-100 dark:bg-slate-800" />
+                          <p className="text-xs text-muted-foreground mt-1">Auto-calculated: Total − (Cash + Card + UPI + Other)</p>
+                        </div>
+                      )}
+                      {/* Summary */}
+                      <div className="col-span-2 bg-amber-50 dark:bg-amber-950 p-3 rounded-lg border border-amber-200 text-sm space-y-1">
+                        <div className="flex justify-between"><span>Cash</span><span>{formatCurrency(cashPaid, tenant?.currency)}</span></div>
+                        <div className="flex justify-between"><span>Card</span><span>{formatCurrency(cardPaid, tenant?.currency)}</span></div>
+                        <div className="flex justify-between"><span>UPI</span><span>{formatCurrency(upiPaid, tenant?.currency)}</span></div>
+                        <div className="flex justify-between"><span>Other</span><span>{formatCurrency(otherPaid, tenant?.currency)}</span></div>
+                        {!isCashCustomer && (
+                          <div className="flex justify-between text-rose-600 font-semibold"><span>Credit</span><span>{formatCurrency(creditAmt, tenant?.currency)}</span></div>
+                        )}
+                        <div className="border-t pt-1 flex justify-between font-bold text-base">
+                          <span>Total Amount</span>
+                          <span>{formatCurrency(totalAmount, tenant?.currency)}</span>
+                        </div>
+                        <div className="flex justify-between text-emerald-600">
+                          <span>Amount Received (Cash+Card+UPI+Other)</span>
+                          <span>{formatCurrency(totalPaid, tenant?.currency)}</span>
+                        </div>
+                        {totalPaid + creditAmt !== totalAmount && (
+                          <div className="flex justify-between text-rose-600 font-bold">
+                            <span>⚠️ Mismatch! Sum ≠ Total</span>
+                            <span>{formatCurrency(totalPaid + creditAmt - totalAmount, tenant?.currency)}</span>
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  )
+                })()}
 
                 {/* Others: show remarks */}
                 {form.paymentMode === 'OTHERS' && (
@@ -977,8 +1038,8 @@ export function SaleRegister() {
                 <div className="flex justify-between"><span>Subtotal</span><span>{formatCurrency(subtotal, tenant?.currency)}</span></div>
                 <div className="flex justify-between"><span>GST / Tax</span><span>{formatCurrency(totalTax, tenant?.currency)}</span></div>
                 <div className="flex justify-between font-bold text-base"><span>Total Amount</span><span>{formatCurrency(totalAmount, tenant?.currency)}</span></div>
-                <div className="flex justify-between text-emerald-600"><span>Amount Received</span><span>{formatCurrency(form.paymentMode === 'PART_PAYMENT' ? (form.partPaymentAmount || 0) : (form.paymentMode === 'CASH' || form.paymentMode === 'UPI' || form.paymentMode === 'CARD' || form.paymentMode === 'OTHERS' ? totalAmount : 0), tenant?.currency)}</span></div>
-                <div className="flex justify-between text-rose-600"><span>Balance Due</span><span>{formatCurrency(Math.max(0, totalAmount - (form.paymentMode === 'PART_PAYMENT' ? (form.partPaymentAmount || 0) : (form.paymentMode === 'CASH' || form.paymentMode === 'UPI' || form.paymentMode === 'CARD' || form.paymentMode === 'OTHERS' ? totalAmount : 0))), tenant?.currency)}</span></div>
+                <div className="flex justify-between text-emerald-600"><span>Amount Received</span><span>{formatCurrency(form.paymentMode === 'PART_PAYMENT' ? ((Number(form.ppCash) || 0) + (Number(form.ppCard) || 0) + (Number(form.ppUpi) || 0) + (Number(form.ppOther) || 0)) : (form.paymentMode === 'CASH' || form.paymentMode === 'UPI' || form.paymentMode === 'CARD' || form.paymentMode === 'OTHERS' ? totalAmount : 0), tenant?.currency)}</span></div>
+                <div className="flex justify-between text-rose-600"><span>Balance Due</span><span>{formatCurrency(Math.max(0, totalAmount - (form.paymentMode === 'PART_PAYMENT' ? ((Number(form.ppCash) || 0) + (Number(form.ppCard) || 0) + (Number(form.ppUpi) || 0) + (Number(form.ppOther) || 0)) : (form.paymentMode === 'CASH' || form.paymentMode === 'UPI' || form.paymentMode === 'CARD' || form.paymentMode === 'OTHERS' ? totalAmount : 0))), tenant?.currency)}</span></div>
               </div>
 
               <div><Label>Notes</Label><Textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Optional notes" /></div>
