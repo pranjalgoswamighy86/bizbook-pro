@@ -191,6 +191,9 @@ model Sale {
   version       Int      @default(0)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+
+  @@index([tenantId, date])
+  @@index([tenantId, isDeleted])
 }
 
 model Purchase {
@@ -224,6 +227,12 @@ model Purchase {
   version       Int      @default(0)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+
+  @@index([tenantId, date])
+  @@index([tenantId, isDeleted])
+
+  @@index([tenantId, date])
+  @@index([tenantId, isDeleted])
 }
 
 model Expense {
@@ -243,6 +252,11 @@ model Expense {
   deletedAt   DateTime?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
+  @@index([tenantId, date])
+  @@index([tenantId, isDeleted])
+  @@index([tenantId, date])
+  @@index([tenantId, isDeleted])
 }
 
 model InventoryItem {
@@ -275,6 +289,8 @@ model InventoryItem {
   version       Int      @default(0)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+  @@index([tenantId, name])
+  @@index([tenantId, isDeleted])
 }
 
 model BankTransaction {
@@ -405,6 +421,8 @@ model Receipt {
   version       Int      @default(0)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+  @@index([tenantId, date])
+  @@index([tenantId, isDeleted])
 }
 
 model Debtor {
@@ -443,6 +461,8 @@ model Creditor {
   version       Int      @default(0)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
+  @@index([tenantId, name])
+  @@index([tenantId, isDeleted])
 }
 
 model PasswordReset {

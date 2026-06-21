@@ -70,6 +70,7 @@ function resolveDatabaseUrl(): string {
 const resolvedDatabaseUrl = resolveDatabaseUrl()
 
 // Create Prisma client with optimized connection settings for cluster mode
+// v4.55: Added connection_limit + pool_timeout for 1000+ user scalability
 export const db =
   globalForPrisma.prisma ??
   new PrismaClient({
@@ -78,7 +79,10 @@ export const db =
     ],
     datasources: {
       db: {
-        url: resolvedDatabaseUrl,
+        // v4.55: Add connection_limit + pool_timeout for high concurrency
+        // SQLite doesn't use connection pools like PostgreSQL, but these
+        // settings help Prisma manage query queueing better
+        url: resolvedDatabaseUrl + (resolvedDatabaseUrl.includes('?') ? '&' : '?') + 'connection_limit=20&pool_timeout=30',
       },
     },
   })

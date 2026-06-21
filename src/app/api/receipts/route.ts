@@ -57,9 +57,14 @@ export async function POST(req: NextRequest) {
           { reference: { contains: search } },
         ]
       }
-      const receipts = await db.receipt.findMany({ where, orderBy: { date: 'desc' } })
+      // v4.55: Add pagination for 1000+ user scalability
+      const page = Number(body.page) || 1
+      const limit = Math.min(Number(body.limit) || 100, 500)
+      const skip = (page - 1) * limit
+      const receipts = await db.receipt.findMany({ where, orderBy: { date: 'desc' }, take: limit, skip })
       const totalReceipts = receipts.reduce((sum, r) => sum + r.amount, 0)
-      return NextResponse.json({ receipts, totalReceipts })
+      const totalCount = await db.receipt.count({ where })
+      return NextResponse.json({ receipts, totalReceipts, page, limit, hasMore: skip + receipts.length < totalCount })
     }
 
     return NextResponse.json({ error: 'Invalid action' }, { status: 400 })

@@ -54,9 +54,14 @@ export async function POST(req: NextRequest) {
           { gstNumber: { contains: search } },
         ]
       }
-      const creditors = await db.creditor.findMany({ where, orderBy: { name: 'asc' } })
+      // v4.55: Add pagination for 1000+ user scalability
+      const page = Number(body.page) || 1
+      const limit = Math.min(Number(body.limit) || 100, 500)
+      const skip = (page - 1) * limit
+      const creditors = await db.creditor.findMany({ where, orderBy: { name: 'asc' }, take: limit, skip })
       const totalPayable = creditors.reduce((sum, c) => sum + c.currentBalance, 0)
-      return NextResponse.json({ creditors, totalPayable })
+      const totalCount = await db.creditor.count({ where })
+      return NextResponse.json({ creditors, totalPayable, page, limit, hasMore: skip + creditors.length < totalCount })
     }
 
     return NextResponse.json({ error: 'Invalid action' }, { status: 400 })

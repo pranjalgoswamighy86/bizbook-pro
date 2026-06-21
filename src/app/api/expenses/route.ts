@@ -60,9 +60,13 @@ export async function POST(req: NextRequest) {
       if (category) {
         where.category = category
       }
-      const expenses = await db.expense.findMany({ where, orderBy: { date: 'desc' } })
+      // v4.55: Add pagination for 1000+ user scalability (was loading entire table)
+      const page = Number(body.page) || 1
+      const limit = Math.min(Number(body.limit) || 100, 500) // max 500 per page
+      const skip = (page - 1) * limit
+      const expenses = await db.expense.findMany({ where, orderBy: { date: 'desc' }, take: limit, skip })
       const total = await db.expense.count({ where })
-      return NextResponse.json({ expenses, total })
+      return NextResponse.json({ expenses, total, page, limit, hasMore: skip + expenses.length < total })
     }
 
     if (action === 'stats') {

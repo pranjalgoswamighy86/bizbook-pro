@@ -69,11 +69,15 @@ export async function POST(req: NextRequest) {
       if (category) where.category = category
       if (lowStock) where.currentStock = { lte: 0 }
 
-      const items = await db.inventoryItem.findMany({ where, orderBy: { name: 'asc' } })
+      // v4.55: Add pagination for 1000+ user scalability
+      const page = Number(body.page) || 1
+      const limit = Math.min(Number(body.limit) || 100, 500)
+      const skip = (page - 1) * limit
+      const items = await db.inventoryItem.findMany({ where, orderBy: { name: 'asc' }, take: limit, skip })
       const totalValue = items.reduce((sum, i) => sum + i.value, 0)
-      const totalItems = items.length
-      const lowStockItems = items.filter((i) => i.currentStock <= i.minStock).length
-      return NextResponse.json({ items, totalValue, totalItems, lowStockItems })
+      const totalItems = await db.inventoryItem.count({ where })
+      const lowStockItems = await db.inventoryItem.count({ where: { ...where, currentStock: { lte: 0 } } })
+      return NextResponse.json({ items, totalValue, totalItems, lowStockItems, page, limit, hasMore: skip + items.length < totalItems })
     }
 
     if (action === 'adjust-stock') {
