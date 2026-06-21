@@ -42,7 +42,7 @@ export async function POST(req: NextRequest) {
       messages: [
         {
           role: 'system',
-          content: `You are a professional business valuation expert AI. Analyze the financial data and provide a comprehensive company valuation in Indian Rupees. Return JSON: {"valuationRange":{"low":number,"mid":number,"high":number},"valuationMethod":"string","financialHealthScore":number,"healthGrade":"string","keyStrengths":["string"],"keyRisks":["string"],"growthTrend":"string","recommendations":["string"],"summary":"string"}`,
+          content: `You are a professional business valuation expert AI. IMPORTANT: You MUST respond in ENGLISH ONLY. Never use Chinese or any other language. Analyze the financial data and provide a comprehensive company valuation in Indian Rupees. Return JSON: {"valuationRange":{"low":number,"mid":number,"high":number},"valuationMethod":"string","financialHealthScore":number,"healthGrade":"string","keyStrengths":["string"],"keyRisks":["string"],"growthTrend":"string","recommendations":["string"],"summary":"string"}`,
         },
         { role: 'user', content: `Analyze: ${JSON.stringify(financialData)}. Provide valuation as JSON.` },
       ],

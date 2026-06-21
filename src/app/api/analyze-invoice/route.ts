@@ -173,7 +173,7 @@ export async function POST(req: NextRequest) {
       messages: [
         {
           role: 'system',
-          content: `You are an expert GST invoice analyzer for Indian businesses. Your ONLY job is to READ and EXTRACT data exactly as printed on the invoice. NEVER calculate, estimate, or guess any numbers.
+          content: `You are an expert GST invoice analyzer for Indian businesses. IMPORTANT: You MUST respond in ENGLISH ONLY. Never use Chinese or any other language. Your ONLY job is to READ and EXTRACT data exactly as printed on the invoice. NEVER calculate, estimate, or guess any numbers.
 
 CRITICAL RULES:
 1. READ numbers from the invoice image. Do NOT calculate them. If you see "59,455.00" on the invoice, output 59455.00 — do NOT add tax to it or modify it.

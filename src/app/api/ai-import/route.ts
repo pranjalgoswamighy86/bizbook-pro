@@ -17,6 +17,8 @@ async function ensureUploadDir() {
 
 const ANALYSIS_SYSTEM_PROMPT = `You are an expert business data analyst working with BizBook Pro accounting software.
 
+IMPORTANT: You MUST respond in ENGLISH ONLY. Never use Chinese or any other language. All output text, summaries, tags, and descriptions must be in English.
+
 Your job is to analyze uploaded business data files and extract structured data for import into BizBook Pro.
 
 Users may maintain their business data across multiple files in different formats — expenses in Word, purchases in Excel, inventory in another file, party details in CSV, bill images, etc. Each file is analyzed independently and then merged.
