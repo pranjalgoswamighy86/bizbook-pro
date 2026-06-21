@@ -400,63 +400,20 @@ export async function POST(req: NextRequest) {
 
       const defaultTenant = user.tenant
 
-      // === v4.3: Task 8 — 3-Day OTP Gate ===
-      // If lastOtpVerifiedAt > 3 days ago (or never set), require OTP before login
-      // Admin emails (admin@bizbook.pro, pranjalgoswamighy86@gmail.com) bypass per Task 29
-      const ADMIN_BYPASS_EMAILS = [
-        'admin@bizbook.pro',
-        (process.env.ADMIN_EMAIL || '').toLowerCase(),
-        'pranjalgoswamighy86@gmail.com',
-        (process.env.INFRASTRUCTURE_OWNER_EMAIL || '').toLowerCase(),
-      ].filter(Boolean);
+      // === v4.60: REMOVED 3-Day OTP Gate for login ===
+      // USER REQUIREMENT: "NO NEED OTP VERIFICATION > AFTER EVERY LOGOUT
+      //   NEED OTP VERIFICATION > REGISTRATION & FORGOT PASSWORD > ONLY"
+      // Login now goes straight through — no OTP required.
+      // OTP is still used for:
+      //   1. Registration (register-send-otp + register-verify actions)
+      //   2. Forgot password (reset-password action)
+      //   3. Change password uses old password only (no OTP)
 
-      const isBypassUser = ADMIN_BYPASS_EMAILS.includes(user.email.toLowerCase());
-      const lastOtpVerifiedAt = user.lastOtpVerifiedAt ? new Date(user.lastOtpVerifiedAt) : null;
-      const THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000;
-      const requiresOtpGate = !isBypassUser && (
-        !lastOtpVerifiedAt ||
-        (Date.now() - lastOtpVerifiedAt.getTime()) > THREE_DAYS_MS
-      );
-
-      if (requiresOtpGate) {
-        console.log(`[AUTH-GATE] User ${user.email} requires OTP re-verification (last verified: ${lastOtpVerifiedAt?.toISOString() || 'never'})`);
-        // Generate + dispatch OTP, then ask frontend to show OTP verification step
-        const otp = String(Math.floor(100000 + Math.random() * 900000));
-        const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
-
-        await db.passwordReset.updateMany({
-          where: { email: user.email, used: false },
-          data: { used: true },
-        });
-        await db.passwordReset.create({
-          data: { email: user.email, otp, expiresAt },
-        });
-
-        // Dispatch via multi-channel pipeline (Email → SMS → WhatsApp)
-        const { dispatchOtp } = await import('@/lib/otp/dispatcher');
-        const userTenant = await db.tenant.findUnique({
-          where: { id: user.tenantId },
-          select: { phone: true },
-        });
-        const otpResult = await dispatchOtp(otp, {
-          email: user.email,
-          mobile: userTenant?.phone || undefined,
-          userId: user.id,
-          tenantId: user.tenantId,
-          purpose: 'login',
-        });
-
-        return NextResponse.json({
-          requiresOtp: true,
-          otpDispatched: otpResult.ok,
-          emailSent: otpResult.emailDelivered,
-          smsSent: otpResult.smsDelivered,
-          whatsappSent: otpResult.whatsappDelivered,
-          email: user.email,
-          message: 'Please check your email inbox/spam for the 6-digit OTP. If email delivery fails, the OTP will be securely sent directly to your registered tenant mobile number as a backup channel.',
-          // Do NOT issue session token until OTP is verified
-        });
-      }
+      // Update lastLoginAt
+      await db.user.update({
+        where: { id: user.id },
+        data: { lastLoginAt: new Date(), lastOtpVerifiedAt: new Date() },
+      }).catch(() => {}); // non-blocking
 
       // === v4.3: Rule 2.2 — Workspace Selection ===
       // If user has 2+ active workspaces, return WORKSPACE_SELECTION_REQUIRED

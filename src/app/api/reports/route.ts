@@ -229,12 +229,12 @@ export async function POST(req: NextRequest) {
         totalPayments,
         netProfit: totalSales - totalPurchases - totalExpenses,
         lowStockCount,
-        inventoryCount: inventory.length,
+        inventoryCount: invAgg._count || 0,
         recentBankTxns: bankTxns,
         monthlyTrend,
-        salesCount: salesStats.length,
-        purchaseCount: purchaseStats.length,
-        expenseCount: expenseStats.length,
+        salesCount: salesAgg._count || 0,
+        purchaseCount: purchaseAgg._count || 0,
+        expenseCount: expenseAgg._count || 0,
       })
     }
 
