@@ -247,6 +247,42 @@ export function AppSidebar() {
             <button
               key={item.id}
               onClick={() => handleNavClick(item.id)}
+              onMouseEnter={() => {
+                // v4.59: Prefetch module chunk on hover — instant load when clicked
+                // Next.js dynamic imports are cached after first load, so this
+                // only downloads the chunk if it hasn't been loaded yet
+                if (item.id !== currentView && item.id !== 'dashboard' && item.id !== 'company-select') {
+                  const chunkMap: Record<string, () => Promise<unknown>> = {
+                    'sales': () => import('@/components/modules/sale-register'),
+                    'purchases': () => import('@/components/modules/purchase-register'),
+                    'expenses': () => import('@/components/modules/expense-register'),
+                    'inventory': () => import('@/components/modules/inventory'),
+                    'bank': () => import('@/components/modules/bank-statement'),
+                    'pnl': () => import('@/components/modules/pnl-summary'),
+                    'day-report': () => import('@/components/modules/day-report'),
+                    'balance-sheet': () => import('@/components/modules/balance-sheet'),
+                    'debtors': () => import('@/components/modules/debtors'),
+                    'creditors': () => import('@/components/modules/creditors'),
+                    'payments': () => import('@/components/modules/payments'),
+                    'receipts': () => import('@/components/modules/receipts'),
+                    'staff': () => import('@/components/modules/staff-salary'),
+                    'settings': () => import('@/components/modules/settings'),
+                    'audit-log': () => import('@/components/modules/audit-log'),
+                    'batch-expiry': () => import('@/components/modules/batch-expiry'),
+                    'price-lists': () => import('@/components/modules/price-lists'),
+                    'gst-reports': () => import('@/components/modules/gst-reports'),
+                    'backup': () => import('@/components/modules/backup'),
+                    'chart-of-accounts': () => import('@/components/modules/chart-of-accounts'),
+                    'general-ledger': () => import('@/components/modules/general-ledger'),
+                    'ai-import': () => import('@/components/modules/ai-import'),
+                    'subscription': () => import('@/components/modules/subscription'),
+                    'ai-valuation': () => import('@/components/modules/ai-valuation'),
+                    'super-admin-subscriptions': () => import('@/components/modules/super-admin-subscriptions'),
+                    'payment-proof-review': () => import('@/components/modules/payment-proof-review'),
+                  }
+                  chunkMap[item.id]?.().catch(() => {})
+                }
+              }}
               className={cn(
                 'w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors',
                 currentView === item.id
