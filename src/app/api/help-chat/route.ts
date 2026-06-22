@@ -50,7 +50,7 @@ export async function POST(req: NextRequest) {
       needsHumanSupport = parsed.needsHumanSupport || false
     } catch (aiErr: any) {
       console.error('[HELP-CHAT] AI error:', aiErr?.message)
-      aiResponse = 'I\'m having trouble processing your request right now. Your query has been forwarded to our support team — they'll get back to you soon.'
+      aiResponse = "I'm having trouble processing your request right now. Your query has been forwarded to our support team — they will get back to you soon."
       needsHumanSupport = true
     }
 
