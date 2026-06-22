@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
+import { BarcodeScanner } from '@/components/app/barcode-scanner'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
@@ -480,7 +481,10 @@ export function PurchaseRegister() {
                       <div className="grid grid-cols-4 gap-2 mb-2">
                         <div>
                           <Label className="text-xs text-muted-foreground">Item Name</Label>
-                          <Input placeholder="Item name" value={item.name} onChange={(e) => updateItem(idx, 'name', e.target.value)} />
+                          <div className="flex gap-1">
+                            <Input placeholder="Item name" value={item.name} onChange={(e) => updateItem(idx, 'name', e.target.value)} />
+                            <BarcodeScanner onScan={(code) => updateItem(idx, 'name', code)} />
+                          </div>
                         </div>
                         <div>
                           <Label className="text-xs text-muted-foreground">Category</Label>

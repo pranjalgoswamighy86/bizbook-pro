@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
+import { FingerprintScanner } from '@/components/app/fingerprint-scanner'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -145,6 +146,13 @@ export function StaffSalary() {
                 <div><Label>Aadhaar</Label><Input value={form.aadhaar} onChange={(e) => setForm({ ...form, aadhaar: e.target.value })} /></div>
               </div>
               <div><Label>Address</Label><Input value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} /></div>
+              {/* v4.67: Fingerprint Scanner */}
+              <div className="border-t pt-3">
+                <Label className="text-xs text-muted-foreground">Biometric Authentication (Optional)</Label>
+                <div className="mt-1">
+                  <FingerprintScanner userId={editingId || undefined} userEmail={form.email} buttonText="Register Fingerprint" />
+                </div>
+              </div>
             </div>
             <DialogFooter><Button variant="outline" onClick={() => setShowForm(false)}>Cancel</Button><Button className="bg-emerald-600 hover:bg-emerald-700" onClick={handleSave}>{editingId ? 'Update' : 'Save'}</Button></DialogFooter>
           </DialogContent>

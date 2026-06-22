@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
+import { BarcodeScanner } from '@/components/app/barcode-scanner'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
@@ -63,8 +64,19 @@ const emptyTax = (name = 'GST', percent = 0): TaxEntry => ({
 
 const emptyItem = (): SaleItem => ({
   name: '', category: '', hsn: '', unit: 'PCS', qty: 1, rate: 0,
-  taxes: [emptyTax()], mrp: 0, discount: 0, amount: 0, totalTax: 0, total: 0
+  taxes: [emptyTax()], mrp: 0, discount: 0, amount: 0, totalTax: 0, total: 0,
+  // v4.66: Default to Retail Product — inventory will be deducted on sale.
+  // 'FINISHED_PRODUCT' triggers BOM raw-material deduction.
+  // 'SERVICE' skips all inventory operations (e.g., BizBook Pro subscription, consulting).
+  saleItemType: 'RETAIL_PRODUCT',
 })
+
+// v4.66: Item type labels for UI display
+const SALE_ITEM_TYPE_LABELS: Record<NonNullable<SaleItem['saleItemType']>, string> = {
+  RETAIL_PRODUCT: 'Retail Product',
+  FINISHED_PRODUCT: 'Finished Product',
+  SERVICE: 'Service',
+}
 
 export function SaleRegister() {
   const { tenant, user, dateFilter, searchQuery, setView } = useAppStore()
@@ -217,9 +229,41 @@ export function SaleRegister() {
     setItems(prev => prev.map((item, i) => {
       if (i !== index) return item
       const updated = { ...item, [field]: value }
-      // Auto-detect itemType when name changes
+      // Auto-detect itemType when name changes (v4.66: do NOT override SERVICE — user explicitly chose it)
       if (field === 'name' && typeof value === 'string') {
-        updated.itemType = finishedProductNames.includes(value.toLowerCase()) ? 'FINISHED_PRODUCT' : undefined
+        if (updated.saleItemType !== 'SERVICE') {
+          updated.itemType = finishedProductNames.includes(value.toLowerCase()) ? 'FINISHED_PRODUCT' : undefined
+          // Auto-set saleItemType to FINISHED_PRODUCT if name matches a known BOM product
+          if (finishedProductNames.includes(value.toLowerCase())) {
+            updated.saleItemType = 'FINISHED_PRODUCT'
+          } else if (updated.saleItemType === 'FINISHED_PRODUCT' && !finishedProductNames.includes(value.toLowerCase())) {
+            // Reset to default if name no longer matches a BOM product
+            updated.saleItemType = 'RETAIL_PRODUCT'
+          }
+        }
+      }
+      return calcItemTotals(updated)
+    }))
+  }
+
+  // v4.66: Update item type — when user switches to SERVICE, clear BOM badge and inventory-related cues
+  const updateItemType = (index: number, newType: 'RETAIL_PRODUCT' | 'FINISHED_PRODUCT' | 'SERVICE') => {
+    setItems(prev => prev.map((item, i) => {
+      if (i !== index) return item
+      const updated: SaleItem = { ...item, saleItemType: newType }
+      // Clear BOM badge for SERVICE items; auto-set BOM badge for FINISHED_PRODUCT only if name matches
+      if (newType === 'SERVICE') {
+        updated.itemType = undefined
+      } else if (newType === 'FINISHED_PRODUCT') {
+        // If name matches a known finished product, mark it; otherwise still allow (user explicit choice)
+        updated.itemType = item.name && finishedProductNames.includes(item.name.toLowerCase())
+          ? 'FINISHED_PRODUCT'
+          : 'FINISHED_PRODUCT'
+      } else {
+        // RETAIL_PRODUCT — auto-detect based on name
+        updated.itemType = item.name && finishedProductNames.includes(item.name.toLowerCase())
+          ? 'FINISHED_PRODUCT'
+          : undefined
       }
       return calcItemTotals(updated)
     }))
@@ -286,7 +330,12 @@ export function SaleRegister() {
     })
     try {
       const parsed = JSON.parse(sale.items) as SaleItem[]
-      setItems(parsed.length > 0 ? parsed.map(item => calcItemTotals(item)) : [emptyItem()])
+      // v4.66: Backfill saleItemType for legacy items (default to RETAIL_PRODUCT)
+      const normalized = parsed.length > 0 ? parsed.map(item => ({
+        ...item,
+        saleItemType: item.saleItemType || (item.itemType === 'FINISHED_PRODUCT' ? 'FINISHED_PRODUCT' : 'RETAIL_PRODUCT'),
+      })) : [emptyItem()]
+      setItems(normalized.map(item => calcItemTotals(item)))
     } catch {
       setItems([emptyItem()])
     }
@@ -599,7 +648,7 @@ export function SaleRegister() {
       ${parsedItems.map((item, i) => `
       <tr>
         <td>${i + 1}</td>
-        <td>${item.name}${item.category ? ' <span style="color:#999;font-size:11px">(' + item.category + ')</span>' : ''}</td>
+        <td>${item.name}${item.category ? ' <span style="color:#999;font-size:11px">(' + item.category + ')</span>' : ''}${item.saleItemType === 'SERVICE' ? ' <span style="color:#7c3aed;font-size:10px;font-weight:600;">[SERVICE]</span>' : ''}</td>
         <td>${item.hsn || '-'}</td>
         <td class="right">${item.qty} ${item.unit}</td>
         <td class="right">${formatCurrency(item.rate, tenant?.currency)}</td>
@@ -791,12 +840,35 @@ export function SaleRegister() {
                           <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => removeItem(idx)}><Trash2 className="h-3.5 w-3.5" /></Button>
                         )}
                       </div>
-                      {/* Row 1: Name, Category, HSN, Unit */}
-                      <div className="grid grid-cols-4 gap-2 mb-2">
+                      {/* Row 1: Item Type, Name, Category, HSN, Unit — v4.66 added Item Type column */}
+                      <div className="grid grid-cols-5 gap-2 mb-2">
+                        <div>
+                          <Label className="text-xs text-muted-foreground">Item Type</Label>
+                          <Select
+                            value={item.saleItemType || 'RETAIL_PRODUCT'}
+                            onValueChange={(v: 'RETAIL_PRODUCT' | 'FINISHED_PRODUCT' | 'SERVICE') => updateItemType(idx, v)}
+                          >
+                            <SelectTrigger className="h-9 text-xs"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="RETAIL_PRODUCT">Retail Product</SelectItem>
+                              <SelectItem value="FINISHED_PRODUCT">Finished Product</SelectItem>
+                              <SelectItem value="SERVICE">Service</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          {item.saleItemType === 'SERVICE' && (
+                            <span className="inline-flex items-center gap-1 mt-1 text-xs text-violet-700 bg-violet-50 border border-violet-200 px-2 py-0.5 rounded-full">
+                              <Sparkles className="h-3 w-3" /> No stock deducted
+                            </span>
+                          )}
+                        </div>
                         <div>
                           <Label className="text-xs text-muted-foreground">Item Name</Label>
-                          <Input placeholder="Item name" value={item.name} onChange={(e) => updateItem(idx, 'name', e.target.value)} />
-                          {(item.itemType === 'FINISHED_PRODUCT' || (item.name && finishedProductNames.includes(item.name.toLowerCase()))) && (
+                          <div className="flex gap-1">
+                            <Input placeholder="Item name" value={item.name} onChange={(e) => updateItem(idx, 'name', e.target.value)} />
+                            <BarcodeScanner onScan={(code) => updateItem(idx, 'name', code)} />
+                          </div>
+                          {/* v4.66: Hide BOM badge for SERVICE items; show for FINISHED_PRODUCT */}
+                          {item.saleItemType !== 'SERVICE' && (item.itemType === 'FINISHED_PRODUCT' || (item.name && finishedProductNames.includes(item.name.toLowerCase()))) && (
                             <span className="inline-flex items-center gap-1 mt-1 text-xs text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">
                               <Package className="h-3 w-3" /> Includes raw materials
                             </span>
@@ -824,6 +896,8 @@ export function SaleRegister() {
                               <SelectItem value="NOS">NOS</SelectItem>
                               <SelectItem value="SET">SET</SelectItem>
                               <SelectItem value="PAIR">PAIR</SelectItem>
+                              <SelectItem value="HRS">HRS</SelectItem>
+                              <SelectItem value="JOB">JOB</SelectItem>
                             </SelectContent>
                           </Select>
                         </div>
@@ -1115,7 +1189,20 @@ export function SaleRegister() {
                             <TableRow key={i}>
                               <TableCell>
                                 {item.name}
-                                {(item.itemType === 'FINISHED_PRODUCT' || (item.name && finishedProductNames.includes(item.name.toLowerCase()))) && (
+                                {/* v4.66: Show item type badge */}
+                                {item.saleItemType && item.saleItemType !== 'RETAIL_PRODUCT' && (
+                                  <span className={`inline-flex items-center gap-1 ml-1 text-xs px-1.5 py-0.5 rounded-full border ${
+                                    item.saleItemType === 'SERVICE'
+                                      ? 'text-violet-700 bg-violet-50 border-violet-200'
+                                      : 'text-amber-700 bg-amber-50 border-amber-200'
+                                  }`}>
+                                    {item.saleItemType === 'SERVICE'
+                                      ? <><Sparkles className="h-3 w-3" /> Service</>
+                                      : <><Package className="h-3 w-3" /> BOM</>}
+                                  </span>
+                                )}
+                                {/* Legacy BOM badge for items without saleItemType */}
+                                {!item.saleItemType && (item.itemType === 'FINISHED_PRODUCT' || (item.name && finishedProductNames.includes(item.name.toLowerCase()))) && (
                                   <span className="inline-flex items-center gap-1 ml-1 text-xs text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-full">
                                     <Package className="h-3 w-3" /> BOM
                                   </span>

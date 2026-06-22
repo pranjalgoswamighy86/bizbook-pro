@@ -90,6 +90,9 @@ export async function POST(req: NextRequest) {
         // 2. Inventory deduction (with BOM support)
         const items = JSON.parse(body.data.items || '[]')
         for (const item of items) {
+          // v4.66: Skip inventory operations for SERVICE items (e.g., BizBook Pro subscription, consulting, installation fees)
+          // Services have no physical stock to deduct.
+          if (item.saleItemType === 'SERVICE') continue
           if (!item.name || !item.qty || item.qty <= 0) continue
 
           // Use tx for all queries inside transaction
@@ -390,6 +393,8 @@ export async function POST(req: NextRequest) {
         // Reverse old inventory, apply new (simplified — same logic as create)
         const oldItems = JSON.parse(oldSale.items || '[]')
         for (const item of oldItems) {
+          // v4.66: Skip SERVICE items — they were never deducted from inventory at create time
+          if (item.saleItemType === 'SERVICE') continue
           if (!item.name || !item.qty || item.qty <= 0) continue
           const existingItem = await tx.inventoryItem.findFirst({
             where: { name: { equals: item.name }, tenantId: access.tenantId, isDeleted: false },
@@ -404,6 +409,8 @@ export async function POST(req: NextRequest) {
         }
         const newItems = JSON.parse(data.items || '[]')
         for (const item of newItems) {
+          // v4.66: Skip SERVICE items — do not deduct stock for services
+          if (item.saleItemType === 'SERVICE') continue
           if (!item.name || !item.qty || item.qty <= 0) continue
           const existingItem = await tx.inventoryItem.findFirst({
             where: { name: { equals: item.name }, tenantId: access.tenantId, isDeleted: false },
@@ -463,6 +470,8 @@ export async function POST(req: NextRequest) {
         // Reverse inventory
         const items = JSON.parse(sale.items || '[]')
         for (const item of items) {
+          // v4.66: Skip SERVICE items — they were never deducted from inventory at create time
+          if (item.saleItemType === 'SERVICE') continue
           if (!item.name || !item.qty || item.qty <= 0) continue
           const existingItem = await tx.inventoryItem.findFirst({
             where: { name: { equals: item.name }, tenantId: access.tenantId, isDeleted: false },

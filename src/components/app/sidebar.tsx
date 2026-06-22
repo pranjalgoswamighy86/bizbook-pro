@@ -92,6 +92,9 @@ export function AppSidebar() {
   const [isMobile, setIsMobile] = useState(false)
   const [showBackupImport, setShowBackupImport] = useState(false)
   const [showHelp, setShowHelp] = useState(false) // v4.49: Help modal state
+  // v4.67: Check if user is Super Admin (to hide regular Help button)
+  const SUPER_ADMIN_EMAILS = ['admin@bizbook.pro', 'pranjalgoswamighy86@gmail.com']
+  const isSuperAdmin = user ? SUPER_ADMIN_EMAILS.includes(user.email.toLowerCase()) : false
 
   // Detect mobile screen size
   // Use 900px breakpoint so that small screens like 800x600
@@ -112,8 +115,7 @@ export function AppSidebar() {
     if (!user) return false
     // v4.61: SUPER_ADMIN items only visible to admin@bizbook.pro / pranjalgoswamighy86@gmail.com
     if (item.minRole === 'SUPER_ADMIN') {
-      const SUPER_ADMIN_EMAILS = ['admin@bizbook.pro', 'pranjalgoswamighy86@gmail.com']
-      return SUPER_ADMIN_EMAILS.includes(user.email.toLowerCase())
+      return isSuperAdmin
     }
     if (item.minRole === 'MAIN_ADMIN') return canManage(user.role)
     return true
@@ -310,16 +312,19 @@ export function AppSidebar() {
             </button>
           ))}
 
-          {/* v4.49: Help button — opens Help modal with FAQ + guides + contact
-              v4.51: Use handleHelpClick to close mobile drawer first (fixes z-index conflict) */}
-          <button
-            onClick={handleHelpClick}
-            className="w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground"
-            title={!sidebarOpen && !isMobile ? 'Help & Support' : undefined}
-          >
-            <HelpCircle className="h-4 w-4" />
-            <span className="truncate">Help &amp; Support</span>
-          </button>
+          {/* v4.49: Help button — opens Help modal with FAQ + guides + AI chat
+              v4.51: Use handleHelpClick to close mobile drawer first
+              v4.67: Hide for Super Admin (they have Help & Support Management panel) */}
+          {!isSuperAdmin && (
+            <button
+              onClick={handleHelpClick}
+              className="w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground"
+              title={!sidebarOpen && !isMobile ? 'Help & Support' : undefined}
+            >
+              <HelpCircle className="h-4 w-4" />
+              <span className="truncate">Help &amp; Support</span>
+            </button>
+          )}
         </nav>
       </ScrollArea>
 
