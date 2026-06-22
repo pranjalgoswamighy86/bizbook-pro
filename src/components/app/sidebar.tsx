@@ -80,7 +80,7 @@ const navItems: NavItem[] = [
   { id: 'ai-valuation', label: 'Smart AI Company Valuation', icon: <Sparkles className="h-4 w-4" /> },
   { id: 'super-admin-subscriptions', label: 'Super Admin Panel', icon: <Crown className="h-4 w-4" />, minRole: 'SUPER_ADMIN' },
   { id: 'payment-proof-review', label: 'Payment Proofs', icon: <ShieldCheck className="h-4 w-4" />, minRole: 'SUPER_ADMIN' },
-  { id: 'help-support-management', label: 'Help & Support', icon: <HelpCircle className="h-4 w-4" />, minRole: 'SUPER_ADMIN' },
+  { id: 'help-support-management', label: 'Help & Support Management', icon: <HelpCircle className="h-4 w-4" />, minRole: 'SUPER_ADMIN' },
   { id: 'backup', label: 'Backup & Restore', icon: <HardDrive className="h-4 w-4" />, minRole: 'MAIN_ADMIN' },
   { id: 'settings', label: 'Settings', icon: <Settings className="h-4 w-4" />, minRole: 'MAIN_ADMIN' },
 ]
@@ -194,21 +194,21 @@ export function AppSidebar() {
           <img
             src="/tahigo-logo.png"
             alt="Tahigo International"
-            className="flex-shrink-0 h-10 w-10 rounded-lg object-contain p-1 border border-slate-100 bg-white shadow-sm"
+            className="flex-shrink-0 h-10 w-10 rounded-lg object-contain p-1 border border-sidebar-border bg-white shadow-sm"
             onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
           />
           <img
             src="/bizbook-pro-logo.png"
             alt="BizBook Pro"
-            className="flex-shrink-0 h-10 w-10 rounded-lg object-contain p-1 border border-slate-100 bg-white shadow-sm"
+            className="flex-shrink-0 h-10 w-10 rounded-lg object-contain p-1 border border-sidebar-border bg-white shadow-sm"
             onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
           />
           <div className="min-w-0 flex-1">
-            <h1 className="text-sm font-black text-slate-800 dark:text-slate-100 truncate leading-tight">BizBook Pro</h1>
-            <p className="text-[9px] font-semibold text-slate-500 tracking-wider uppercase truncate">Tahigo International</p>
+            <h1 className="text-sm font-black text-sidebar-foreground truncate leading-tight">BizBook Pro</h1>
+            <p className="text-[9px] font-semibold text-sidebar-foreground/60 tracking-wider uppercase truncate">Tahigo International</p>
           </div>
           {isMobile && (
-            <Button variant="ghost" size="icon" className="flex-shrink-0 h-7 w-7" onClick={closeMobileDrawer}>
+            <Button variant="ghost" size="icon" className="flex-shrink-0 h-7 w-7 text-sidebar-foreground" onClick={closeMobileDrawer}>
               <X className="h-4 w-4" />
             </Button>
           )}
@@ -220,14 +220,14 @@ export function AppSidebar() {
         <div className="space-y-1">
           <button
             onClick={handleSwitchCompany}
-            className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-xs text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950 transition-colors"
+            className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-xs text-sidebar-primary hover:bg-sidebar-accent transition-colors"
           >
             <ArrowLeftRight className="h-3.5 w-3.5" />
             {companies.length > 1 ? 'Switch Company' : 'My Companies'}
           </button>
           <button
             onClick={() => { setView('company-select'); closeMobileDrawer() }}
-            className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-xs text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950 transition-colors"
+            className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-xs text-sidebar-primary hover:bg-sidebar-accent transition-colors"
           >
             <Plus className="h-3.5 w-3.5" />
             Add New Company
@@ -235,7 +235,7 @@ export function AppSidebar() {
           {tenant && (
             <button
               onClick={() => { setShowBackupImport(true); closeMobileDrawer() }}
-              className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-xs text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950 transition-colors"
+              className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-xs text-amber-400 hover:bg-sidebar-accent transition-colors"
             >
               <FileSpreadsheet className="h-3.5 w-3.5" />
               Import Backup
@@ -293,8 +293,8 @@ export function AppSidebar() {
               className={cn(
                 'w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors',
                 currentView === item.id
-                  ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 font-medium'
-                  : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                  ? 'bg-sidebar-accent text-sidebar-primary font-medium'
+                  : 'text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground'
               )}
               title={!sidebarOpen && !isMobile ? item.label : undefined}
             >
@@ -307,7 +307,7 @@ export function AppSidebar() {
               v4.51: Use handleHelpClick to close mobile drawer first (fixes z-index conflict) */}
           <button
             onClick={handleHelpClick}
-            className="w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors text-muted-foreground hover:bg-muted hover:text-foreground"
+            className="w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground"
             title={!sidebarOpen && !isMobile ? 'Help & Support' : undefined}
           >
             <HelpCircle className="h-4 w-4" />
@@ -320,11 +320,11 @@ export function AppSidebar() {
 
       {/* Backup buttons */}
       <div className="px-3 py-2 space-y-1 shrink-0">
-        <p className="text-xs font-medium text-muted-foreground px-2 mb-1">Data Backup</p>
+        <p className="text-xs font-medium text-sidebar-foreground/60 px-2 mb-1">Data Backup</p>
         <button
           onClick={() => handleDownloadBackup('json')}
           disabled={backupLoading}
-          className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-xs text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+          className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-xs text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground transition-colors"
         >
           <Download className="h-3.5 w-3.5" />
           Download Backup (JSON)
@@ -332,7 +332,7 @@ export function AppSidebar() {
         <button
           onClick={() => handleDownloadBackup('tally')}
           disabled={backupLoading}
-          className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-xs text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+          className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-xs text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground transition-colors"
         >
           <Download className="h-3.5 w-3.5" />
           Export for Tally (XML)
@@ -362,7 +362,7 @@ export function AppSidebar() {
     return (
       <>
         {/* Fixed mobile top bar */}
-        <div className="fixed top-0 left-0 right-0 h-14 bg-card border-b border-border z-30 flex items-center gap-3 px-3 safe-area-top">
+        <div className="fixed top-0 left-0 right-0 h-14 bg-background border-b border-border z-30 flex items-center gap-3 px-3 safe-area-top">
           <Button
             variant="ghost"
             size="icon"
@@ -388,7 +388,7 @@ export function AppSidebar() {
         {/* Sidebar drawer — slides in from left */}
         <div
           className={cn(
-            'fixed top-0 left-0 app-drawer-height w-72 bg-card border-r border-border z-50 flex flex-col transition-transform duration-300',
+            'fixed top-0 left-0 app-drawer-height w-72 bg-sidebar border-r border-sidebar-border z-50 flex flex-col transition-transform duration-300',
             sidebarOpen ? 'translate-x-0' : '-translate-x-full'
           )}
         >
@@ -412,7 +412,7 @@ export function AppSidebar() {
   return (
     <div
       className={cn(
-        'flex flex-col h-full overflow-hidden bg-card border-r border-border transition-all duration-300 relative shrink-0',
+        'flex flex-col h-full overflow-hidden bg-sidebar border-r border-sidebar-border transition-all duration-300 relative shrink-0',
         sidebarOpen ? 'w-64' : 'w-16'
       )}
     >
@@ -446,14 +446,14 @@ export function AppSidebar() {
           <div className="space-y-1">
             <button
               onClick={handleSwitchCompany}
-              className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-xs text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950 transition-colors"
+              className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-xs text-sidebar-primary hover:bg-sidebar-accent transition-colors"
             >
               <ArrowLeftRight className="h-3.5 w-3.5" />
               {companies.length > 1 ? 'Switch Company' : 'My Companies'}
             </button>
             <button
               onClick={() => setView('company-select')}
-              className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-xs text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950 transition-colors"
+              className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-xs text-sidebar-primary hover:bg-sidebar-accent transition-colors"
             >
               <Plus className="h-3.5 w-3.5" />
               Add New Company
@@ -461,7 +461,7 @@ export function AppSidebar() {
             {tenant && (
               <button
                 onClick={() => setShowBackupImport(true)}
-                className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-xs text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950 transition-colors"
+                className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-xs text-amber-400 hover:bg-sidebar-accent transition-colors"
               >
                 <FileSpreadsheet className="h-3.5 w-3.5" />
                 Import Backup
@@ -492,8 +492,8 @@ export function AppSidebar() {
               className={cn(
                 'w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors',
                 currentView === item.id
-                  ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 font-medium'
-                  : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                  ? 'bg-sidebar-accent text-sidebar-primary font-medium'
+                  : 'text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground'
               )}
               title={!sidebarOpen ? item.label : undefined}
             >
@@ -506,7 +506,7 @@ export function AppSidebar() {
               v4.51: Use handleHelpClick for consistent behavior */}
           <button
             onClick={handleHelpClick}
-            className="w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors text-muted-foreground hover:bg-muted hover:text-foreground"
+            className="w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground"
             title="Help & Support"
           >
             <HelpCircle className="h-4 w-4 flex-shrink-0" />
@@ -520,11 +520,11 @@ export function AppSidebar() {
       {/* Backup buttons */}
       {sidebarOpen && (
         <div className="px-3 py-2 space-y-1 shrink-0">
-          <p className="text-xs font-medium text-muted-foreground px-2 mb-1">Data Backup</p>
+          <p className="text-xs font-medium text-sidebar-foreground/60 px-2 mb-1">Data Backup</p>
           <button
             onClick={() => handleDownloadBackup('json')}
             disabled={backupLoading}
-            className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-xs text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+            className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-xs text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground transition-colors"
           >
             <Download className="h-3.5 w-3.5" />
             Download Backup (JSON)
@@ -532,7 +532,7 @@ export function AppSidebar() {
           <button
             onClick={() => handleDownloadBackup('tally')}
             disabled={backupLoading}
-            className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-xs text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+            className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-xs text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground transition-colors"
           >
             <Download className="h-3.5 w-3.5" />
             Export for Tally (XML)

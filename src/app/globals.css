@@ -217,10 +217,6 @@ button[class*="bg-emerald"]:active, button[class*="bg-primary"]:active {
 }
 
 /* Premium sidebar — dark with emerald accents */
-.bg-card.border-r {
-  background: oklch(0.17 0.02 240) !important;
-  color: oklch(0.92 0.005 180) !important;
-}
 
 /* Premium header — subtle gradient */
 header.sticky {

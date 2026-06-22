@@ -112,7 +112,7 @@ export function TopBrandingBar() {
 
   return (
     <header
-      className="h-14 w-full bg-white border-b border-slate-200 flex items-center justify-between px-3 sm:px-6 sticky top-0 z-40 shrink-0"
+      className="h-14 w-full bg-background/85 backdrop-blur-md border-b border-border flex items-center justify-between px-3 sm:px-6 sticky top-0 z-40 shrink-0"
       role="banner"
     >
       {/* ============= LEFT ZONE: Mobile hamburger + Tenant Name ============= */}
@@ -129,7 +129,7 @@ export function TopBrandingBar() {
             <Menu className="h-5 w-5" />
           </Button>
         )}
-        <span className="text-sm sm:text-base font-bold text-slate-800 tracking-tight truncate max-w-[120px] sm:max-w-[250px]">
+        <span className="text-sm sm:text-base font-bold text-foreground tracking-tight truncate max-w-[120px] sm:max-w-[250px]">
           {tenant?.name || 'BizBook Pro'}
         </span>
       </div>
@@ -184,7 +184,7 @@ export function TopBrandingBar() {
               UPGRADE
             </span>
           )}
-          <span className="text-[10px] sm:text-[11px] text-slate-600 font-bold whitespace-nowrap">
+          <span className="text-[10px] sm:text-[11px] text-muted-foreground font-bold whitespace-nowrap">
             <span className="sm:hidden">{remainingHours}h{remainingMinutes > 0 ? ` ${remainingMinutes}m` : ''}</span>
             <span className="hidden sm:inline">{remainingHours}h {remainingMinutes}m left</span>
           </span>
@@ -195,10 +195,10 @@ export function TopBrandingBar() {
 
         {/* User Profile Block */}
         <div className="hidden sm:flex flex-col text-right min-w-0" title={`Tenant: ${tenant?.name || 'Unknown'}`}>
-          <span className="text-xs sm:text-sm font-bold text-slate-800 tracking-tight truncate max-w-[120px] sm:max-w-[180px]">
+          <span className="text-xs sm:text-sm font-bold text-foreground tracking-tight truncate max-w-[120px] sm:max-w-[180px]">
             {user?.name || 'Loading...'}
           </span>
-          <span className="text-[9px] sm:text-[10px] font-medium text-slate-400 uppercase tracking-wider">
+          <span className="text-[9px] sm:text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
             {user?.role ? getRoleLabel(user.role) : 'MAIN_ADMIN'}
           </span>
         </div>
@@ -206,7 +206,7 @@ export function TopBrandingBar() {
         {/* Logout Icon Button */}
         <button
           onClick={handleLogout}
-          className="p-1.5 sm:p-2 text-slate-400 hover:text-rose-600 bg-slate-50 hover:bg-rose-50 rounded-lg transition-all border border-slate-100 cursor-pointer group shrink-0"
+          className="p-1.5 sm:p-2 text-muted-foreground hover:text-rose-500 bg-muted hover:bg-rose-500/10 rounded-lg transition-all border border-border cursor-pointer group shrink-0"
           title="Sign Out"
           aria-label="Sign out"
         >
