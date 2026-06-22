@@ -90,3 +90,47 @@ Stage Summary:
 - Railway should auto-detect the GitHub push and start a new build within ~30 seconds
 - Build typically takes ~3 minutes (Dockerfile: npm install → prisma generate → next build → postbuild.js)
 - After deploy completes, the user should hard-refresh (Ctrl+Shift+R) to clear browser cache and the app should work normally with the Item Type dropdown visible in New Sale Invoice.
+
+---
+Task ID: v4.67
+Agent: Main (Super Z)
+Task: Special request — delete user account `amritsonowal165@gmail.com` so the tenant can re-register
+
+Work Log:
+- Reviewed Prisma schema: User.email is @unique (blocks re-registration even if soft-deleted)
+- Reviewed existing /api/db-admin — no destructive operations supported (by design)
+- Reviewed SUPER_ADMIN authentication in src/lib/rbac/enforce-v2.ts
+  - SUPER_ADMIN_EMAILS: ['admin@bizbook.pro', pranjalgoswamighy86@gmail.com]
+- Reviewed soft-delete extension in src/lib/db-soft-delete.ts
+  - findFirst auto-filters isDeleted=false (would miss soft-deleted users)
+  - delete is hard-delete (only WHERE clause is filtered, not converted to soft-delete)
+  - rawDb export available for queries that need to bypass soft-delete filter
+- Created new endpoint: src/app/api/admin/delete-account/route.ts
+
+Endpoint Design:
+- POST /api/admin/delete-account
+- Authentication: requireAuth + SUPER_ADMIN email check (hardcoded list)
+- Two-step process: preview → confirm
+- Preview returns: targetUser info, ownedTenants with record counts, staffTenants
+- Confirm performs:
+  1. Audit log written FIRST (survives deletion)
+  2. Remove staff-tenant links (where user is NOT owner)
+  3. Delete other users in owned tenants (staff of the tenant being deleted)
+  4. Delete the tenant (cascades to sales, purchases, inventory, subscriptions, etc.)
+  5. Delete the target user (if not already cascade-deleted)
+- All operations inside rawDb.$transaction (atomic — all or nothing)
+- Safety: cannot delete SUPER_ADMIN accounts (self-protection)
+
+Verification:
+- TypeScript: 0 errors in delete-account/route.ts
+- ESLint: clean
+
+Stage Summary:
+- Pushed commit ff4f26b to GitHub → Railway will auto-rebuild (~3 min)
+- After deploy, Pranjal can delete amritsonowal165@gmail.com by:
+  1. Log in as admin@bizbook.pro or pranjalgoswamighy86@gmail.com
+  2. Open browser DevTools console
+  3. Run preview: fetch('/api/admin/delete-account', { method:'POST', credentials:'include', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'preview', email:'amritsonowal165@gmail.com' }) }).then(r=>r.json()).then(console.log)
+  4. Review the preview output (tenant names, record counts)
+  5. Run confirm: fetch('/api/admin/delete-account', { method:'POST', credentials:'include', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'confirm', email:'amritsonowal165@gmail.com' }) }).then(r=>r.json()).then(console.log)
+  6. The user can then re-register normally
