@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Settings, Users, Building2, Crown, KeyRound, Loader2, ArrowLeft, Eye, EyeOff, RefreshCw, Database, Info, Trash2, Download } from 'lucide-react'
+import { Settings, Users, Building2, Crown, KeyRound, Loader2, ArrowLeft, Eye, EyeOff, RefreshCw, Database, Info, Trash2, Download, Activity } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import { formatDate } from '@/lib/formulas'
 import { authFetch } from '@/lib/auth-fetch'
@@ -35,6 +35,16 @@ export function SettingsPage() {
   const [editUserRole, setEditUserRole] = useState<string>('DATA_ENTRY')
   const [editUserLoading, setEditUserLoading] = useState(false)
   const [newUser, setNewUser] = useState({ name: '', email: '', password: '', role: 'DATA_ENTRY' })
+  // v4.66: Staff Activity state
+  const [activityLogs, setActivityLogs] = useState<any[]>([])
+  const [activityUsers, setActivityUsers] = useState<Array<{ id: string; name: string | null; email: string }>>([])
+  const [activityLoading, setActivityLoading] = useState(false)
+  const [activityUser, setActivityUser] = useState('all')
+  const [activityType, setActivityType] = useState('all')
+  const [activityEntity, setActivityEntity] = useState('all')
+  const [activityPage, setActivityPage] = useState(1)
+  const [activityTotal, setActivityTotal] = useState(0)
+  const activityPageSize = 25
   const [bizForm, setBizForm] = useState({ name: '', address: '', phone: '', email: '', gstNumber: '', panNumber: '' })
 
   // --- About Tab State ---
@@ -84,6 +94,49 @@ export function SettingsPage() {
       setUsersLoading(false)
     }
   }, [tenant, toast])
+
+  // v4.66: Load staff activity (company-wise, MAIN_ADMIN only)
+  const loadActivity = useCallback(async () => {
+    if (!tenant) return
+    setActivityLoading(true)
+    try {
+      const body: Record<string, unknown> = { action: 'list', tenantId: tenant.id, page: activityPage, pageSize: activityPageSize }
+      if (activityUser !== 'all') body.userId = activityUser
+      if (activityType !== 'all') body.actionType = activityType
+      if (activityEntity !== 'all') body.entityType = activityEntity
+
+      const res = await authFetch('/api/audit', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setActivityLogs(data.logs || [])
+        setActivityTotal(data.total || 0)
+        // Build unique user list from logs
+        const userMap = new Map()
+        ;(data.logs || []).forEach((log: any) => {
+          if (log.userId && !userMap.has(log.userId)) {
+            userMap.set(log.userId, { id: log.userId, name: log.userName, email: '' })
+          }
+        })
+        // Merge with users list
+        users.forEach(u => {
+          if (!userMap.has(u.id)) userMap.set(u.id, { id: u.id, name: u.name, email: u.email })
+        })
+        setActivityUsers(Array.from(userMap.values()))
+      }
+    } catch (err) {
+      // Silent fail
+    } finally {
+      setActivityLoading(false)
+    }
+  }, [tenant, activityPage, activityUser, activityType, activityEntity, users])
+
+  // Load activity when tab is first opened or filters change
+  useEffect(() => {
+    loadActivity()
+  }, [loadActivity])
 
   // --- Load About tab data ---
   const loadAboutData = useCallback(async () => {
@@ -390,9 +443,10 @@ export function SettingsPage() {
       <h2 className="text-lg font-semibold flex items-center gap-2"><Settings className="h-5 w-5" />Settings</h2>
 
       <Tabs defaultValue="company" className="space-y-4">
-        <TabsList className="grid w-full grid-cols-4 max-w-lg">
-          <TabsTrigger value="company" className="text-xs sm:text-sm">Company Profile</TabsTrigger>
+        <TabsList className="grid w-full grid-cols-5 max-w-2xl">
+          <TabsTrigger value="company" className="text-xs sm:text-sm">Company</TabsTrigger>
           <TabsTrigger value="users" className="text-xs sm:text-sm">Users</TabsTrigger>
+          <TabsTrigger value="activity" className="text-xs sm:text-sm">Staff Activity</TabsTrigger>
           <TabsTrigger value="data" className="text-xs sm:text-sm">Data</TabsTrigger>
           <TabsTrigger value="about" className="text-xs sm:text-sm">About</TabsTrigger>
         </TabsList>
@@ -515,6 +569,126 @@ export function SettingsPage() {
                       ))}
                     </TableBody>
                   </Table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ==================== Staff Activity Tab (v4.66 — MAIN_ADMIN only) ==================== */}
+        <TabsContent value="activity" className="space-y-4">
+          <Card className="border-0 shadow-sm">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm flex items-center gap-2"><Activity className="h-4 w-4" />Staff Activity Log</CardTitle>
+              <CardDescription>Track all actions performed by staff members in this company</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {/* Filters */}
+              <div className="flex flex-wrap gap-2">
+                <select
+                  value={activityUser}
+                  onChange={(e) => { setActivityUser(e.target.value); setActivityPage(1) }}
+                  className="text-xs border rounded-md px-2 py-1.5 bg-background"
+                >
+                  <option value="all">All Staff</option>
+                  {activityUsers.map(u => <option key={u.id} value={u.id}>{u.name || u.email}</option>)}
+                </select>
+                <select
+                  value={activityType}
+                  onChange={(e) => { setActivityType(e.target.value); setActivityPage(1) }}
+                  className="text-xs border rounded-md px-2 py-1.5 bg-background"
+                >
+                  <option value="all">All Actions</option>
+                  <option value="CREATE">Create</option>
+                  <option value="UPDATE">Update</option>
+                  <option value="DELETE">Delete</option>
+                  <option value="LOGIN">Login</option>
+                  <option value="OTP">OTP</option>
+                </select>
+                <select
+                  value={activityEntity}
+                  onChange={(e) => { setActivityEntity(e.target.value); setActivityPage(1) }}
+                  className="text-xs border rounded-md px-2 py-1.5 bg-background"
+                >
+                  <option value="all">All Types</option>
+                  <option value="Sale">Sales</option>
+                  <option value="Purchase">Purchases</option>
+                  <option value="Expense">Expenses</option>
+                  <option value="InventoryItem">Inventory</option>
+                  <option value="Payment">Payments</option>
+                  <option value="Receipt">Receipts</option>
+                  <option value="Staff">Staff</option>
+                  <option value="OTP">OTP</option>
+                </select>
+                <Button variant="outline" size="sm" onClick={() => { setActivityPage(1); loadActivity() }}>
+                  <RefreshCw className="h-3 w-3 mr-1" />Refresh
+                </Button>
+              </div>
+
+              {/* Stats */}
+              <div className="grid grid-cols-3 gap-2">
+                <div className="bg-muted/50 p-2 rounded-lg text-center">
+                  <p className="text-[10px] text-muted-foreground">Total Actions</p>
+                  <p className="text-lg font-bold">{activityTotal}</p>
+                </div>
+                <div className="bg-muted/50 p-2 rounded-lg text-center">
+                  <p className="text-[10px] text-muted-foreground">Staff Members</p>
+                  <p className="text-lg font-bold">{activityUsers.length}</p>
+                </div>
+                <div className="bg-muted/50 p-2 rounded-lg text-center">
+                  <p className="text-[10px] text-muted-foreground">Showing</p>
+                  <p className="text-lg font-bold">{activityLogs.length}</p>
+                </div>
+              </div>
+
+              {/* Activity Table */}
+              {activityLoading ? (
+                <div className="flex justify-center py-8"><Loader2 className="h-6 w-6 animate-spin" /></div>
+              ) : activityLogs.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-8">No activity recorded yet.</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="text-xs">Date/Time</TableHead>
+                        <TableHead className="text-xs">Staff</TableHead>
+                        <TableHead className="text-xs">Action</TableHead>
+                        <TableHead className="text-xs">Type</TableHead>
+                        <TableHead className="text-xs">Details</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {activityLogs.map((log) => (
+                        <TableRow key={log.id}>
+                          <TableCell className="text-xs whitespace-nowrap">{new Date(log.createdAt).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' })}</TableCell>
+                          <TableCell className="text-xs">{log.userName || log.userId?.slice(0, 8) || 'System'}</TableCell>
+                          <TableCell className="text-xs">
+                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                              log.action.includes('CREATE') ? 'bg-emerald-100 text-emerald-700' :
+                              log.action.includes('UPDATE') ? 'bg-blue-100 text-blue-700' :
+                              log.action.includes('DELETE') ? 'bg-rose-100 text-rose-700' :
+                              log.action.includes('OTP') ? 'bg-amber-100 text-amber-700' :
+                              'bg-slate-100 text-slate-600'
+                            }`}>{log.action}</span>
+                          </TableCell>
+                          <TableCell className="text-xs">{log.entityType}</TableCell>
+                          <TableCell className="text-xs max-w-[200px] truncate" title={log.changes || ''}>{log.entityName || log.changes?.slice(0, 50) || '-'}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+
+              {/* Pagination */}
+              {activityTotal > activityPageSize && (
+                <div className="flex items-center justify-between">
+                  <p className="text-xs text-muted-foreground">Page {activityPage} of {Math.ceil(activityTotal / activityPageSize)}</p>
+                  <div className="flex gap-1">
+                    <Button variant="outline" size="sm" disabled={activityPage <= 1} onClick={() => { setActivityPage(p => p - 1); loadActivity() }}>Prev</Button>
+                    <Button variant="outline" size="sm" disabled={activityPage >= Math.ceil(activityTotal / activityPageSize)} onClick={() => { setActivityPage(p => p + 1); loadActivity() }}>Next</Button>
+                  </div>
                 </div>
               )}
             </CardContent>
