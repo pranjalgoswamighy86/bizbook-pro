@@ -189,7 +189,7 @@ export function AppSidebar() {
   const sidebarContent = (
     <>
       {/* Branding: Both logos + BizBook Pro / Tahigo International */}
-      <div className="p-3 shrink-0 border-b border-border">
+      <div className="p-3 shrink-0 border-b border-sidebar-border">
         <div className="flex items-center gap-2">
           <img
             src="/tahigo-logo.png"
@@ -417,24 +417,24 @@ export function AppSidebar() {
       )}
     >
       {/* Branding: Both logos + BizBook Pro / Tahigo International */}
-      <div className="p-3 shrink-0 border-b border-border">
+      <div className="p-3 shrink-0 border-b border-sidebar-border">
         <div className="flex items-center gap-2">
           <img
             src="/tahigo-logo.png"
             alt="Tahigo International"
-            className="flex-shrink-0 h-10 w-10 rounded-lg object-contain p-1 border border-slate-100 bg-white shadow-sm"
+            className="flex-shrink-0 h-10 w-10 rounded-lg object-contain p-1 border border-sidebar-border bg-white shadow-sm"
             onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
           />
           <img
             src="/bizbook-pro-logo.png"
             alt="BizBook Pro"
-            className="flex-shrink-0 h-10 w-10 rounded-lg object-contain p-1 border border-slate-100 bg-white shadow-sm"
+            className="flex-shrink-0 h-10 w-10 rounded-lg object-contain p-1 border border-sidebar-border bg-white shadow-sm"
             onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
           />
           {sidebarOpen && (
             <div className="min-w-0 flex-1">
-              <h1 className="text-sm font-black text-slate-800 dark:text-slate-100 truncate leading-tight">BizBook Pro</h1>
-              <p className="text-[9px] font-semibold text-slate-500 tracking-wider uppercase truncate">Tahigo International</p>
+              <h1 className="text-sm font-black text-sidebar-foreground truncate leading-tight">BizBook Pro</h1>
+              <p className="text-[9px] font-semibold text-sidebar-foreground/60 tracking-wider uppercase truncate">Tahigo International</p>
             </div>
           )}
         </div>
