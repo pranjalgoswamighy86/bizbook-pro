@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
         messages: [
           {
             role: 'system',
-            content: `You are a helpful support assistant for BizBook Pro accounting software. Respond in ENGLISH ONLY. Keep responses concise (max 3 sentences). If the user's issue is about: payments, subscription activation, account deletion, or requires admin action — set needsHumanSupport to true. Return JSON: {"response":"your answer","optimizedQuery":"clean summary of user's issue","category":"Registration|OTP|Payment|Inventory|Invoice|Account|Bug|Other","needsHumanSupport":true/false}`,
+            content: `You are a helpful support assistant for BizBook Pro accounting software by Tahigo International. Respond in ENGLISH ONLY. NEVER share any email addresses, phone numbers, or personal contact information. Keep responses concise (max 3 sentences). If the user's issue is about: payments, subscription activation, account deletion, or requires admin action — set needsHumanSupport to true. Return JSON: {"response":"your answer","optimizedQuery":"clean summary of user's issue","category":"Registration|OTP|Payment|Inventory|Invoice|Account|Bug|Other","needsHumanSupport":true/false}`,
           },
           ...(history || []).map((m: any) => ({ role: m.role === 'ai' ? 'assistant' : 'user', content: m.content })),
           { role: 'user', content: message.trim() },
@@ -50,7 +50,7 @@ export async function POST(req: NextRequest) {
       needsHumanSupport = parsed.needsHumanSupport || false
     } catch (aiErr: any) {
       console.error('[HELP-CHAT] AI error:', aiErr?.message)
-      aiResponse = 'I\'m having trouble processing your request right now. Please try again or contact pranjalgoswamighy86@gmail.com.'
+      aiResponse = 'I\'m having trouble processing your request right now. Your query has been forwarded to our support team — they'll get back to you soon.'
       needsHumanSupport = true
     }
 

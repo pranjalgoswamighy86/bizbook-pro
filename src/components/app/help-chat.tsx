@@ -92,7 +92,7 @@ export function HelpChatTab({ userEmail, tenantName }: { userEmail?: string; ten
     } catch (err: any) {
       const errorMessage: ChatMessage = {
         role: 'ai',
-        content: 'I\'m having trouble connecting right now. Please try again in a moment, or contact support directly at pranjalgoswamighy86@gmail.com or +91 91015 55075.',
+        content: 'I\'m having trouble connecting right now. Your query has been forwarded to our support team — they\'ll get back to you soon.',
         timestamp: new Date().toISOString(),
       }
       setMessages(prev => [...prev, errorMessage])

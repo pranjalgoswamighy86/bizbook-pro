@@ -176,7 +176,7 @@ export function SuperAdminSubscriptionPanel() {
           <h2 className="text-xl font-bold text-rose-800 mb-2">Access Restricted</h2>
           <p className="text-sm text-rose-700">
             This panel is only accessible to Super Admin (<code>admin@bizbook.pro</code>) and
-            Infrastructure Owner (<code>pranjalgoswamighy86@gmail.com</code>).
+            Infrastructure Owner.
           </p>
           <p className="text-xs text-rose-600 mt-2">
             Your current email: <code>{user?.email || 'Not logged in'}</code>

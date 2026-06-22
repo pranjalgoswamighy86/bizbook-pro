@@ -47,7 +47,7 @@ const FAQS: FAQItem[] = [
   },
   {
     q: 'I am not receiving the OTP email. What should I do?',
-    a: 'Check your spam/junk folder first. OTP emails come from pranjalgoswamighy86@gmail.com via Brevo. If still not received after 2 minutes, click "Resend OTP". If still not received, contact support — there may be an issue with the email service.',
+    a: 'Check your spam/junk folder first. OTP emails are sent via Brevo email service. If still not received after 2 minutes, click "Resend OTP". If still not received, use the AI Support Chat tab to contact our support team.',
   },
   {
     q: 'How do I reset my password?',
@@ -289,8 +289,8 @@ export function HelpModal({ open, onClose }: HelpModalProps) {
         )}
 
         <div className="border-t pt-3 mt-3 sm:mt-4 flex items-center justify-between text-xs text-slate-500 gap-2">
-          <span className="hidden sm:inline">BizBook Pro v4.52 — A Product by Tahigo International</span>
-          <span className="sm:hidden text-[11px]">v4.52 — Tahigo International</span>
+          <span className="hidden sm:inline">BizBook Pro v4.64 — A Product by Tahigo International</span>
+          <span className="sm:hidden text-[11px]">v4.64 — Tahigo International</span>
           <Button variant="outline" size="sm" onClick={onClose} className="min-h-9">Close</Button>
         </div>
       </DialogContent>
