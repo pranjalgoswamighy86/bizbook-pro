@@ -327,6 +327,9 @@ export function SaleRegister() {
       invoiceNumber: sale.invoiceNumber, date: new Date(sale.date).toISOString().split('T')[0],
       partyName: sale.partyName, partyAddress: sale.partyAddress || '', partyGst: sale.partyGst || '',
       paymentStatus: normalizedStatus, amountPaid: sale.amountPaid, amountReceived: sale.amountReceived || sale.amountPaid, notes: sale.notes || '',
+      // v4.66: Preserve payment-related fields on edit (previously lost, causing TS/runtime issues)
+      paymentMode: 'CASH',
+      ppCash: 0, ppCard: 0, ppUpi: 0, ppOther: 0, ppCredit: 0, ppOtherRemarks: '', paymentRemarks: '',
     })
     try {
       const parsed = JSON.parse(sale.items) as SaleItem[]
@@ -1014,7 +1017,13 @@ export function SaleRegister() {
                         newForm.amountPaid = totalAmount
                       } else if (v === 'PART_PAYMENT') {
                         newForm.paymentStatus = 'PARTIAL'
-                        newForm.partPaymentAmount = 0
+                        // v4.62: Reset all part-payment fields when switching to PART_PAYMENT
+                        newForm.ppCash = 0
+                        newForm.ppCard = 0
+                        newForm.ppUpi = 0
+                        newForm.ppOther = 0
+                        newForm.ppCredit = 0
+                        newForm.ppOtherRemarks = ''
                       }
                       setForm(newForm)
                     }}

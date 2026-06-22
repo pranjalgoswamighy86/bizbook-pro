@@ -41,3 +41,32 @@ Behavior:
 - Selecting "Finished Product": triggers BOM raw-material deduction (existing behavior, but now user can explicitly choose)
 - Selecting "Retail Product" (default): standard single-item inventory deduction (existing behavior)
 - The `saleItemType` field is persisted in the items JSON blob — no Prisma schema migration required.
+
+---
+Task ID: v4.66.1 (Hotfix)
+Agent: Main (Super Z)
+Task: User reported "Item Type dropdown still not available" — screenshot showed runtime error page "CardDescription is not defined"
+
+Work Log:
+- Read screenshot at /home/z/my-project/upload/Screenshot 2026-06-22 172422.png via VLM
+- VLM analysis confirmed: error page showing "Something went wrong! CardDescription is not defined"
+- Read deploy logs (logs.1782129342895.log) — confirmed build succeeded, app started, but Settings module crashed at runtime
+- Root cause: `src/components/modules/settings.tsx` line 5 was missing `CardDescription` import. Line 583 (Staff Activity tab, added in v4.65 worklog) uses `<CardDescription>` but the import was forgotten. This is a real `ReferenceError` at runtime (not just a TS warning) because Next.js 16 ships without runtime type info.
+- Because the Settings module crashes, the entire `/` route bundle crashes (Next.js error boundary), which is why the user couldn't see the New Sale Invoice item type dropdown either — the whole app was in an error state.
+
+Fixes Applied:
+1. `src/components/modules/settings.tsx` line 5:
+   - BEFORE: `import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'`
+   - AFTER:  `import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'`
+2. `src/components/modules/sale-register.tsx` (cleanup while here):
+   - Removed dead `newForm.partPaymentAmount = 0` reference (left over from v4.61 → v4.62 refactor). Replaced with proper reset of all `ppCash/ppCard/ppUpi/ppOther/ppCredit/ppOtherRemarks` fields when switching to PART_PAYMENT mode.
+   - Fixed `handleEdit` `setForm` call — was missing all payment-related fields (paymentMode, ppCash, ppCard, ppUpi, ppOther, ppCredit, ppOtherRemarks, paymentRemarks), causing TypeScript error and potentially undefined values when editing existing sales.
+
+Verification:
+- `npx tsc --noEmit --skipLibCheck` on sale-register.tsx / sales/route.ts / settings.tsx → 0 errors (down from 4 pre-existing errors)
+- `npx eslint` on all 3 files → clean
+
+Stage Summary:
+- This was a critical runtime blocker, not a missing feature. The Item Type dropdown was already implemented correctly in v4.66 — it just couldn't be seen because the entire app was erroring out due to the missing `CardDescription` import in the Staff Activity tab.
+- After redeploy, the user should see the Item Type dropdown as the FIRST column in each item row of the New Sale Invoice form, with three options: Retail Product (default), Finished Product, Service.
+- Selecting "Service" will show a violet "✨ No stock deducted" badge and the backend will skip all inventory operations for that line item on create/update/delete.
