@@ -43,6 +43,8 @@ interface SaleItem {
   totalTax: number
   total: number
   itemType?: string
+  // v4.65: Item type for sale items
+  saleItemType?: 'RETAIL_PRODUCT' | 'FINISHED_PRODUCT' | 'SERVICE'
 }
 
 interface Sale {
