@@ -76,7 +76,7 @@ const navItems: NavItem[] = [
   { id: 'staff', label: 'Staff & Salary', icon: <Users className="h-4 w-4" /> },
   { id: 'audit-log', label: 'Audit Log', icon: <FileText className="h-4 w-4" />, minRole: 'MAIN_ADMIN' },
   { id: 'ai-import', label: 'AI Smart Import', icon: <Sparkles className="h-4 w-4" /> },
-  { id: 'subscription', label: 'Subscription', icon: <Crown className="h-4 w-4" /> },
+  { id: 'subscription', label: 'Subscription', icon: <Crown className="h-4 w-4" />, minRole: 'MAIN_ADMIN' },
   { id: 'ai-valuation', label: 'Smart AI Company Valuation', icon: <Sparkles className="h-4 w-4" /> },
   { id: 'super-admin-subscriptions', label: 'Super Admin Panel', icon: <Crown className="h-4 w-4" />, minRole: 'SUPER_ADMIN' },
   { id: 'payment-proof-review', label: 'Payment Proofs', icon: <ShieldCheck className="h-4 w-4" />, minRole: 'SUPER_ADMIN' },
@@ -218,21 +218,28 @@ export function AppSidebar() {
       {/* Switch Company / Add Company / Import Backup buttons */}
       <div className="p-3 shrink-0">
         <div className="space-y-1">
-          <button
-            onClick={handleSwitchCompany}
-            className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-xs text-sidebar-primary hover:bg-sidebar-accent transition-colors"
-          >
-            <ArrowLeftRight className="h-3.5 w-3.5" />
-            {companies.length > 1 ? 'Switch Company' : 'My Companies'}
-          </button>
-          <button
-            onClick={() => { setView('company-select'); closeMobileDrawer() }}
-            className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-xs text-sidebar-primary hover:bg-sidebar-accent transition-colors"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            Add New Company
-          </button>
-          {tenant && (
+          {/* v4.65: Switch Company only for MAIN_ADMIN (staff should only see their assigned company) */}
+          {canManage(user?.role || 'VIEW_ONLY') && (
+            <button
+              onClick={handleSwitchCompany}
+              className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-xs text-sidebar-primary hover:bg-sidebar-accent transition-colors"
+            >
+              <ArrowLeftRight className="h-3.5 w-3.5" />
+              {companies.length > 1 ? 'Switch Company' : 'My Companies'}
+            </button>
+          )}
+          {/* v4.65: Add New Company ONLY for MAIN_ADMIN (staff can't open new companies) */}
+          {canManage(user?.role || 'VIEW_ONLY') && (
+            <button
+              onClick={() => { setView('company-select'); closeMobileDrawer() }}
+              className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-xs text-sidebar-primary hover:bg-sidebar-accent transition-colors"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              Add New Company
+            </button>
+          )}
+          {/* v4.65: Import Backup only for MAIN_ADMIN */}
+          {tenant && canManage(user?.role || 'VIEW_ONLY') && (
             <button
               onClick={() => { setShowBackupImport(true); closeMobileDrawer() }}
               className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-xs text-amber-400 hover:bg-sidebar-accent transition-colors"
@@ -444,21 +451,26 @@ export function AppSidebar() {
       <div className="p-3 shrink-0">
         {sidebarOpen && (
           <div className="space-y-1">
-            <button
-              onClick={handleSwitchCompany}
-              className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-xs text-sidebar-primary hover:bg-sidebar-accent transition-colors"
-            >
-              <ArrowLeftRight className="h-3.5 w-3.5" />
-              {companies.length > 1 ? 'Switch Company' : 'My Companies'}
-            </button>
-            <button
-              onClick={() => setView('company-select')}
-              className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-xs text-sidebar-primary hover:bg-sidebar-accent transition-colors"
-            >
-              <Plus className="h-3.5 w-3.5" />
-              Add New Company
-            </button>
-            {tenant && (
+            {/* v4.65: Switch/Add Company only for MAIN_ADMIN */}
+            {canManage(user?.role || 'VIEW_ONLY') && (
+              <button
+                onClick={handleSwitchCompany}
+                className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-xs text-sidebar-primary hover:bg-sidebar-accent transition-colors"
+              >
+                <ArrowLeftRight className="h-3.5 w-3.5" />
+                {companies.length > 1 ? 'Switch Company' : 'My Companies'}
+              </button>
+            )}
+            {canManage(user?.role || 'VIEW_ONLY') && (
+              <button
+                onClick={() => setView('company-select')}
+                className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-xs text-sidebar-primary hover:bg-sidebar-accent transition-colors"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                Add New Company
+              </button>
+            )}
+            {tenant && canManage(user?.role || 'VIEW_ONLY') && (
               <button
                 onClick={() => setShowBackupImport(true)}
                 className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-xs text-amber-400 hover:bg-sidebar-accent transition-colors"
