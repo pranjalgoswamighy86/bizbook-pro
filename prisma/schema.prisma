@@ -704,3 +704,28 @@ model SubscriptionQueue {
   @@index([tenantId, status])
   @@index([utrNumber]) // v4.47: for duplicate-UTR detection
 }
+
+// ============================================================
+// Help Support Tickets (v4.63) — AI chat support tickets
+// ============================================================
+model HelpSupportTicket {
+  id                String   @id @default(cuid())
+  userId            String
+  userEmail         String
+  tenantName        String
+  userQuery         String   // Original user message
+  optimizedQuery    String   // AI-optimized summary
+  aiResponse        String   // AI's response to the user
+  category          String   @default("General") // Registration, OTP, Payment, etc.
+  needsHumanSupport Boolean  @default(false) // True if AI can't resolve
+  status            String   @default("OPEN") // OPEN, AI_RESOLVED, ADMIN_REVIEWING, RESOLVED
+  adminResponse     String?  // Admin's response (if needsHumanSupport)
+  adminRespondedBy  String?  // Admin user ID
+  adminRespondedAt  DateTime?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([status, createdAt])
+  @@index([userId])
+  @@index([category])
+}

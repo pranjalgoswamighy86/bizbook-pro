@@ -24,9 +24,11 @@ import { useState } from 'react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import {
-  HelpCircle, Mail, Phone, MessageCircle, ChevronDown, ChevronRight,
-  UserPlus, KeyRound, CreditCard, FileText, ShieldCheck, BookOpen, Lightbulb
+  HelpCircle, ChevronDown, ChevronRight,
+  UserPlus, KeyRound, CreditCard, FileText, ShieldCheck, BookOpen, Lightbulb, MessageCircle
 } from 'lucide-react'
+import { HelpChatTab } from '@/components/app/help-chat'
+import { useAppStore } from '@/store/app-store'
 
 interface HelpModalProps {
   open: boolean
@@ -139,7 +141,8 @@ const GUIDES = [
 
 export function HelpModal({ open, onClose }: HelpModalProps) {
   const [expandedFAQ, setExpandedFAQ] = useState<number | null>(0)
-  const [activeTab, setActiveTab] = useState<'faq' | 'guides' | 'contact'>('faq')
+  const [activeTab, setActiveTab] = useState<'faq' | 'guides' | 'chat'>('faq')
+  const { user, tenant } = useAppStore()
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
@@ -200,18 +203,18 @@ export function HelpModal({ open, onClose }: HelpModalProps) {
             </span>
           </Button>
           <Button
-            variant={activeTab === 'contact' ? 'default' : 'ghost'}
+            variant={activeTab === 'chat' ? 'default' : 'ghost'}
             size="sm"
-            onClick={() => setActiveTab('contact')}
+            onClick={() => setActiveTab('chat')}
             className={`
               flex-shrink-0 min-h-11 px-3 sm:px-4
-              ${activeTab === 'contact' ? 'bg-emerald-600 hover:bg-emerald-700' : ''}
+              ${activeTab === 'chat' ? 'bg-emerald-600 hover:bg-emerald-700' : ''}
             `}
           >
-            <Mail className="h-4 w-4 sm:mr-1.5 flex-shrink-0" />
+            <MessageCircle className="h-4 w-4 sm:mr-1.5 flex-shrink-0" />
             <span className="text-xs sm:text-sm">
-              <span className="sm:hidden">Contact</span>
-              <span className="hidden sm:inline">Contact Support</span>
+              <span className="sm:hidden">Chat</span>
+              <span className="hidden sm:inline">AI Support Chat</span>
             </span>
           </Button>
         </div>
@@ -272,66 +275,16 @@ export function HelpModal({ open, onClose }: HelpModalProps) {
           </div>
         )}
 
-        {/* Contact Tab */}
-        {activeTab === 'contact' && (
-          <div className="space-y-3 sm:space-y-4">
-            <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 sm:p-4">
-              <div className="flex items-center gap-2 mb-2">
-                <ShieldCheck className="h-5 w-5 text-emerald-600 flex-shrink-0" />
-                <h3 className="font-semibold text-sm sm:text-base text-emerald-800">Tahigo International Support</h3>
-              </div>
-              <p className="text-xs sm:text-sm text-emerald-700">
-                BizBook Pro is a product by Tahigo International. We're here to help you with any issues.
+        {/* AI Chat Tab (v4.63 — replaces Contact Support) */}
+        {activeTab === 'chat' && (
+          <div className="space-y-3">
+            <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-2 sm:p-3 flex items-center gap-2">
+              <Sparkles className="h-4 w-4 text-emerald-600 flex-shrink-0" />
+              <p className="text-xs text-emerald-700">
+                Chat with our AI assistant — get instant answers. Complex queries are forwarded to admin.
               </p>
             </div>
-
-            {/* v4.52: 1 column on mobile, 2 on sm+ */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <a
-                href="mailto:pranjalgoswamighy86@gmail.com?subject=BizBook%20Pro%20Support%20Request"
-                className="block p-3 sm:p-4 border rounded-lg hover:border-emerald-300 hover:bg-emerald-50 transition-colors min-h-11"
-              >
-                <Mail className="h-5 w-5 sm:h-6 sm:w-6 text-emerald-600 mb-2" />
-                <div className="font-semibold text-xs sm:text-sm text-slate-800">Email Support</div>
-                <div className="text-xs text-slate-600 mt-1 break-all">pranjalgoswamighy86@gmail.com</div>
-                <div className="text-[11px] text-slate-500 mt-1">Response within 24 hours</div>
-              </a>
-
-              <a
-                href="tel:+919101555075"
-                className="block p-3 sm:p-4 border rounded-lg hover:border-emerald-300 hover:bg-emerald-50 transition-colors min-h-11"
-              >
-                <Phone className="h-5 w-5 sm:h-6 sm:w-6 text-emerald-600 mb-2" />
-                <div className="font-semibold text-xs sm:text-sm text-slate-800">Phone Support</div>
-                <div className="text-xs text-slate-600 mt-1">+91 91015 55075</div>
-                <div className="text-[11px] text-slate-500 mt-1">Mon-Sat, 10 AM - 7 PM IST</div>
-              </a>
-
-              <a
-                href="https://wa.me/919101555075?text=Hi%20BizBook%20Pro%20Support%2C%20I%20need%20help%20with%3A%20"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="block p-3 sm:p-4 border rounded-lg hover:border-emerald-300 hover:bg-emerald-50 transition-colors min-h-11"
-              >
-                <MessageCircle className="h-5 w-5 sm:h-6 sm:w-6 text-emerald-600 mb-2" />
-                <div className="font-semibold text-xs sm:text-sm text-slate-800">WhatsApp</div>
-                <div className="text-xs text-slate-600 mt-1">+91 91015 55075</div>
-                <div className="text-[11px] text-slate-500 mt-1">Fastest response</div>
-              </a>
-
-              <div className="p-3 sm:p-4 border rounded-lg bg-slate-50 min-h-11">
-                <Lightbulb className="h-5 w-5 sm:h-6 sm:w-6 text-amber-600 mb-2" />
-                <div className="font-semibold text-xs sm:text-sm text-slate-800">Need UTR Help?</div>
-                <div className="text-xs text-slate-600 mt-1">
-                  For payment issues, include your UTR number (12-digit UPI Ref No) in your message.
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-xs text-blue-800 leading-relaxed">
-              <strong>Tip:</strong> For faster support, include a screenshot of any error you're seeing.
-              On iPhone: press Power + Volume Up simultaneously. On desktop: use Windows Snipping Tool or Cmd+Shift+4 (Mac).
-            </div>
+            <HelpChatTab userEmail={user?.email} tenantName={tenant?.name} />
           </div>
         )}
 

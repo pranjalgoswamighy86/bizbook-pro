@@ -1,47 +1,33 @@
 /**
- * BizBook Pro — EMAIL-ONLY OTP Dispatcher (v4.43)
- * =================================================
- * USER REQUIREMENT (2026-06-20):
- *   - DELETE mobile OTP / 2Factor SMS process entirely
- *   - OTP only via EMAIL for registration + forgot password
- *   - Change password uses old password only (no OTP) — handled in route.ts
+ * BizBook Pro — OTP Dispatcher (v4.63)
+ * =====================================
+ * v4.63: Re-enabled SMS for registration (email + SMS simultaneously)
+ *   - Registration: sends BOTH email OTP + SMS OTP at the same time
+ *   - Login: NO OTP (removed in v4.60)
+ *   - Forgot password: email only (SMS not needed for password reset)
  *
- * OLD behavior (REMOVED in v4.43):
- *   - Multi-channel: Email → SMS → WhatsApp
- *   - 2Factor SMS integration
- *   - WhatsApp fail-safe
- *
- * NEW behavior (v4.43):
- *   - Email ONLY (Brevo primary, Resend fallback, SMTP last resort)
- *   - No SMS, no WhatsApp, no 2Factor
- *   - Cleaner, simpler, more reliable
- *
- * Files made obsolete by this change (kept for reference but no longer used):
- *   - src/lib/sms-text.ts (2Factor SMS)
- *   - src/lib/sms.ts (legacy SMS)
- *   - src/lib/whatsapp/meta-cloud.ts (WhatsApp fail-safe)
+ * User must enter the SAME OTP (both email and SMS contain the same 6-digit code)
+ * to verify their identity during registration.
  */
 
-import { sendOtpEmail, isEmailConfigured } from '@/lib/email';
+import { sendOtpEmail } from '@/lib/email';
+import { sendSmsTextOnly } from '@/lib/sms-text';
 
 // ---------- Types ----------
 export interface OtpTarget {
   email?: string;
-  mobile?: string; // Kept for backward compat — IGNORED in v4.43+
-  /** User ID — for audit logging */
+  mobile?: string;
   userId?: string;
-  /** Tenant ID — for audit logging */
   tenantId?: string;
-  /** Purpose tag */
   purpose: 'login' | 'register' | 'reset' | 'workspace_switch';
 }
 
 export interface OtpDispatchResult {
   ok: boolean;
-  primaryChannel: 'email' | 'none';
+  primaryChannel: 'email' | 'sms' | 'both' | 'none';
   emailDelivered: boolean;
-  smsDelivered: boolean; // Always false in v4.43+
-  whatsappDelivered: boolean; // Always false in v4.43+
+  smsDelivered: boolean;
+  whatsappDelivered: boolean;
   fallbackReason?: string;
   auditId?: string;
 }
@@ -59,22 +45,22 @@ export async function dispatchOtp(
   otp: string,
   target: OtpTarget
 ): Promise<OtpDispatchResult> {
-  console.log(`[OTP] Dispatching EMAIL-ONLY for ${target.email || 'no-email'} (purpose: ${target.purpose})`);
+  console.log(`[OTP] Dispatching for ${target.email || 'no-email'} / ${target.mobile || 'no-mobile'} (purpose: ${target.purpose})`);
 
   // ---------- Pre-flight validation ----------
-  if (!target.email) {
+  if (!target.email && !target.mobile) {
     return {
       ok: false,
       primaryChannel: 'none',
       emailDelivered: false,
       smsDelivered: false,
       whatsappDelivered: false,
-      fallbackReason: 'NO_EMAIL: email address is required (SMS/WhatsApp removed in v4.43)',
+      fallbackReason: 'NO_TARGET: neither email nor mobile provided',
     };
   }
 
   // ---------- Admin bypass ----------
-  if (ADMIN_BYPASS_EMAILS.includes(target.email.toLowerCase())) {
+  if (target.email && ADMIN_BYPASS_EMAILS.includes(target.email.toLowerCase())) {
     console.log(`[OTP] Admin bypass — no OTP sent to ${target.email}`);
     return {
       ok: true,
@@ -94,23 +80,58 @@ export async function dispatchOtp(
     whatsappDelivered: false,
   };
 
-  // ---------- Track 1 (ONLY track in v4.43): Email ----------
-  try {
-    console.log(`[OTP] Sending email to ${target.email}`);
-    const emailResult = await sendOtpEmail(target.email, otp, undefined);
+  // v4.63: For registration, send BOTH email + SMS simultaneously
+  // For other purposes (reset), email only
+  const sendSms = target.purpose === 'register' && !!target.mobile;
 
-    if (emailResult.success) {
-      result.emailDelivered = true;
-      result.primaryChannel = 'email';
-      result.ok = true;
-      console.log(`[OTP] ✓ Email delivered to ${target.email}`);
-    } else {
-      console.warn(`[OTP] ✗ Email failed: ${emailResult.error}`);
-      result.fallbackReason = `Email: ${emailResult.error}`;
+  // ---------- Track 1: Email ----------
+  if (target.email) {
+    try {
+      console.log(`[OTP] Sending email to ${target.email}`);
+      const emailResult = await sendOtpEmail(target.email, otp, undefined);
+
+      if (emailResult.success) {
+        result.emailDelivered = true;
+        result.primaryChannel = 'email';
+        result.ok = true;
+        console.log(`[OTP] ✓ Email delivered to ${target.email}`);
+      } else {
+        console.warn(`[OTP] ✗ Email failed: ${emailResult.error}`);
+        result.fallbackReason = `Email: ${emailResult.error}`;
+      }
+    } catch (err: any) {
+      console.error(`[OTP] Email exception:`, err?.message);
+      result.fallbackReason = `Email exception: ${err?.message}`;
     }
-  } catch (err: any) {
-    console.error(`[OTP] Email exception:`, err?.message);
-    result.fallbackReason = `Email exception: ${err?.message}`;
+  }
+
+  // ---------- Track 2: SMS (for registration only — simultaneous with email) ----------
+  if (sendSms && target.mobile) {
+    try {
+      console.log(`[OTP] Sending SMS to ${target.mobile}`);
+      const smsResult = await sendSmsTextOnly({
+        to: target.mobile,
+        otp,
+        purpose: target.purpose,
+      });
+
+      if (smsResult.ok) {
+        result.smsDelivered = true;
+        if (!result.ok) {
+          result.primaryChannel = 'sms';
+          result.ok = true;
+        } else {
+          result.primaryChannel = 'both';
+        }
+        console.log(`[OTP] ✓ SMS delivered to ${target.mobile}`);
+      } else {
+        console.warn(`[OTP] ✗ SMS failed: ${smsResult.error}`);
+        result.fallbackReason = (result.fallbackReason || '') + ` | SMS: ${smsResult.error}`;
+      }
+    } catch (err: any) {
+      console.error(`[OTP] SMS exception:`, err?.message);
+      result.fallbackReason = (result.fallbackReason || '') + ` | SMS exception: ${err?.message}`;
+    }
   }
 
   // ---------- Audit log (non-blocking) ----------
@@ -126,9 +147,6 @@ async function auditOtpDispatch(
   result: OtpDispatchResult
 ) {
   try {
-    // v4.43: Skip audit log when tenantId is null (pre-registration OTP).
-    // AuditLog.tenantId is non-nullable in schema with required `tenant` relation.
-    // During registration, tenant doesn't exist yet, so we have no valid tenantId.
     if (!target.tenantId) {
       console.log('[OTP] Audit log skipped — no tenantId (pre-registration OTP)');
       return;
@@ -145,9 +163,9 @@ async function auditOtpDispatch(
         entityName: target.email ? `${target.email.slice(0, 3)}***` : 'unknown',
         changes: JSON.stringify({
           emailDelivered: result.emailDelivered,
+          smsDelivered: result.smsDelivered,
           primaryChannel: result.primaryChannel,
           fallbackReason: result.fallbackReason,
-          // NEVER log the OTP value itself
         }),
       },
     });

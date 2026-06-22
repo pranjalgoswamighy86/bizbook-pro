@@ -47,6 +47,7 @@ const SubscriptionPage = lazy(() => import('@/components/modules/subscription').
 const AIValuationPage = lazy(() => import('@/components/modules/ai-valuation').then(m => ({ default: m.AIValuationPage })))
 const SuperAdminSubscriptionPanel = lazy(() => import('@/components/modules/super-admin-subscriptions').then(m => ({ default: m.SuperAdminSubscriptionPanel })))
 const PaymentProofReview = lazy(() => import('@/components/modules/payment-proof-review').then(m => ({ default: m.PaymentProofReview })))
+const HelpSupportManagement = lazy(() => import('@/components/modules/help-support-management').then(m => ({ default: m.HelpSupportManagement })))
 
 function ModuleRouter() {
   const { currentView } = useAppStore()
@@ -84,6 +85,7 @@ function ModuleRouter() {
       case 'ai-valuation': return <AIValuationPage />
       case 'super-admin-subscriptions': return <SuperAdminSubscriptionPanel />
       case 'payment-proof-review': return <PaymentProofReview />
+      case 'help-support-management': return <HelpSupportManagement />
       default: return <Dashboard />
     }
   }

@@ -80,6 +80,7 @@ const navItems: NavItem[] = [
   { id: 'ai-valuation', label: 'Smart AI Company Valuation', icon: <Sparkles className="h-4 w-4" /> },
   { id: 'super-admin-subscriptions', label: 'Super Admin Panel', icon: <Crown className="h-4 w-4" />, minRole: 'SUPER_ADMIN' },
   { id: 'payment-proof-review', label: 'Payment Proofs', icon: <ShieldCheck className="h-4 w-4" />, minRole: 'SUPER_ADMIN' },
+  { id: 'help-support-management', label: 'Help & Support', icon: <HelpCircle className="h-4 w-4" />, minRole: 'SUPER_ADMIN' },
   { id: 'backup', label: 'Backup & Restore', icon: <HardDrive className="h-4 w-4" />, minRole: 'MAIN_ADMIN' },
   { id: 'settings', label: 'Settings', icon: <Settings className="h-4 w-4" />, minRole: 'MAIN_ADMIN' },
 ]
@@ -284,6 +285,7 @@ export function AppSidebar() {
                     'ai-valuation': () => import('@/components/modules/ai-valuation'),
                     'super-admin-subscriptions': () => import('@/components/modules/super-admin-subscriptions'),
                     'payment-proof-review': () => import('@/components/modules/payment-proof-review'),
+                    'help-support-management': () => import('@/components/modules/help-support-management'),
                   }
                   chunkMap[item.id]?.().catch(() => {})
                 }
