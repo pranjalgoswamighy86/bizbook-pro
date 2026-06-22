@@ -70,3 +70,23 @@ Stage Summary:
 - This was a critical runtime blocker, not a missing feature. The Item Type dropdown was already implemented correctly in v4.66 — it just couldn't be seen because the entire app was erroring out due to the missing `CardDescription` import in the Staff Activity tab.
 - After redeploy, the user should see the Item Type dropdown as the FIRST column in each item row of the New Sale Invoice form, with three options: Retail Product (default), Finished Product, Service.
 - Selecting "Service" will show a violet "✨ No stock deducted" badge and the backend will skip all inventory operations for that line item on create/update/delete.
+
+---
+Task ID: v4.66.2 (Push Hotfix)
+Agent: Main (Super Z)
+Task: User reported the same error "CardDescription is not defined" — verified fix wasn't deployed yet
+
+Work Log:
+- Read new screenshot (Screenshot 2026-06-22 173247.png) — confirmed SAME error page
+- Read deploy logs (logs.1782129797120.log) — confirmed build timestamp 2026-06-22T08:36:46Z is identical to previous deploy (image digest sha256:ccac218fc... unchanged)
+- Root cause: my v4.66.1 hotfix was committed locally but NEVER pushed to GitHub. Railway therefore never rebuilt with the fix.
+- Verified `git status` → "working tree clean" but "ahead of origin/main by 2 commits"
+- Ran `git push origin main` → successfully pushed commits 5cd0429..18ba0a8
+
+Stage Summary:
+- Pushed 2 commits containing:
+  - v4.66 (sale-register item type dropdown + backend SERVICE skip)
+  - v4.66.1 (CardDescription import fix + partPaymentAmount cleanup + handleEdit setForm fix)
+- Railway should auto-detect the GitHub push and start a new build within ~30 seconds
+- Build typically takes ~3 minutes (Dockerfile: npm install → prisma generate → next build → postbuild.js)
+- After deploy completes, the user should hard-refresh (Ctrl+Shift+R) to clear browser cache and the app should work normally with the Item Type dropdown visible in New Sale Invoice.
