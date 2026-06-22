@@ -24,7 +24,7 @@ import { useState } from 'react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import {
-  HelpCircle, ChevronDown, ChevronRight,
+  HelpCircle, ChevronDown, ChevronRight, Sparkles,
   UserPlus, KeyRound, CreditCard, FileText, ShieldCheck, BookOpen, Lightbulb, MessageCircle
 } from 'lucide-react'
 import { HelpChatTab } from '@/components/app/help-chat'

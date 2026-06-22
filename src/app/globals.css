@@ -44,72 +44,74 @@
 }
 
 :root {
-  --radius: 0.625rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
+  --radius: 0.75rem;
+  /* v4.64: Premium theme — Emerald + Slate with warm accents */
+  --background: oklch(0.98 0.005 180);
+  --foreground: oklch(0.18 0.02 240);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
+  --card-foreground: oklch(0.18 0.02 240);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --popover-foreground: oklch(0.18 0.02 240);
+  --primary: oklch(0.55 0.15 160);
+  --primary-foreground: oklch(0.98 0.01 160);
+  --secondary: oklch(0.95 0.01 180);
+  --secondary-foreground: oklch(0.25 0.02 240);
+  --muted: oklch(0.96 0.005 180);
+  --muted-foreground: oklch(0.50 0.015 240);
+  --accent: oklch(0.93 0.03 160);
+  --accent-foreground: oklch(0.30 0.05 160);
+  --destructive: oklch(0.58 0.22 25);
+  --border: oklch(0.90 0.01 180);
+  --input: oklch(0.92 0.01 180);
+  --ring: oklch(0.55 0.15 160);
+  --chart-1: oklch(0.60 0.18 160);
+  --chart-2: oklch(0.62 0.17 250);
+  --chart-3: oklch(0.70 0.15 60);
+  --chart-4: oklch(0.65 0.20 340);
+  --chart-5: oklch(0.72 0.15 30);
+  --sidebar: oklch(0.17 0.02 240);
+  --sidebar-foreground: oklch(0.92 0.01 180);
+  --sidebar-primary: oklch(0.60 0.15 160);
+  --sidebar-primary-foreground: oklch(0.98 0.01 160);
+  --sidebar-accent: oklch(0.22 0.02 240);
+  --sidebar-accent-foreground: oklch(0.92 0.01 180);
+  --sidebar-border: oklch(0.28 0.02 240);
+  --sidebar-ring: oklch(0.55 0.15 160);
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  /* v4.64: Premium dark theme — Deep slate with emerald accents */
+  --background: oklch(0.14 0.015 240);
+  --foreground: oklch(0.95 0.005 180);
+  --card: oklch(0.18 0.015 240);
+  --card-foreground: oklch(0.95 0.005 180);
+  --popover: oklch(0.18 0.015 240);
+  --popover-foreground: oklch(0.95 0.005 180);
+  --primary: oklch(0.65 0.15 160);
+  --primary-foreground: oklch(0.15 0.02 240);
+  --secondary: oklch(0.25 0.015 240);
+  --secondary-foreground: oklch(0.95 0.005 180);
+  --muted: oklch(0.22 0.015 240);
+  --muted-foreground: oklch(0.65 0.01 240);
+  --accent: oklch(0.28 0.04 160);
+  --accent-foreground: oklch(0.92 0.02 160);
+  --destructive: oklch(0.65 0.20 25);
+  --border: oklch(0.30 0.015 240);
+  --input: oklch(0.25 0.015 240);
+  --ring: oklch(0.65 0.15 160);
+  --chart-1: oklch(0.65 0.18 160);
+  --chart-2: oklch(0.65 0.17 250);
+  --chart-3: oklch(0.75 0.15 60);
+  --chart-4: oklch(0.70 0.20 340);
+  --chart-5: oklch(0.77 0.15 30);
+  --sidebar: oklch(0.11 0.02 240);
+  --sidebar-foreground: oklch(0.90 0.005 180);
+  --sidebar-primary: oklch(0.65 0.15 160);
+  --sidebar-primary-foreground: oklch(0.15 0.02 240);
+  --sidebar-accent: oklch(0.20 0.02 240);
+  --sidebar-accent-foreground: oklch(0.90 0.005 180);
+  --sidebar-border: oklch(0.22 0.02 240);
+  --sidebar-ring: oklch(0.65 0.15 160);
 }
 
 @layer base {
@@ -180,4 +182,113 @@ main {
 }
 .dark main {
   scrollbar-color: oklch(0.4 0 0 / 40%) transparent;
+}
+
+/* ============================================================
+   v4.64: Premium Theme Enhancements
+   ============================================================ */
+
+/* Premium card styling — subtle shadows + smooth transitions */
+.card, [class*="Card"] {
+  box-shadow: 0 1px 3px oklch(0.18 0.02 240 / 0.06), 0 1px 2px oklch(0.18 0.02 240 / 0.04);
+  transition: box-shadow 0.2s ease, transform 0.15s ease;
+}
+
+.card:hover, [class*="Card"]:hover {
+  box-shadow: 0 4px 12px oklch(0.18 0.02 240 / 0.08), 0 2px 4px oklch(0.18 0.02 240 / 0.04);
+}
+
+.dark .card, .dark [class*="Card"] {
+  box-shadow: 0 1px 3px oklch(0 0 0 / 0.3), 0 1px 2px oklch(0 0 0 / 0.2);
+}
+
+/* Premium button hover effect */
+button[class*="bg-emerald"], button[class*="bg-primary"] {
+  transition: all 0.2s ease;
+}
+
+button[class*="bg-emerald"]:hover, button[class*="bg-primary"]:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px oklch(0.55 0.15 160 / 0.3);
+}
+
+button[class*="bg-emerald"]:active, button[class*="bg-primary"]:active {
+  transform: translateY(0);
+}
+
+/* Premium sidebar — dark with emerald accents */
+.bg-card.border-r {
+  background: oklch(0.17 0.02 240) !important;
+  color: oklch(0.92 0.005 180) !important;
+}
+
+/* Premium header — subtle gradient */
+header.sticky {
+  background: oklch(1 0 0 / 0.85) !important;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.dark header.sticky {
+  background: oklch(0.14 0.015 240 / 0.85) !important;
+}
+
+/* Premium scrollbar — emerald tint */
+main::-webkit-scrollbar-thumb {
+  background-color: oklch(0.55 0.15 160 / 30%) !important;
+  border-radius: 6px;
+}
+main::-webkit-scrollbar-thumb:hover {
+  background-color: oklch(0.55 0.15 160 / 50%) !important;
+}
+
+/* Premium input focus — emerald ring */
+input:focus, textarea:focus, select:focus {
+  border-color: oklch(0.55 0.15 160) !important;
+  box-shadow: 0 0 0 3px oklch(0.55 0.15 160 / 15%) !important;
+}
+
+/* Premium dialog — larger radius + shadow */
+[data-slot="dialog-content"] {
+  border-radius: 1rem !important;
+  box-shadow: 0 20px 60px oklch(0.18 0.02 240 / 0.15), 0 8px 24px oklch(0.18 0.02 240 / 0.08) !important;
+}
+
+/* Premium badge — pill shape */
+.badge, [class*="Badge"] {
+  border-radius: 9999px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+/* Smooth transitions everywhere */
+* {
+  transition-property: background-color, border-color, color, fill, stroke, opacity, box-shadow, transform;
+  transition-duration: 0.15s;
+  transition-timing-function: ease;
+}
+
+/* Disable transition for inputs to prevent lag */
+input, textarea, select {
+  transition: none;
+}
+
+/* Premium font rendering */
+body {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+/* Premium table header */
+th {
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  font-size: 0.75rem;
+}
+
+/* Premium loading spinner color */
+.animate-spin {
+  color: oklch(0.55 0.15 160);
 }
