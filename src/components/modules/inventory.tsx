@@ -77,7 +77,7 @@ export function Inventory() {
   const [form, setForm] = useState({
     name: '', sku: '', hsnCode: '', unit: 'PCS', category: '', brand: '',
     purchasePrice: 0, salePrice: 0, mrp: 0, openingStock: 0, currentStock: 0, minStock: 5, gstRate: 18,
-    itemType: 'RAW_MATERIAL',
+    itemType: 'RAW_MATERIAL' as 'RAW_MATERIAL' | 'RETAIL_PRODUCT' | 'FINISHED_PRODUCT' | 'SERVICES',
   })
 
   const fetchItems = useCallback(async () => {
@@ -106,7 +106,7 @@ export function Inventory() {
   useEffect(() => { fetchItems(); fetchProducts() }, [fetchItems, fetchProducts])
 
   const resetForm = () => {
-    setForm({ name: '', sku: '', hsnCode: '', unit: 'PCS', category: '', brand: '', purchasePrice: 0, salePrice: 0, mrp: 0, openingStock: 0, currentStock: 0, minStock: 5, gstRate: 18, itemType: 'RAW_MATERIAL' })
+    setForm({ name: '', sku: '', hsnCode: '', unit: 'PCS', category: '', brand: '', purchasePrice: 0, salePrice: 0, mrp: 0, openingStock: 0, currentStock: 0, minStock: 5, gstRate: 18, itemType: 'RAW_MATERIAL' as 'RAW_MATERIAL' | 'RETAIL_PRODUCT' | 'FINISHED_PRODUCT' | 'SERVICES' })
     setEditingId(null)
   }
 
@@ -118,7 +118,7 @@ export function Inventory() {
 
   const handleEdit = (item: InventoryItem) => {
     setEditingId(item.id)
-    setForm({ name: item.name, sku: item.sku || '', hsnCode: item.hsnCode || '', unit: item.unit, category: item.category || '', brand: item.brand || '', purchasePrice: item.purchasePrice, salePrice: item.salePrice, mrp: item.mrp || 0, openingStock: item.openingStock, currentStock: item.currentStock, minStock: item.minStock, gstRate: item.gstRate, itemType: item.itemType || 'RAW_MATERIAL' })
+    setForm({ name: item.name, sku: item.sku || '', hsnCode: item.hsnCode || '', unit: item.unit, category: item.category || '', brand: item.brand || '', purchasePrice: item.purchasePrice, salePrice: item.salePrice, mrp: item.mrp || 0, openingStock: item.openingStock, currentStock: item.currentStock, minStock: item.minStock, gstRate: item.gstRate, itemType: (item.itemType as 'RAW_MATERIAL' | 'RETAIL_PRODUCT' | 'FINISHED_PRODUCT' | 'SERVICES') || 'RAW_MATERIAL' })
     setShowForm(true)
   }
 
@@ -252,7 +252,7 @@ export function Inventory() {
     setBomIngredients(updated)
   }
 
-  // Raw materials only (for BOM selection)
+  // Raw materials only (for BOM selection) — exclude SERVICES items
   const rawMaterials = items.filter(i => i.itemType === 'RAW_MATERIAL' || !i.itemType)
 
   const exportData = items.map((i) => ({
@@ -313,8 +313,16 @@ export function Inventory() {
                         <TableRow key={i.id}>
                           <TableCell className="font-medium">{i.name}</TableCell>
                           <TableCell>
-                            <Badge variant="secondary" className={i.itemType === 'FINISHED_PRODUCT' ? 'bg-blue-100 text-blue-700 text-xs' : 'bg-gray-100 text-gray-700 text-xs'}>
-                              {i.itemType === 'FINISHED_PRODUCT' ? 'Finished' : 'Raw Material'}
+                            <Badge variant="secondary" className={
+                              i.itemType === 'FINISHED_PRODUCT' ? 'bg-blue-100 text-blue-700 text-xs' :
+                              i.itemType === 'RETAIL_PRODUCT' ? 'bg-purple-100 text-purple-700 text-xs' :
+                              i.itemType === 'SERVICES' ? 'bg-teal-100 text-teal-700 text-xs' :
+                              'bg-gray-100 text-gray-700 text-xs'
+                            }>
+                              {i.itemType === 'FINISHED_PRODUCT' ? 'Finished Product' :
+                               i.itemType === 'RETAIL_PRODUCT' ? 'Retail Product' :
+                               i.itemType === 'SERVICES' ? 'Service' :
+                               'Raw Material'}
                             </Badge>
                           </TableCell>
                           <TableCell>{i.sku || '-'}</TableCell>
@@ -455,11 +463,12 @@ export function Inventory() {
                 <div><Label>Item Name</Label><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Product name" /></div>
                 <div>
                   <Label>Item Type</Label>
-                  <Select value={form.itemType} onValueChange={(val) => setForm({ ...form, itemType: val })}>
+                  <Select value={form.itemType} onValueChange={(val) => setForm({ ...form, itemType: val as 'RAW_MATERIAL' | 'RETAIL_PRODUCT' | 'FINISHED_PRODUCT' | 'SERVICES' })}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="RAW_MATERIAL">Raw Material</SelectItem>
-                      <SelectItem value="FINISHED_PRODUCT">Finished Product</SelectItem>
+                      <SelectItem value="RETAIL_PRODUCT">Retail Product</SelectItem>
+                      <SelectItem value="SERVICES">Service</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>

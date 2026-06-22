@@ -105,7 +105,16 @@ export async function POST(req: NextRequest) {
           })
 
           if (existingItem) {
-            if (existingItem.itemType === 'FINISHED_PRODUCT') {
+            // SERVICES items have no physical stock — skip all inventory checks and deductions
+            if (existingItem.itemType === 'SERVICES') {
+              // Update sale price if provided, but do not touch stock
+              if (item.rate && item.rate > 0) {
+                await tx.inventoryItem.update({
+                  where: { id: existingItem.id },
+                  data: { salePrice: roundTo2(item.rate) },
+                })
+              }
+            } else if (existingItem.itemType === 'FINISHED_PRODUCT') {
               const product = await tx.product.findFirst({
                 where: { name: { equals: existingItem.name }, tenantId: access.tenantId, isDeleted: false },
                 include: { ingredients: { include: { inventoryItem: true } } },
@@ -151,6 +160,7 @@ export async function POST(req: NextRequest) {
                 },
               })
             } else {
+              // RAW_MATERIAL / RETAIL_PRODUCT — enforce stock availability
               // ---- v4.9: Spec Section 14 Rule 2.1 — Anti-Negative Stock (non-BOM item) ----
               if (existingItem.currentStock < (item.qty || 0)) {
                 throw new Error(`CRITICAL_BLOCK_422: Insufficient physical inventory balance for "${existingItem.name}". Requested: ${item.qty || 0}, Available: ${existingItem.currentStock}. Transaction aborted to prevent data corruption.`)
@@ -394,7 +404,8 @@ export async function POST(req: NextRequest) {
           const existingItem = await tx.inventoryItem.findFirst({
             where: { name: { equals: item.name }, tenantId: access.tenantId, isDeleted: false },
           })
-          if (existingItem) {
+          // SERVICES items have no stock to reverse
+          if (existingItem && existingItem.itemType !== 'SERVICES') {
             const newStock = existingItem.currentStock + (item.qty || 0)
             await tx.inventoryItem.update({
               where: { id: existingItem.id },
@@ -408,7 +419,8 @@ export async function POST(req: NextRequest) {
           const existingItem = await tx.inventoryItem.findFirst({
             where: { name: { equals: item.name }, tenantId: access.tenantId, isDeleted: false },
           })
-          if (existingItem) {
+          // SERVICES items have no stock to deduct
+          if (existingItem && existingItem.itemType !== 'SERVICES') {
             const newStock = Math.max(0, existingItem.currentStock - (item.qty || 0))
             await tx.inventoryItem.update({
               where: { id: existingItem.id },
@@ -460,14 +472,14 @@ export async function POST(req: NextRequest) {
 
       // ---- SECURITY PATCH v1: transaction-wrapped reversal ----
       await db.$transaction(async (tx) => {
-        // Reverse inventory
+        // Reverse inventory (skip SERVICES items — they have no stock)
         const items = JSON.parse(sale.items || '[]')
         for (const item of items) {
           if (!item.name || !item.qty || item.qty <= 0) continue
           const existingItem = await tx.inventoryItem.findFirst({
             where: { name: { equals: item.name }, tenantId: access.tenantId, isDeleted: false },
           })
-          if (existingItem) {
+          if (existingItem && existingItem.itemType !== 'SERVICES') {
             const newStock = existingItem.currentStock + (item.qty || 0)
             await tx.inventoryItem.update({
               where: { id: existingItem.id },
