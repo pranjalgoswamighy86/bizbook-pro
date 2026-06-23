@@ -443,7 +443,8 @@ export function SaleRegister() {
         const invMsg = data.inventoryUpdates && data.inventoryUpdates.length > 0
           ? ` | Inventory updated: ${data.inventoryUpdates.join(', ')}`
           : ''
-        toast({ title: editingId ? 'Sale updated' : 'Sale created', description: `Invoice ${form.invoiceNumber}${invMsg}` })
+        const jeMsg = data.warnings || data.journalEntryPosted ? ' | Journal entry posted to General Ledger' : ''
+        toast({ title: editingId ? 'Sale updated' : 'Sale created', description: `Invoice ${form.invoiceNumber}${invMsg}${jeMsg}`, duration: 5000 })
         // Auto-trigger Excel backup download after every successful sale save
         triggerBackupDownload(tenant.id, tenant.name, editingId ? 'sale:update' : 'sale:create')
         // Build a Sale object from the saved data for Print Invoice

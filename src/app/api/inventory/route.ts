@@ -13,9 +13,21 @@ export async function POST(req: NextRequest) {
       if (access instanceof NextResponse) return access
       // --------------------------------------------------
 
-      const data = { ...body.data, tenantId }
-      data.value = (data.currentStock || 0) * (data.purchasePrice || 0)
-      const item = await db.inventoryItem.create({ data })
+      // v4.90: Whitelist allowed fields to prevent Prisma errors
+      const rawData = body.data || {}
+      const data: Record<string, unknown> = { tenantId }
+      const allowedFields = ['name', 'sku', 'hsnCode', 'unit', 'category', 'brand', 'itemType', 'purchasePrice', 'salePrice', 'mrp', 'openingStock', 'currentStock', 'minStock', 'gstRate']
+      for (const field of allowedFields) {
+        if (rawData[field] !== undefined) {
+          if (['purchasePrice', 'salePrice', 'mrp', 'openingStock', 'currentStock', 'minStock', 'gstRate'].includes(field)) {
+            data[field] = Number(rawData[field]) || 0
+          } else {
+            data[field] = rawData[field]
+          }
+        }
+      }
+      data.value = (Number(data.currentStock) || 0) * (Number(data.purchasePrice) || 0)
+      const item = await db.inventoryItem.create({ data: data as any })
       return NextResponse.json({ item })
     }
 
@@ -25,16 +37,28 @@ export async function POST(req: NextRequest) {
       if (access instanceof NextResponse) return access
       // --------------------------------------------------
 
-      const { id, data } = body
+      const { id, data: rawData } = body
+      // v4.90: Whitelist allowed fields to prevent Prisma errors from unknown fields
+      const data: Record<string, unknown> = {}
+      const allowedFields = ['name', 'sku', 'hsnCode', 'unit', 'category', 'brand', 'itemType', 'purchasePrice', 'salePrice', 'mrp', 'openingStock', 'currentStock', 'minStock', 'gstRate', 'value']
+      for (const field of allowedFields) {
+        if (rawData[field] !== undefined) {
+          if (field === 'purchasePrice' || field === 'salePrice' || field === 'mrp' || field === 'openingStock' || field === 'currentStock' || field === 'minStock' || field === 'gstRate' || field === 'value') {
+            data[field] = Number(rawData[field]) || 0
+          } else {
+            data[field] = rawData[field]
+          }
+        }
+      }
       if (data.currentStock !== undefined || data.purchasePrice !== undefined) {
         const existing = await db.inventoryItem.findUnique({ where: { id } })
         if (existing) {
-          const stock = data.currentStock ?? existing.currentStock
-          const price = data.purchasePrice ?? existing.purchasePrice
+          const stock = Number(data.currentStock) ?? existing.currentStock
+          const price = Number(data.purchasePrice) ?? existing.purchasePrice
           data.value = stock * price
         }
       }
-      const item = await db.inventoryItem.update({ where: { id }, data })
+      const item = await db.inventoryItem.update({ where: { id }, data: data as any })
       return NextResponse.json({ item })
     }
 

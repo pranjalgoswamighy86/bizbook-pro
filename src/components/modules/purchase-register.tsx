@@ -298,7 +298,7 @@ export function PurchaseRegister() {
         const invMsg = data.inventoryUpdates && data.inventoryUpdates.length > 0
           ? ` | Inventory updated: ${data.inventoryUpdates.join(', ')}`
           : ''
-        toast({ title: editingId ? 'Purchase updated' : 'Purchase created', description: invMsg || 'Saved successfully' })
+        toast({ title: editingId ? 'Purchase updated' : 'Purchase created', description: `${invMsg || 'Saved successfully'} | Journal entry posted to General Ledger`, duration: 5000 })
         // Auto-trigger Excel backup download after every successful purchase save
         triggerBackupDownload(tenant.id, tenant.name, editingId ? 'purchase:update' : 'purchase:create')
         // Show payable toast for UNPAID/PARTIAL purchases (non-cash parties)
@@ -410,7 +410,7 @@ export function PurchaseRegister() {
 
         {/* ===== ADD/EDIT PURCHASE DIALOG ===== */}
         <Dialog open={showForm} onOpenChange={(open) => { if (!open && !saving) { setShowForm(false) } }}>
-          <DialogContent className="max-w-5xl max-h-[92vh] overflow-y-auto">
+          <DialogContent className="max-w-6xl max-h-[92vh] overflow-y-auto p-6 sm:p-8">
             <DialogHeader>
               <DialogTitle className="text-lg flex items-center gap-2">
                 {editingId ? 'Edit Purchase' : 'New Purchase'}
@@ -477,60 +477,61 @@ export function PurchaseRegister() {
                           <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => removeItem(idx)}><Trash2 className="h-3.5 w-3.5" /></Button>
                         )}
                       </div>
-                      {/* Row 1: Name, Category, HSN, Unit */}
-                      <div className="grid grid-cols-4 gap-2 mb-2">
-                        <div>
-                          <Label className="text-xs text-muted-foreground">Item Name</Label>
-                          <div className="flex gap-1">
-                            <Input placeholder="Item name" value={item.name} onChange={(e) => updateItem(idx, 'name', e.target.value)} />
-                            <BarcodeScanner onScan={(code) => updateItem(idx, 'name', code)} />
+                      {/* v4.90: Redesigned items layout — matching Sale Register */}
+                      <div className="space-y-3 mb-3">
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                          <div className="sm:col-span-2">
+                            <Label className="text-sm text-muted-foreground block mb-1.5">Item Name</Label>
+                            <Input placeholder="Type item name..." className="h-10 text-base" value={item.name} onChange={(e) => updateItem(idx, 'name', e.target.value)} />
+                          </div>
+                          <div>
+                            <Label className="text-sm text-muted-foreground block mb-1.5">Unit</Label>
+                            <Select value={item.unit} onValueChange={(v) => updateItem(idx, 'unit', v)}>
+                              <SelectTrigger className="h-10 text-base w-full"><SelectValue /></SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="PCS">PCS</SelectItem>
+                                <SelectItem value="KG">KG</SelectItem>
+                                <SelectItem value="KGS">KGS</SelectItem>
+                                <SelectItem value="PKT">PKT</SelectItem>
+                                <SelectItem value="LTR">LTR</SelectItem>
+                                <SelectItem value="MTR">MTR</SelectItem>
+                                <SelectItem value="BOX">BOX</SelectItem>
+                                <SelectItem value="DOZEN">DOZEN</SelectItem>
+                                <SelectItem value="NOS">NOS</SelectItem>
+                                <SelectItem value="SET">SET</SelectItem>
+                                <SelectItem value="PAIR">PAIR</SelectItem>
+                              </SelectContent>
+                            </Select>
                           </div>
                         </div>
-                        <div>
-                          <Label className="text-xs text-muted-foreground">Category</Label>
-                          <Input placeholder="e.g. Electronics" value={item.category} onChange={(e) => updateItem(idx, 'category', e.target.value)} />
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                          <div>
+                            <Label className="text-sm text-muted-foreground block mb-1.5">Category</Label>
+                            <Input placeholder="e.g. Electronics" className="h-10 text-base" value={item.category} onChange={(e) => updateItem(idx, 'category', e.target.value)} />
+                          </div>
+                          <div>
+                            <Label className="text-sm text-muted-foreground block mb-1.5">HSN Code</Label>
+                            <Input placeholder="HSN/SAC" className="h-10 text-base" value={item.hsn} onChange={(e) => updateItem(idx, 'hsn', e.target.value)} />
+                          </div>
+                          <div></div>
                         </div>
-                        <div>
-                          <Label className="text-xs text-muted-foreground">HSN Code</Label>
-                          <Input placeholder="HSN/SAC" value={item.hsn} onChange={(e) => updateItem(idx, 'hsn', e.target.value)} />
-                        </div>
-                        <div>
-                          <Label className="text-xs text-muted-foreground">Unit</Label>
-                          <Select value={item.unit} onValueChange={(v) => updateItem(idx, 'unit', v)}>
-                            <SelectTrigger><SelectValue /></SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="PCS">PCS</SelectItem>
-                              <SelectItem value="KG">KG</SelectItem>
-                              <SelectItem value="KGS">KGS</SelectItem>
-                              <SelectItem value="PKT">PKT</SelectItem>
-                              <SelectItem value="LTR">LTR</SelectItem>
-                              <SelectItem value="MTR">MTR</SelectItem>
-                              <SelectItem value="BOX">BOX</SelectItem>
-                              <SelectItem value="DOZEN">DOZEN</SelectItem>
-                              <SelectItem value="NOS">NOS</SelectItem>
-                              <SelectItem value="SET">SET</SelectItem>
-                              <SelectItem value="PAIR">PAIR</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      </div>
-                      {/* Row 2: Qty, Rate, MRP, Discount */}
-                      <div className="grid grid-cols-4 gap-2 mb-2">
-                        <div>
-                          <Label className="text-xs text-muted-foreground">Quantity</Label>
-                          <Input type="number" placeholder="Qty" value={item.qty || ''} onChange={(e) => updateItem(idx, 'qty', Number(e.target.value))} />
-                        </div>
-                        <div>
-                          <Label className="text-xs text-muted-foreground">Rate</Label>
-                          <Input type="number" placeholder="Rate per unit" value={item.rate || ''} onChange={(e) => updateItem(idx, 'rate', Number(e.target.value))} />
-                        </div>
-                        <div>
-                          <Label className="text-xs text-muted-foreground">MRP</Label>
-                          <Input type="number" placeholder="MRP" value={item.mrp || ''} onChange={(e) => updateItem(idx, 'mrp', Number(e.target.value))} />
-                        </div>
-                        <div>
-                          <Label className="text-xs text-muted-foreground">Discount</Label>
-                          <Input type="number" placeholder="Discount amount" value={item.discount || ''} onChange={(e) => updateItem(idx, 'discount', Number(e.target.value))} />
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                          <div>
+                            <Label className="text-sm text-muted-foreground block mb-1.5">Quantity</Label>
+                            <Input type="number" placeholder="0" className="h-10 text-base" value={item.qty || ''} onChange={(e) => updateItem(idx, 'qty', Number(e.target.value))} />
+                          </div>
+                          <div>
+                            <Label className="text-sm text-muted-foreground block mb-1.5">Rate</Label>
+                            <Input type="number" placeholder="0.00" className="h-10 text-base" value={item.rate || ''} onChange={(e) => updateItem(idx, 'rate', Number(e.target.value))} />
+                          </div>
+                          <div>
+                            <Label className="text-sm text-muted-foreground block mb-1.5">MRP</Label>
+                            <Input type="number" placeholder="0.00" className="h-10 text-base" value={item.mrp || ''} onChange={(e) => updateItem(idx, 'mrp', Number(e.target.value))} />
+                          </div>
+                          <div>
+                            <Label className="text-sm text-muted-foreground block mb-1.5">Discount</Label>
+                            <Input type="number" placeholder="0.00" className="h-10 text-base" value={item.discount || ''} onChange={(e) => updateItem(idx, 'discount', Number(e.target.value))} />
+                          </div>
                         </div>
                       </div>
 
