@@ -140,15 +140,19 @@ export function Inventory() {
 
   const handleDelete = async (id: string) => {
     if (!confirm('Archive this item?')) return
-    await authFetch('/api/inventory', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'delete', id }) })
-    toast({ title: 'Archived' }); fetchItems()
+    const res = await authFetch('/api/inventory', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'delete', id, tenantId: tenant?.id }),
+    })
+    if (res.ok) { toast({ title: 'Item Archived', description: 'Item has been soft-deleted.' }); fetchItems() }
+    else { toast({ title: 'Error', description: 'Failed to delete item', variant: 'destructive' }) }
   }
 
   const handleAdjustStock = async () => {
     if (!adjustId || adjustQty <= 0) return
     const res = await authFetch('/api/inventory', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'adjust-stock', id: adjustId, quantity: adjustQty, type: adjustType }),
+      body: JSON.stringify({ action: 'adjust-stock', id: adjustId, quantity: adjustQty, type: adjustType, tenantId: tenant?.id }),
     })
     if (res.ok) { toast({ title: 'Stock adjusted' }); setShowAdjust(false); fetchItems() }
   }
@@ -198,9 +202,10 @@ export function Inventory() {
     if (!confirm('Archive this product and its recipe? The inventory item will be kept.')) return
     const res = await authFetch('/api/products', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'delete', id }),
+      body: JSON.stringify({ action: 'delete', id, tenantId: tenant?.id }),
     })
     if (res.ok) { toast({ title: 'Product Archived' }); fetchProducts(); fetchItems() }
+    else { toast({ title: 'Error', description: 'Failed to delete product', variant: 'destructive' }) }
   }
 
   const handleProduce = async () => {
