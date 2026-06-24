@@ -845,113 +845,118 @@ export function SaleRegister() {
                           <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => removeItem(idx)}><Trash2 className="h-3.5 w-3.5" /></Button>
                         )}
                       </div>
-                      {/* Row 1: Item Type, Name, Category, HSN, Unit — v4.66 added Item Type column */}
-                      <div className="grid grid-cols-5 gap-2 mb-2">
-                        <div>
-                          <Label className="text-xs text-muted-foreground">Item Type</Label>
-                          <Select
-                            value={item.saleItemType || 'RETAIL_PRODUCT'}
-                            onValueChange={(v: 'RETAIL_PRODUCT' | 'FINISHED_PRODUCT' | 'SERVICE') => updateItemType(idx, v)}
-                          >
-                            <SelectTrigger className="h-9 text-xs"><SelectValue /></SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="RETAIL_PRODUCT">Retail Product</SelectItem>
-                              <SelectItem value="FINISHED_PRODUCT">Finished Product</SelectItem>
-                              <SelectItem value="SERVICE">Service</SelectItem>
-                            </SelectContent>
-                          </Select>
-                          {item.saleItemType === 'SERVICE' && (
-                            <span className="inline-flex items-center gap-1 mt-1 text-xs text-violet-700 bg-violet-50 border border-violet-200 px-2 py-0.5 rounded-full">
-                              <Sparkles className="h-3 w-3" /> No stock deducted
-                            </span>
-                          )}
+                      {/* v4.95: Responsive layout — stacks on mobile, 2-3 cols on desktop */}
+                      <div className="space-y-3 mb-3">
+                        {/* Row 1: Item Name (full width on mobile) + Item Type */}
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                          <div className="sm:col-span-2">
+                            <ItemSuggest
+                              tenantId={tenant?.id}
+                              value={item.name}
+                              onChange={(val) => updateItem(idx, 'name', val)}
+                              onItemSelect={(inv) => {
+                                updateItem(idx, 'name', inv.name)
+                                updateItem(idx, 'category', inv.category || '')
+                                updateItem(idx, 'hsn', inv.hsnCode || '')
+                                updateItem(idx, 'unit', inv.unit)
+                                updateItem(idx, 'rate', inv.salePrice)
+                                updateItem(idx, 'mrp', inv.mrp || 0)
+                                if (inv.gstRate > 0 && item.taxes[0]) {
+                                  updateItemTax(idx, 0, 'name', 'GST')
+                                  updateItemTax(idx, 0, 'percent', inv.gstRate)
+                                }
+                              }}
+                              label="Item Name"
+                              placeholder="Type to search inventory..."
+                              priceType="salePrice"
+                            />
+                            {item.saleItemType !== 'SERVICE' && (item.itemType === 'FINISHED_PRODUCT' || (item.name && finishedProductNames.includes(item.name.toLowerCase()))) && (
+                              <span className="inline-flex items-center gap-1 mt-1 text-xs text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">
+                                <Package className="h-3 w-3" /> Includes raw materials
+                              </span>
+                            )}
+                          </div>
+                          <div>
+                            <Label className="text-sm text-muted-foreground block mb-1.5">Item Type</Label>
+                            <Select
+                              value={item.saleItemType || 'RETAIL_PRODUCT'}
+                              onValueChange={(v: 'RETAIL_PRODUCT' | 'FINISHED_PRODUCT' | 'SERVICE') => updateItemType(idx, v)}
+                            >
+                              <SelectTrigger className="h-10 text-sm w-full"><SelectValue /></SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="RETAIL_PRODUCT">Retail Product</SelectItem>
+                                <SelectItem value="FINISHED_PRODUCT">Finished Product</SelectItem>
+                                <SelectItem value="SERVICE">Service</SelectItem>
+                              </SelectContent>
+                            </Select>
+                            {item.saleItemType === 'SERVICE' && (
+                              <span className="inline-flex items-center gap-1 mt-1 text-xs text-violet-700 bg-violet-50 border border-violet-200 px-2 py-0.5 rounded-full">
+                                <Sparkles className="h-3 w-3" /> No stock
+                              </span>
+                            )}
+                          </div>
                         </div>
-                        <div>
-                          <ItemSuggest
-                            tenantId={tenant?.id}
-                            value={item.name}
-                            onChange={(val) => updateItem(idx, 'name', val)}
-                            onItemSelect={(inv) => {
-                              updateItem(idx, 'name', inv.name)
-                              updateItem(idx, 'category', inv.category || '')
-                              updateItem(idx, 'hsn', inv.hsnCode || '')
-                              updateItem(idx, 'unit', inv.unit)
-                              updateItem(idx, 'rate', inv.salePrice)
-                              updateItem(idx, 'mrp', inv.mrp || 0)
-                              if (inv.gstRate > 0 && item.taxes[0]) {
-                                updateItemTax(idx, 0, 'name', 'GST')
-                                updateItemTax(idx, 0, 'percent', inv.gstRate)
-                              }
-                            }}
-                            label="Item Name"
-                            placeholder="Type to search inventory..."
-                            priceType="salePrice"
-                          />
-                          {/* v4.66: Hide BOM badge for SERVICE items; show for FINISHED_PRODUCT */}
-                          {item.saleItemType !== 'SERVICE' && (item.itemType === 'FINISHED_PRODUCT' || (item.name && finishedProductNames.includes(item.name.toLowerCase()))) && (
-                            <span className="inline-flex items-center gap-1 mt-1 text-xs text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">
-                              <Package className="h-3 w-3" /> Includes raw materials
-                            </span>
-                          )}
-                        </div>
-                        <div>
-                          <Label className="text-xs text-muted-foreground">Category</Label>
-                          <Input placeholder="e.g. Electronics" value={item.category} onChange={(e) => updateItem(idx, 'category', e.target.value)} />
-                        </div>
-                        <div>
-                          <Label className="text-xs text-muted-foreground">HSN Code</Label>
-                          <Input placeholder="HSN/SAC" value={item.hsn} onChange={(e) => updateItem(idx, 'hsn', e.target.value)} />
-                        </div>
-                        <div>
-                          <Label className="text-xs text-muted-foreground">Unit</Label>
-                          <Select value={item.unit} onValueChange={(v) => updateItem(idx, 'unit', v)}>
-                            <SelectTrigger><SelectValue /></SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="PCS">PCS</SelectItem>
-                              <SelectItem value="KG">KG</SelectItem>
-                              <SelectItem value="LTR">LTR</SelectItem>
-                              <SelectItem value="MTR">MTR</SelectItem>
-                              <SelectItem value="BOX">BOX</SelectItem>
-                              <SelectItem value="DOZEN">DOZEN</SelectItem>
-                              <SelectItem value="NOS">NOS</SelectItem>
-                              <SelectItem value="SET">SET</SelectItem>
-                              <SelectItem value="PAIR">PAIR</SelectItem>
-                              <SelectItem value="HRS">HRS</SelectItem>
-                              <SelectItem value="JOB">JOB</SelectItem>
-                            </SelectContent>
-                          </Select>
+                        {/* Row 2: Category, HSN, Unit */}
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                          <div>
+                            <Label className="text-sm text-muted-foreground block mb-1.5">Category</Label>
+                            <Input placeholder="e.g. Electronics" className="h-10" value={item.category} onChange={(e) => updateItem(idx, 'category', e.target.value)} />
+                          </div>
+                          <div>
+                            <Label className="text-sm text-muted-foreground block mb-1.5">HSN Code</Label>
+                            <Input placeholder="HSN/SAC" className="h-10" value={item.hsn} onChange={(e) => updateItem(idx, 'hsn', e.target.value)} />
+                          </div>
+                          <div>
+                            <Label className="text-sm text-muted-foreground block mb-1.5">Unit</Label>
+                            <Select value={item.unit} onValueChange={(v) => updateItem(idx, 'unit', v)}>
+                              <SelectTrigger className="h-10 text-sm w-full"><SelectValue /></SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="PCS">PCS</SelectItem>
+                                <SelectItem value="KG">KG</SelectItem>
+                                <SelectItem value="LTR">LTR</SelectItem>
+                                <SelectItem value="MTR">MTR</SelectItem>
+                                <SelectItem value="BOX">BOX</SelectItem>
+                                <SelectItem value="DOZEN">DOZEN</SelectItem>
+                                <SelectItem value="NOS">NOS</SelectItem>
+                                <SelectItem value="SET">SET</SelectItem>
+                                <SelectItem value="PAIR">PAIR</SelectItem>
+                                <SelectItem value="HRS">HRS</SelectItem>
+                                <SelectItem value="JOB">JOB</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
                         </div>
                       </div>
-                      {/* Row 2: Qty, Rate, MRP, Discount */}
-                      <div className="grid grid-cols-4 gap-2 mb-2">
+                      {/* Row 3: Qty, Rate, MRP, Discount */}
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
                         <div>
-                          <Label className="text-xs text-muted-foreground">Quantity</Label>
-                          <Input type="number" placeholder="Qty" value={item.qty || ''} onChange={(e) => updateItem(idx, 'qty', Number(e.target.value))} />
+                          <Label className="text-sm text-muted-foreground block mb-1.5">Quantity</Label>
+                          <Input type="number" placeholder="Qty" className="h-10" value={item.qty || ''} onChange={(e) => updateItem(idx, 'qty', Number(e.target.value))} />
                         </div>
                         <div>
-                          <Label className="text-xs text-muted-foreground">Rate</Label>
-                          <Input type="number" placeholder="Rate per unit" value={item.rate || ''} onChange={(e) => updateItem(idx, 'rate', Number(e.target.value))} />
+                          <Label className="text-sm text-muted-foreground block mb-1.5">Rate</Label>
+                          <Input type="number" placeholder="Rate" className="h-10" value={item.rate || ''} onChange={(e) => updateItem(idx, 'rate', Number(e.target.value))} />
                         </div>
                         <div>
-                          <Label className="text-xs text-muted-foreground">MRP</Label>
-                          <Input type="number" placeholder="MRP" value={item.mrp || ''} onChange={(e) => updateItem(idx, 'mrp', Number(e.target.value))} />
+                          <Label className="text-sm text-muted-foreground block mb-1.5">MRP</Label>
+                          <Input type="number" placeholder="MRP" className="h-10" value={item.mrp || ''} onChange={(e) => updateItem(idx, 'mrp', Number(e.target.value))} />
                         </div>
                         <div>
-                          <Label className="text-xs text-muted-foreground">Discount</Label>
-                          <Input type="number" placeholder="Discount amount" value={item.discount || ''} onChange={(e) => updateItem(idx, 'discount', Number(e.target.value))} />
+                          <Label className="text-sm text-muted-foreground block mb-1.5">Discount</Label>
+                          <Input type="number" placeholder="Discount" className="h-10" value={item.discount || ''} onChange={(e) => updateItem(idx, 'discount', Number(e.target.value))} />
                         </div>
                       </div>
 
-                      {/* Tax Section */}
-                      <div className="border-t pt-2 mt-1">
-                        <div className="flex items-center justify-between mb-1">
-                          <Label className="text-xs font-semibold text-muted-foreground">Tax / Duties</Label>
-                          <Button variant="ghost" size="sm" className="h-6 text-xs text-blue-600" onClick={() => addTaxToItem(idx)}>
-                            <Plus className="h-3 w-3 mr-1" />Add Tax
+                      {/* Tax Section — v4.95 responsive */}
+                      <div className="border-t pt-3 mt-2">
+                        <div className="flex items-center justify-between mb-2">
+                          <Label className="text-sm font-semibold text-muted-foreground">Tax / Duties</Label>
+                          <Button variant="ghost" size="sm" className="h-8 text-sm text-blue-600 hover:bg-blue-50" onClick={() => addTaxToItem(idx)}>
+                            <Plus className="h-4 w-4 mr-1" />Add Tax
                           </Button>
                         </div>
                         {item.taxes.map((tax, tIdx) => (
-                          <div key={tIdx} className="grid grid-cols-12 gap-2 items-end mb-1">
+                          <div key={tIdx} className="grid grid-cols-2 sm:grid-cols-12 gap-2 items-center mb-2 p-2 bg-muted/30 rounded-lg">
                             <div className="col-span-3">
                               <Popover>
                                 <PopoverTrigger asChild>
