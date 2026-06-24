@@ -633,7 +633,7 @@ export function SubscriptionPage() {
                   })
                   if (res.ok) {
                     const data = await res.json()
-                    toast({ title: 'Extra ID Added!', description: `${extraIdPurchase?.roleType === 'JUNIOR_ADMIN' ? 'Junior Admin' : 'Data Entry'} ID added. Cost: ₹149. Recharge increase: ₹${data.details?.rechargeIncrease || 0}.`, duration: 6000 })
+                    toast({ title: 'Payment Proof Submitted!', description: `${extraIdPurchase?.roleType === 'JUNIOR_ADMIN' ? 'Junior Admin' : 'Data Entry'} ID added. UTR: ${utr}. Payment proof submitted for verification. Cost: ₹149.`, duration: 8000 })
                     setExtraIdPurchase(null)
                     load()
                   } else {
@@ -644,7 +644,7 @@ export function SubscriptionPage() {
                 reader.readAsDataURL(file)
               }}
             >
-              Submit Payment & Activate ID
+              Submit Payment Proof (Screenshot + UTR)
             </Button>
           </DialogFooter>
         </DialogContent>

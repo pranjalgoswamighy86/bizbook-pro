@@ -543,9 +543,17 @@ export async function POST(req: NextRequest) {
       const access = await requireAuthAndRole(req, tenantId, ['MAIN_ADMIN'])
       if (access instanceof NextResponse) return access
 
-      const { roleType } = body // 'JUNIOR_ADMIN' or 'DATA_ENTRY'
+      const { roleType, utr, screenshot } = body // 'JUNIOR_ADMIN' or 'DATA_ENTRY'
       if (roleType !== 'JUNIOR_ADMIN' && roleType !== 'DATA_ENTRY') {
         return NextResponse.json({ error: 'roleType must be JUNIOR_ADMIN or DATA_ENTRY' }, { status: 400 })
+      }
+
+      // v4.99: Require UTR + screenshot for payment proof
+      if (!utr || !utr.trim()) {
+        return NextResponse.json({ error: 'UTR number is required. Enter the 12-digit UPI transaction ID.' }, { status: 400 })
+      }
+      if (!screenshot) {
+        return NextResponse.json({ error: 'Payment screenshot is required.' }, { status: 400 })
       }
 
       const subscription = await db.subscription.findUnique({ where: { tenantId: access.tenantId } })
@@ -558,6 +566,23 @@ export async function POST(req: NextRequest) {
 
       // Calculate recharge increase: 15% of MRP of current plan
       const rechargeIncrease = Math.round(subscription.mrp * 0.15)
+
+      // v4.99: Create a SubscriptionQueue entry for payment proof tracking
+      // This allows the Super Admin to review the payment in the Payment Proof Review panel
+      const queueEntry = await db.subscriptionQueue.create({
+        data: {
+          tenantId: access.tenantId,
+          baseAmount: costPerId,
+          finalAmount: costPerId,
+          paiseIncrement: 0,
+          planHours: 0, // Extra ID doesn't add hours
+          planName: `Extra ${roleType === 'JUNIOR_ADMIN' ? 'Junior Admin' : 'Data Entry'} ID`,
+          status: 'PROOF_SUBMITTED',
+          utrNumber: utr.trim(),
+          screenshotPath: screenshot, // base64 data URL stored directly
+          proofSubmittedAt: new Date(),
+        },
+      })
 
       // Update subscription with extra slot
       const fieldToUpdate = roleType === 'JUNIOR_ADMIN' ? 'extraJuniorAdminSlots' : 'extraDataEntrySlots'
@@ -584,6 +609,8 @@ export async function POST(req: NextRequest) {
             roleType,
             costPerId,
             rechargeIncrease,
+            utr: utr.trim(),
+            queueId: queueEntry.id,
             newTotalSlots: currentSlots + 1,
             timestamp: new Date().toISOString(),
           }),
@@ -592,13 +619,16 @@ export async function POST(req: NextRequest) {
 
       return NextResponse.json({
         success: true,
-        message: `Extra ${roleType === 'JUNIOR_ADMIN' ? 'Junior Admin' : 'Data Entry'} ID added successfully`,
+        message: `Extra ${roleType === 'JUNIOR_ADMIN' ? 'Junior Admin' : 'Data Entry'} ID added. Payment proof submitted for verification.`,
         details: {
           costPerId,
           rechargeIncrease,
           totalJuniorAdminSlots: (updated as any).extraJuniorAdminSlots || 0,
           totalDataEntrySlots: (updated as any).extraDataEntrySlots || 0,
           maxUsersAllowed: (updated as any).maxUsersAllowed || null,
+          queueId: queueEntry.id,
+          utr: utr.trim(),
+          status: 'PROOF_SUBMITTED',
         },
       })
     }
