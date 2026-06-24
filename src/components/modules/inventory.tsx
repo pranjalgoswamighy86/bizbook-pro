@@ -18,7 +18,7 @@ import { useToast } from '@/hooks/use-toast'
 import { authFetch } from '@/lib/auth-fetch'
 
 interface InventoryItem {
-  id: string; name: string; sku: string | null; hsnCode: string | null; unit: string
+  id: string; name: string; sku: string | null; barcode: string | null; hsnCode: string | null; unit: string
   category: string | null; brand: string | null; itemType: string
   purchasePrice: number; salePrice: number
   mrp: number | null; openingStock: number; currentStock: number; minStock: number
@@ -75,7 +75,7 @@ export function Inventory() {
   const [produceLoading, setProduceLoading] = useState(false)
 
   const [form, setForm] = useState({
-    name: '', sku: '', hsnCode: '', unit: 'PCS', category: '', brand: '',
+    name: '', sku: '', barcode: '', hsnCode: '', unit: 'PCS', category: '', brand: '',
     purchasePrice: 0, salePrice: 0, mrp: 0, openingStock: 0, currentStock: 0, minStock: 5, gstRate: 18,
     itemType: 'RAW_MATERIAL',
   })
@@ -106,7 +106,7 @@ export function Inventory() {
   useEffect(() => { fetchItems(); fetchProducts() }, [fetchItems, fetchProducts])
 
   const resetForm = () => {
-    setForm({ name: '', sku: '', hsnCode: '', unit: 'PCS', category: '', brand: '', purchasePrice: 0, salePrice: 0, mrp: 0, openingStock: 0, currentStock: 0, minStock: 5, gstRate: 18, itemType: 'RAW_MATERIAL' })
+    setForm({ name: '', sku: '', barcode: '', hsnCode: '', unit: 'PCS', category: '', brand: '', purchasePrice: 0, salePrice: 0, mrp: 0, openingStock: 0, currentStock: 0, minStock: 5, gstRate: 18, itemType: 'RAW_MATERIAL' })
     setEditingId(null)
   }
 
@@ -118,7 +118,7 @@ export function Inventory() {
 
   const handleEdit = (item: InventoryItem) => {
     setEditingId(item.id)
-    setForm({ name: item.name, sku: item.sku || '', hsnCode: item.hsnCode || '', unit: item.unit, category: item.category || '', brand: item.brand || '', purchasePrice: item.purchasePrice, salePrice: item.salePrice, mrp: item.mrp || 0, openingStock: item.openingStock, currentStock: item.currentStock, minStock: item.minStock, gstRate: item.gstRate, itemType: item.itemType || 'RAW_MATERIAL' })
+    setForm({ name: item.name, sku: item.sku || '', barcode: item.barcode || '', hsnCode: item.hsnCode || '', unit: item.unit, category: item.category || '', brand: item.brand || '', purchasePrice: item.purchasePrice, salePrice: item.salePrice, mrp: item.mrp || 0, openingStock: item.openingStock, currentStock: item.currentStock, minStock: item.minStock, gstRate: item.gstRate, itemType: item.itemType || 'RAW_MATERIAL' })
     setShowForm(true)
   }
 
@@ -127,10 +127,15 @@ export function Inventory() {
     const data = { ...form, value: form.currentStock * form.purchasePrice }
     const res = await authFetch('/api/inventory', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(editingId ? { action: 'update', id: editingId, data } : { action: 'create', tenantId: tenant.id, data }),
+      body: JSON.stringify(editingId ? { action: 'update', id: editingId, data, tenantId: tenant.id } : { action: 'create', tenantId: tenant.id, data }),
     })
-    if (res.ok) { toast({ title: editingId ? 'Updated' : 'Created' }); setShowForm(false); resetForm(); fetchItems() }
-    else { toast({ title: 'Error', variant: 'destructive' }) }
+    if (res.ok) {
+      toast({ title: editingId ? 'Item Updated' : 'Item Created', description: `${form.name} saved successfully` })
+      setShowForm(false); resetForm(); fetchItems()
+    } else {
+      const errData = await res.json().catch(() => ({}))
+      toast({ title: 'Error', description: errData.error || 'Failed to save item', variant: 'destructive' })
+    }
   }
 
   const handleDelete = async (id: string) => {
@@ -451,8 +456,24 @@ export function Inventory() {
           <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
             <DialogHeader><DialogTitle>{editingId ? 'Edit Item' : 'Add Inventory Item'}</DialogTitle></DialogHeader>
             <div className="space-y-3">
+              {/* v4.91: Item Name with autocomplete suggestions */}
               <div className="grid grid-cols-2 gap-3">
-                <div><Label>Item Name</Label><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Product name" /></div>
+                <div>
+                  <Label>Item Name</Label>
+                  <Input
+                    value={form.name}
+                    onChange={(e) => setForm({ ...form, name: e.target.value })}
+                    placeholder="Product name"
+                    list="inventory-names-list"
+                    autoComplete="off"
+                  />
+                  {/* Autocomplete suggestions from existing inventory */}
+                  <datalist id="inventory-names-list">
+                    {items.map(item => (
+                      <option key={item.id} value={item.name} />
+                    ))}
+                  </datalist>
+                </div>
                 <div>
                   <Label>Item Type</Label>
                   <Select value={form.itemType} onValueChange={(val) => setForm({ ...form, itemType: val })}>
@@ -464,13 +485,17 @@ export function Inventory() {
                   </Select>
                 </div>
               </div>
+              {/* v4.91: Barcode field — unique product identification number */}
               <div className="grid grid-cols-2 gap-3">
+                <div><Label>Barcode (Unique ID)</Label><Input value={form.barcode} onChange={(e) => setForm({ ...form, barcode: e.target.value })} placeholder="Scan or enter barcode number" /></div>
                 <div><Label>SKU</Label><Input value={form.sku} onChange={(e) => setForm({ ...form, sku: e.target.value })} placeholder="Stock keeping unit" /></div>
-                <div><Label>HSN Code</Label><Input value={form.hsnCode} onChange={(e) => setForm({ ...form, hsnCode: e.target.value })} placeholder="For GST" /></div>
               </div>
               <div className="grid grid-cols-3 gap-3">
+                <div><Label>HSN Code</Label><Input value={form.hsnCode} onChange={(e) => setForm({ ...form, hsnCode: e.target.value })} placeholder="For GST" /></div>
                 <div><Label>Unit</Label><Input value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })} placeholder="PCS, KG, LTR" /></div>
                 <div><Label>Category</Label><Input value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} placeholder="e.g. Electronics" /></div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
                 <div><Label>Brand</Label><Input value={form.brand} onChange={(e) => setForm({ ...form, brand: e.target.value })} /></div>
               </div>
               <div className="grid grid-cols-3 gap-3">

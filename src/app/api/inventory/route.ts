@@ -16,7 +16,7 @@ export async function POST(req: NextRequest) {
       // v4.90: Whitelist allowed fields to prevent Prisma errors
       const rawData = body.data || {}
       const data: Record<string, unknown> = { tenantId }
-      const allowedFields = ['name', 'sku', 'hsnCode', 'unit', 'category', 'brand', 'itemType', 'purchasePrice', 'salePrice', 'mrp', 'openingStock', 'currentStock', 'minStock', 'gstRate']
+      const allowedFields = ['name', 'sku', 'barcode', 'hsnCode', 'unit', 'category', 'brand', 'itemType', 'purchasePrice', 'salePrice', 'mrp', 'openingStock', 'currentStock', 'minStock', 'gstRate']
       for (const field of allowedFields) {
         if (rawData[field] !== undefined) {
           if (['purchasePrice', 'salePrice', 'mrp', 'openingStock', 'currentStock', 'minStock', 'gstRate'].includes(field)) {
@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
       const { id, data: rawData } = body
       // v4.90: Whitelist allowed fields to prevent Prisma errors from unknown fields
       const data: Record<string, unknown> = {}
-      const allowedFields = ['name', 'sku', 'hsnCode', 'unit', 'category', 'brand', 'itemType', 'purchasePrice', 'salePrice', 'mrp', 'openingStock', 'currentStock', 'minStock', 'gstRate', 'value']
+      const allowedFields = ['name', 'sku', 'barcode', 'hsnCode', 'unit', 'category', 'brand', 'itemType', 'purchasePrice', 'salePrice', 'mrp', 'openingStock', 'currentStock', 'minStock', 'gstRate', 'value']
       for (const field of allowedFields) {
         if (rawData[field] !== undefined) {
           if (field === 'purchasePrice' || field === 'salePrice' || field === 'mrp' || field === 'openingStock' || field === 'currentStock' || field === 'minStock' || field === 'gstRate' || field === 'value') {

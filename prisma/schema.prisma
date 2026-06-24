@@ -259,6 +259,7 @@ model InventoryItem {
   id            String   @id @default(cuid())
   name          String
   sku           String?
+  barcode       String?  // v4.91: Unique product identification number (NOT the name)
   hsnCode       String?
   unit          String   @default("PCS")
   category      String?
