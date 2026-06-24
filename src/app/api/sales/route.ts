@@ -47,6 +47,10 @@ export async function POST(req: NextRequest) {
       data.partyGst = data.partyGst || null
       data.notes = data.notes || null
       data.invoiceFile = data.invoiceFile || null
+      // v4.106: Persist paymentMode, invoiceStatus, upiAmount
+      data.paymentMode = data.paymentMode || null
+      data.invoiceStatus = data.invoiceStatus || 'CONFIRMED'
+      data.upiAmount = roundTo2(sanitize(data.upiAmount))
       data.createdBy = access.userId  // ← use authenticated user, not body
       if (!data.date || isNaN(new Date(data.date).getTime())) {
         return NextResponse.json({ error: 'Invalid date provided' }, { status: 400 })
@@ -551,6 +555,33 @@ export async function POST(req: NextRequest) {
       })
 
       return NextResponse.json({ success: true })
+    }
+
+    // ============================================================
+    // v4.106: CONFIRM SALE — Convert quotation to confirmed sale
+    // ============================================================
+    if (action === 'confirm-sale') {
+      const access = await requireAuthAndRole(req, tenantId, ['DATA_ENTRY', 'JUNIOR_ADMIN', 'MAIN_ADMIN'])
+      if (access instanceof NextResponse) return access
+
+      const { id } = body
+      const sale = await db.sale.findFirst({ where: { id, tenantId: access.tenantId, isDeleted: false } })
+      if (!sale) {
+        return NextResponse.json({ error: 'Sale not found' }, { status: 404 })
+      }
+
+      await db.$transaction(async (tx) => {
+        await tx.sale.update({ where: { id }, data: { invoiceStatus: 'CONFIRMED' } })
+        await tx.auditLog.create({
+          data: {
+            tenantId: access.tenantId, userId: access.userId, userName: access.user.name,
+            action: 'UPDATE', entityType: 'Sale', entityId: sale.id, entityName: sale.invoiceNumber,
+            changes: JSON.stringify({ invoiceStatus: 'QUOTATION → CONFIRMED' }),
+          },
+        })
+      })
+
+      return NextResponse.json({ success: true, message: 'Sale confirmed' })
     }
 
     // ============================================================

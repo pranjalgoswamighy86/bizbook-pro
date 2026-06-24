@@ -173,6 +173,10 @@ model Sale {
   // Payment status for sales: PENDING, PARTIAL, RECEIVED
   // For backward compat, "UNPAID" is treated as PENDING, "PAID" as RECEIVED
   paymentStatus String   @default("PENDING")
+  // v4.106: Invoice status — QUOTATION (editable) or CONFIRMED (locked for Data Entry)
+  invoiceStatus String   @default("CONFIRMED")  // QUOTATION, CONFIRMED
+  // v4.106: Payment mode breakdown stored for UPI QR code
+  upiAmount     Float    @default(0)  // UPI portion of payment (for QR code)
   amountReceived Float   @default(0)
   amountPaid    Float    @default(0)  // Kept for backward compat, same as amountReceived
   notes         String?
