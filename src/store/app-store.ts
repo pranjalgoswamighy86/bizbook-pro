@@ -52,6 +52,7 @@ export interface Tenant {
   gstNumber?: string
   panNumber?: string
   currency: string
+  upiId?: string  // v4.102: UPI ID for invoice QR code
   plan: string
   planExpires?: string
 }

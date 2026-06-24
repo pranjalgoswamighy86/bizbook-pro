@@ -566,7 +566,7 @@ export function SaleRegister() {
     })()
 
     // v4.100: Generate UPI QR code
-    const upiId = (tenant as any)?.upiId
+    const upiId = tenant?.upiId
     const upiQrCode = upiId
       ? 'https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=' + encodeURIComponent('upi://pay?pa=' + upiId + '&pn=' + (tenant?.name || 'Business') + '&am=' + sale.totalAmount + '&cu=INR&tn=Invoice ' + sale.invoiceNumber)
       : null

@@ -175,7 +175,7 @@ export function SettingsPage() {
   useEffect(() => {
     if (!tenant) return
     loadUsers()
-    setBizForm({ name: tenant.name, address: tenant.address || '', phone: tenant.phone || '', email: tenant.email || '', gstNumber: tenant.gstNumber || '', panNumber: tenant.panNumber || '', upiId: (tenant as any).upiId || '' })
+    setBizForm({ name: tenant.name, address: tenant.address || '', phone: tenant.phone || '', email: tenant.email || '', gstNumber: tenant.gstNumber || '', panNumber: tenant.panNumber || '', upiId: tenant.upiId || '' })
     loadAboutData()
   }, [tenant, loadUsers, loadAboutData])
 
