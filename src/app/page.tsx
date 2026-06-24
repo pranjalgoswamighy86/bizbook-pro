@@ -57,6 +57,7 @@ function ModuleRouter() {
   if (currentView === 'company-select') return <CompanySelectPage />
 
   // All other modules are lazy-loaded with Suspense fallback
+  // v4.104: key={currentView} forces remount on view change — ensures fresh data fetch
   const renderModule = () => {
     switch (currentView) {
       case 'sales': return <SaleRegister />
@@ -92,7 +93,7 @@ function ModuleRouter() {
 
   return (
     <Suspense fallback={<ModuleLoader />}>
-      {renderModule()}
+      <div key={currentView} className="h-full">{renderModule()}</div>
     </Suspense>
   )
 }

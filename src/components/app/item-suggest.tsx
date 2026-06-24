@@ -55,18 +55,84 @@ export function ItemSuggest({
       return
     }
     try {
-      const res = await authFetch('/api/inventory', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'list', tenantId, search: query }),
-      })
-      if (res.ok) {
-        const data = await res.json()
-        const items = (data.items || []).slice(0, 10)
-        setSuggestions(items)
-        setShowDropdown(items.length > 0)
-        setHighlightedIndex(-1)
+      // v4.104: Search both inventory AND previous sale/purchase items
+      const [invRes, salesRes] = await Promise.all([
+        authFetch('/api/inventory', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'list', tenantId, search: query }),
+        }),
+        authFetch('/api/sales', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'list', tenantId, search: query }),
+        }),
+      ])
+
+      const allItems: ItemSuggestion[] = []
+      const seenNames = new Set<string>()
+
+      // From inventory
+      if (invRes.ok) {
+        const data = await invRes.json()
+        for (const item of (data.items || [])) {
+          const key = item.name.toLowerCase()
+          if (!seenNames.has(key)) {
+            seenNames.add(key)
+            allItems.push({
+              id: item.id,
+              name: item.name,
+              category: item.category,
+              hsnCode: item.hsnCode,
+              unit: item.unit,
+              salePrice: item.salePrice,
+              purchasePrice: item.purchasePrice,
+              gstRate: item.gstRate,
+              mrp: item.mrp,
+              itemType: item.itemType,
+              currentStock: item.currentStock,
+              barcode: item.barcode || null,
+            })
+          }
+        }
       }
+
+      // From previous sales (extract item names from sale.items JSON)
+      if (salesRes.ok) {
+        const data = await salesRes.json()
+        for (const sale of (data.sales || [])) {
+          try {
+            const saleItems = JSON.parse(sale.items || '[]')
+            for (const sItem of saleItems) {
+              if (sItem.name && sItem.name.toLowerCase().includes(query.toLowerCase())) {
+                const key = sItem.name.toLowerCase()
+                if (!seenNames.has(key)) {
+                  seenNames.add(key)
+                  allItems.push({
+                    id: 'sale_' + key,
+                    name: sItem.name,
+                    category: sItem.category || null,
+                    hsnCode: sItem.hsn || null,
+                    unit: sItem.unit || 'PCS',
+                    salePrice: sItem.rate || 0,
+                    purchasePrice: 0,
+                    gstRate: 0,
+                    mrp: sItem.mrp || null,
+                    itemType: 'SERVICE',
+                    currentStock: 0,
+                    barcode: null,
+                  })
+                }
+              }
+            }
+          } catch {}
+        }
+      }
+
+      const items = allItems.slice(0, 10)
+      setSuggestions(items)
+      setShowDropdown(items.length > 0)
+      setHighlightedIndex(-1)
     } catch {
       setSuggestions([])
     }

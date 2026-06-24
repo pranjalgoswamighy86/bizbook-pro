@@ -256,26 +256,70 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ suggestions: [] })
       }
 
-      const parties = await db.party.findMany({
-        where: {
-          tenantId,
-          isDeleted: false,
-          name: { contains: query, mode: 'insensitive' },
-        },
-        select: {
-          id: true,
-          name: true,
-          phone: true,
-          email: true,
-          address: true,
-          gstNumber: true,
-          type: true,
-        },
-        orderBy: { name: 'asc' },
-        take: 20,
-      })
+      // v4.104: Search from Party table AND from Sale/Purchase/Debtor/Creditor names
+      const [parties, saleParties, purchaseParties, debtors, creditors] = await Promise.all([
+        db.party.findMany({
+          where: { tenantId, isDeleted: false, name: { contains: query, mode: 'insensitive' } },
+          select: { id: true, name: true, phone: true, email: true, address: true, gstNumber: true, type: true },
+          orderBy: { name: 'asc' },
+          take: 20,
+        }),
+        db.sale.findMany({
+          where: { tenantId, isDeleted: false, partyName: { contains: query, mode: 'insensitive' } },
+          select: { partyName: true, partyAddress: true, partyGst: true },
+          distinct: ['partyName'],
+          take: 10,
+        }),
+        db.purchase.findMany({
+          where: { tenantId, isDeleted: false, partyName: { contains: query, mode: 'insensitive' } },
+          select: { partyName: true, partyAddress: true, partyGst: true },
+          distinct: ['partyName'],
+          take: 10,
+        }),
+        db.debtor.findMany({
+          where: { tenantId, isDeleted: false, name: { contains: query, mode: 'insensitive' } },
+          select: { id: true, name: true, phone: true, email: true, address: true, gstNumber: true },
+          take: 10,
+        }),
+        db.creditor.findMany({
+          where: { tenantId, isDeleted: false, name: { contains: query, mode: 'insensitive' } },
+          select: { id: true, name: true, phone: true, email: true, address: true, gstNumber: true },
+          take: 10,
+        }),
+      ])
 
-      return NextResponse.json({ suggestions: parties })
+      // Merge all results, deduplicate by name
+      const seen = new Set<string>()
+      const allSuggestions: Array<{ id: string; name: string; phone: string | null; email: string | null; address: string | null; gstNumber: string | null; type: string }> = []
+
+      for (const p of parties) {
+        const key = p.name.toLowerCase()
+        if (!seen.has(key)) { seen.add(key); allSuggestions.push({ ...p, type: p.type || 'BOTH' }) }
+      }
+      for (const s of saleParties) {
+        const key = s.partyName.toLowerCase()
+        if (key !== 'cash' && !seen.has(key)) {
+          seen.add(key)
+          allSuggestions.push({ id: 'sale_' + s.partyName, name: s.partyName, phone: null, email: null, address: s.partyAddress, gstNumber: s.partyGst, type: 'CUSTOMER' })
+        }
+      }
+      for (const p of purchaseParties) {
+        const key = p.partyName.toLowerCase()
+        if (key !== 'cash' && !seen.has(key)) {
+          seen.add(key)
+          allSuggestions.push({ id: 'purchase_' + p.partyName, name: p.partyName, phone: null, email: null, address: p.partyAddress, gstNumber: p.partyGst, type: 'SUPPLIER' })
+        }
+      }
+      for (const d of debtors) {
+        const key = d.name.toLowerCase()
+        if (!seen.has(key)) { seen.add(key); allSuggestions.push({ ...d, type: 'CUSTOMER' }) }
+      }
+      for (const c of creditors) {
+        const key = c.name.toLowerCase()
+        if (!seen.has(key)) { seen.add(key); allSuggestions.push({ ...c, type: 'SUPPLIER' }) }
+      }
+
+      return NextResponse.json({ suggestions: allSuggestions.slice(0, 20) })
     }
 
     // ── GET-OR-CREATE ───────────────────────────────────────
