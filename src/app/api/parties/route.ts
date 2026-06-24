@@ -228,10 +228,10 @@ export async function POST(req: NextRequest) {
 
       if (search) {
         where.OR = [
-          { name: { contains: search } },
-          { phone: { contains: search } },
-          { email: { contains: search } },
-          { gstNumber: { contains: search } },
+          { name: { contains: search, mode: 'insensitive' } },
+          { phone: { contains: search, mode: 'insensitive' } },
+          { email: { contains: search, mode: 'insensitive' } },
+          { gstNumber: { contains: search, mode: 'insensitive' } },
         ]
       }
 
@@ -260,7 +260,7 @@ export async function POST(req: NextRequest) {
         where: {
           tenantId,
           isDeleted: false,
-          name: { contains: query },
+          name: { contains: query, mode: 'insensitive' },
         },
         select: {
           id: true,

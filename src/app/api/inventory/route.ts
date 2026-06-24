@@ -83,11 +83,12 @@ export async function POST(req: NextRequest) {
       const where: Record<string, unknown> = { tenantId, isDeleted: false }
       if (search) {
         where.OR = [
-          { name: { contains: search } },
-          { sku: { contains: search } },
-          { hsnCode: { contains: search } },
-          { brand: { contains: search } },
-          { category: { contains: search } },
+          { name: { contains: search, mode: 'insensitive' } },
+          { sku: { contains: search, mode: 'insensitive' } },
+          { hsnCode: { contains: search, mode: 'insensitive' } },
+          { barcode: { contains: search, mode: 'insensitive' } },
+          { brand: { contains: search, mode: 'insensitive' } },
+          { category: { contains: search, mode: 'insensitive' } },
         ]
       }
       if (category) where.category = category

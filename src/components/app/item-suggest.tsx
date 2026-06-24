@@ -93,7 +93,7 @@ export function ItemSuggest({
     if (debounceRef.current) clearTimeout(debounceRef.current)
     debounceRef.current = setTimeout(() => {
       searchItems(val)
-    }, 150)
+    }, 100)
   }
 
   const handleSelect = (item: ItemSuggestion) => {
