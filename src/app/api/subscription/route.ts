@@ -117,6 +117,7 @@ export async function POST(req: NextRequest) {
           planName: subscription.planName,
           remainingHours: Math.floor(subscription.remainingSeconds / 3600),
           remainingMinutes: Math.floor((subscription.remainingSeconds % 3600) / 60),
+          remainingSeconds: subscription.remainingSeconds,
           status: subscription.status,
           isFreeTier: subscription.isFreeTier,
           freeTierHours: subscription.freeTierHours,
@@ -126,6 +127,17 @@ export async function POST(req: NextRequest) {
           viewOnlyHours: subscription.viewOnlyHours,
           startDate: subscription.startDate.toISOString(),
           endDate: subscription.endDate?.toISOString() || null,
+          // v4.96: Extra ID info
+          extraJuniorAdminSlots: (subscription as any).extraJuniorAdminSlots || 0,
+          extraDataEntrySlots: (subscription as any).extraDataEntrySlots || 0,
+          maxUsersAllowed: (subscription as any).maxUsersAllowed || null,
+          mrp: subscription.mrp,
+          includedSlots: {
+            mainAdmin: 1,
+            juniorAdmin: 1,
+            dataEntry: 1,
+            viewOnly: 'Unlimited',
+          },
         },
         recharges: subscription.recharges.map(r => ({
           id: r.id,
@@ -250,7 +262,9 @@ export async function POST(req: NextRequest) {
       }
 
       const newRemaining = Math.max(0, subscription.remainingSeconds - secondsUsed)
-      const newStatus = newRemaining === 0 ? 'CONVERTED_TO_VIEW_ONLY' : subscription.status
+      const wasActive = subscription.status !== 'CONVERTED_TO_VIEW_ONLY'
+      const isNowExhausted = newRemaining === 0
+      const newStatus = isNowExhausted ? 'CONVERTED_TO_VIEW_ONLY' : subscription.status
 
       await db.subscription.update({
         where: { id: subscription.id },
@@ -270,11 +284,69 @@ export async function POST(req: NextRequest) {
         },
       })
 
+      // v4.96: Auto-convert all non-VIEW_ONLY users to VIEW_ONLY when hours exhausted
+      if (isNowExhausted && wasActive) {
+        console.log(`[SUBSCRIPTION] Hours exhausted for tenant ${tenantId}. Auto-converting all users to VIEW_ONLY.`)
+        await db.user.updateMany({
+          where: {
+            tenantId,
+            role: { not: 'VIEW_ONLY' },
+            isDeleted: false,
+          },
+          data: { role: 'VIEW_ONLY' },
+        })
+        // Audit log the auto-conversion
+        await db.auditLog.create({
+          data: {
+            tenantId,
+            userId: access.userId,
+            userName: access.user.name,
+            action: 'UPDATE',
+            entityType: 'Subscription',
+            entityId: subscription.id,
+            entityName: 'Auto-conversion to View Only',
+            changes: JSON.stringify({
+              reason: 'Hour quota exhausted — all users converted to VIEW_ONLY',
+              remainingSeconds: 0,
+              timestamp: new Date().toISOString(),
+            }),
+          },
+        })
+      }
+
+      // v4.96: Determine which notification threshold was crossed
+      const thresholds = [
+        { seconds: 7200, label: '2h' },
+        { seconds: 3600, label: '1h' },
+        { seconds: 1800, label: '30min' },
+        { seconds: 900, label: '15min' },
+        { seconds: 600, label: '10min' },
+        { seconds: 300, label: '5min' },
+        { seconds: 240, label: '4min' },
+        { seconds: 180, label: '3min' },
+        { seconds: 120, label: '2min' },
+        { seconds: 60, label: '1min' },
+      ]
+      let notification: { type: string; threshold: string; remainingSeconds: number; message: string } | null = null
+      for (const threshold of thresholds) {
+        if (subscription.remainingSeconds > threshold.seconds && newRemaining <= threshold.seconds) {
+          notification = {
+            type: 'LOW_HOURS_WARNING',
+            threshold: threshold.label,
+            remainingSeconds: newRemaining,
+            message: `Warning: ${threshold.label} remaining in your subscription. Users will be converted to View Only when hours run out.`,
+          }
+          break
+        }
+      }
+
       return NextResponse.json({
         success: true,
         remainingSeconds: newRemaining,
         remainingHours: Math.floor(newRemaining / 3600),
         status: newStatus,
+        autoConverted: isNowExhausted && wasActive,
+        notification,
       })
     }
 
@@ -459,6 +531,106 @@ export async function POST(req: NextRequest) {
           customPlanType: (updated as any).customPlanType || null,
         },
         message: 'Subscription modified by Super Admin (Rule 1.4)',
+      })
+    }
+
+    // ============================================================
+    // v4.96: ADD-EXTRA-ID — Purchase extra Junior Admin or Data Entry slot
+    // Cost: ₹149 per ID
+    // Recharge amount increases by 15% of MRP of current plan per extra ID
+    // ============================================================
+    if (action === 'add-extra-id') {
+      const access = await requireAuthAndRole(req, tenantId, ['MAIN_ADMIN'])
+      if (access instanceof NextResponse) return access
+
+      const { roleType } = body // 'JUNIOR_ADMIN' or 'DATA_ENTRY'
+      if (roleType !== 'JUNIOR_ADMIN' && roleType !== 'DATA_ENTRY') {
+        return NextResponse.json({ error: 'roleType must be JUNIOR_ADMIN or DATA_ENTRY' }, { status: 400 })
+      }
+
+      const subscription = await db.subscription.findUnique({ where: { tenantId: access.tenantId } })
+      if (!subscription) {
+        return NextResponse.json({ error: 'No subscription found' }, { status: 404 })
+      }
+
+      // Calculate cost: ₹149 per ID
+      const costPerId = 149
+
+      // Calculate recharge increase: 15% of MRP of current plan
+      const rechargeIncrease = Math.round(subscription.mrp * 0.15)
+
+      // Update subscription with extra slot
+      const fieldToUpdate = roleType === 'JUNIOR_ADMIN' ? 'extraJuniorAdminSlots' : 'extraDataEntrySlots'
+      const currentSlots = (subscription as any)[fieldToUpdate] || 0
+
+      const updated = await db.subscription.update({
+        where: { id: subscription.id },
+        data: {
+          [fieldToUpdate]: currentSlots + 1,
+        },
+      })
+
+      // Audit log
+      await db.auditLog.create({
+        data: {
+          tenantId: access.tenantId,
+          userId: access.userId,
+          userName: access.user.name,
+          action: 'UPDATE',
+          entityType: 'Subscription',
+          entityId: subscription.id,
+          entityName: `Extra ${roleType} ID purchased`,
+          changes: JSON.stringify({
+            roleType,
+            costPerId,
+            rechargeIncrease,
+            newTotalSlots: currentSlots + 1,
+            timestamp: new Date().toISOString(),
+          }),
+        },
+      })
+
+      return NextResponse.json({
+        success: true,
+        message: `Extra ${roleType === 'JUNIOR_ADMIN' ? 'Junior Admin' : 'Data Entry'} ID added successfully`,
+        details: {
+          costPerId,
+          rechargeIncrease,
+          totalJuniorAdminSlots: (updated as any).extraJuniorAdminSlots || 0,
+          totalDataEntrySlots: (updated as any).extraDataEntrySlots || 0,
+          maxUsersAllowed: (updated as any).maxUsersAllowed || null,
+        },
+      })
+    }
+
+    // ============================================================
+    // v4.96: GET-EXTRA-ID-INFO — Get pricing info for extra IDs
+    // ============================================================
+    if (action === 'get-extra-id-info') {
+      const access = await requireAuthAndTenant(req, tenantId)
+      if (access instanceof NextResponse) return access
+
+      const subscription = await db.subscription.findUnique({ where: { tenantId: access.tenantId } })
+      if (!subscription) {
+        return NextResponse.json({ error: 'No subscription found' }, { status: 404 })
+      }
+
+      const costPerId = 149
+      const rechargeIncrease = Math.round(subscription.mrp * 0.15)
+
+      return NextResponse.json({
+        costPerId,
+        rechargeIncrease,
+        currentPlanMRP: subscription.mrp,
+        extraJuniorAdminSlots: (subscription as any).extraJuniorAdminSlots || 0,
+        extraDataEntrySlots: (subscription as any).extraDataEntrySlots || 0,
+        includedSlots: {
+          mainAdmin: 1,
+          juniorAdmin: 1,
+          dataEntry: 1,
+          viewOnly: 'Unlimited',
+        },
+        pricingNote: `Each extra Junior Admin or Data Entry ID costs ₹${costPerId}. Recharge amount increases by 15% of MRP (₹${rechargeIncrease}) for each extra ID.`,
       })
     }
 
