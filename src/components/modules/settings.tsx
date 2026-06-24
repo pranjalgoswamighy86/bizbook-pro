@@ -45,7 +45,7 @@ export function SettingsPage() {
   const [activityPage, setActivityPage] = useState(1)
   const [activityTotal, setActivityTotal] = useState(0)
   const activityPageSize = 25
-  const [bizForm, setBizForm] = useState({ name: '', address: '', phone: '', email: '', gstNumber: '', panNumber: '' })
+  const [bizForm, setBizForm] = useState({ name: '', address: '', phone: '', email: '', gstNumber: '', panNumber: '', upiId: '' })
 
   // --- About Tab State ---
   const [dbStats, setDbStats] = useState<Record<string, number>>({})
@@ -175,7 +175,7 @@ export function SettingsPage() {
   useEffect(() => {
     if (!tenant) return
     loadUsers()
-    setBizForm({ name: tenant.name, address: tenant.address || '', phone: tenant.phone || '', email: tenant.email || '', gstNumber: tenant.gstNumber || '', panNumber: tenant.panNumber || '' })
+    setBizForm({ name: tenant.name, address: tenant.address || '', phone: tenant.phone || '', email: tenant.email || '', gstNumber: tenant.gstNumber || '', panNumber: tenant.panNumber || '', upiId: (tenant as any).upiId || '' })
     loadAboutData()
   }, [tenant, loadUsers, loadAboutData])
 
@@ -1132,6 +1132,7 @@ export function SettingsPage() {
             <div className="grid grid-cols-2 gap-3">
               <div><Label>GST Number</Label><Input value={bizForm.gstNumber} onChange={(e) => setBizForm({ ...bizForm, gstNumber: e.target.value })} /></div>
               <div><Label>PAN Number</Label><Input value={bizForm.panNumber} onChange={(e) => setBizForm({ ...bizForm, panNumber: e.target.value })} /></div>
+              <div><Label>UPI ID (for invoice QR)</Label><Input value={bizForm.upiId} onChange={(e) => setBizForm({ ...bizForm, upiId: e.target.value })} placeholder="e.g. business@okhdfcbank" /></div>
             </div>
           </div>
           <DialogFooter><Button variant="outline" onClick={() => setShowEditBiz(false)}>Cancel</Button><Button className="bg-emerald-600 hover:bg-emerald-700" onClick={handleUpdateBiz}>Save</Button></DialogFooter>

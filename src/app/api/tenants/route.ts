@@ -51,7 +51,7 @@ export async function POST(req: NextRequest) {
 
       // Whitelist allowed fields — don't let callers change plan/planExpires
       // via this endpoint (use update-subscription for that, which is also admin-only)
-      const allowedFields = ['name', 'address', 'phone', 'email', 'gstNumber', 'panNumber', 'currency']
+      const allowedFields = ['name', 'address', 'phone', 'email', 'gstNumber', 'panNumber', 'currency', 'upiId']
       const cleanData: Record<string, unknown> = {}
       for (const field of allowedFields) {
         if (field in data) cleanData[field] = data[field]
@@ -62,7 +62,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'Tenant not found or has been deleted' }, { status: 404 })
       }
 
-      const updated = await db.tenant.update({ where: { id }, data: cleanData })
+      const updated = await db.tenant.update({ where: { id }, data: cleanData as any })
 
       await writeAuditLog({
         tenantId: access.tenantId,
