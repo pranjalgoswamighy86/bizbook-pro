@@ -63,6 +63,7 @@ export function SubscriptionPage() {
   const [rechargePlan, setRechargePlan] = useState<Plan | null>(null)
   const [recharging, setRecharging] = useState(false)
   const [upiPlan, setUpiPlan] = useState<Plan | null>(null)
+  const [extraIdPurchase, setExtraIdPurchase] = useState<{ roleType: 'JUNIOR_ADMIN' | 'DATA_ENTRY'; cost: number } | null>(null)
 
   const load = async () => {
     if (!tenant) return
@@ -432,20 +433,7 @@ export function SubscriptionPage() {
             <Button
               variant="outline"
               className="h-auto py-4 border-blue-300 hover:bg-blue-50 dark:hover:bg-blue-950"
-              onClick={async () => {
-                const res = await authFetch('/api/subscription', {
-                  method: 'POST', headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ action: 'add-extra-id', tenantId: tenant?.id, roleType: 'JUNIOR_ADMIN' }),
-                })
-                if (res.ok) {
-                  const data = await res.json()
-                  toast({ title: 'Extra Junior Admin ID Added', description: `Cost: ₹149. Recharge increase: ₹${data.details?.rechargeIncrease || 0}. Total Junior Admin slots: ${data.details?.totalJuniorAdminSlots || 1}`, duration: 6000 })
-                  load()
-                } else {
-                  const err = await res.json().catch(() => ({}))
-                  toast({ title: 'Error', description: err.error || 'Failed to add extra ID', variant: 'destructive' })
-                }
-              }}
+              onClick={() => setExtraIdPurchase({ roleType: 'JUNIOR_ADMIN', cost: 149 })}
             >
               <div className="flex flex-col items-center gap-1">
                 <UserPlus className="h-6 w-6 text-blue-600" />
@@ -456,20 +444,7 @@ export function SubscriptionPage() {
             <Button
               variant="outline"
               className="h-auto py-4 border-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950"
-              onClick={async () => {
-                const res = await authFetch('/api/subscription', {
-                  method: 'POST', headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ action: 'add-extra-id', tenantId: tenant?.id, roleType: 'DATA_ENTRY' }),
-                })
-                if (res.ok) {
-                  const data = await res.json()
-                  toast({ title: 'Extra Data Entry ID Added', description: `Cost: ₹149. Recharge increase: ₹${data.details?.rechargeIncrease || 0}. Total Data Entry slots: ${data.details?.totalDataEntrySlots || 1}`, duration: 6000 })
-                  load()
-                } else {
-                  const err = await res.json().catch(() => ({}))
-                  toast({ title: 'Error', description: err.error || 'Failed to add extra ID', variant: 'destructive' })
-                }
-              }}
+              onClick={() => setExtraIdPurchase({ roleType: 'DATA_ENTRY', cost: 149 })}
             >
               <div className="flex flex-col items-center gap-1">
                 <UserPlus className="h-6 w-6 text-amber-600" />
@@ -544,6 +519,136 @@ export function SubscriptionPage() {
           planName={upiPlan.name}
         />
       )}
+
+      {/* v4.98: Extra ID Payment Dialog */}
+      <Dialog open={!!extraIdPurchase} onOpenChange={(open) => !open && setExtraIdPurchase(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <UserPlus className="h-5 w-5 text-violet-600" />
+              Add Extra {extraIdPurchase?.roleType === 'JUNIOR_ADMIN' ? 'Junior Admin' : 'Data Entry'} ID
+            </DialogTitle>
+          </DialogHeader>
+          {extraIdPurchase && (
+            <div className="space-y-4">
+              {/* Pricing summary */}
+              <div className="bg-violet-50 dark:bg-violet-950/20 border border-violet-200 dark:border-violet-900 rounded-lg p-4 space-y-2">
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Extra ID Type:</span>
+                  <span className="font-semibold">{extraIdPurchase.roleType === 'JUNIOR_ADMIN' ? 'Junior Admin' : 'Data Entry'}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Cost per ID:</span>
+                  <span className="font-semibold">₹{extraIdPurchase.cost}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Recharge Increase:</span>
+                  <span className="font-semibold">15% of plan MRP</span>
+                </div>
+                <div className="border-t border-violet-200 dark:border-violet-800 pt-2 flex justify-between">
+                  <span className="font-semibold">Total to Pay:</span>
+                  <span className="font-bold text-violet-700 dark:text-violet-400 text-lg">₹{extraIdPurchase.cost}</span>
+                </div>
+              </div>
+
+              {/* Payment instructions */}
+              <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900 rounded-lg p-3">
+                <p className="text-xs text-amber-800 dark:text-amber-300">
+                  <strong>How to pay:</strong>
+                  <br />1. Pay ₹{extraIdPurchase.cost} via UPI to the QR code below
+                  <br />2. Take a screenshot of the payment success
+                  <br />3. Upload the screenshot + enter UTR number
+                  <br />4. Your extra ID will be activated after verification
+                </p>
+              </div>
+
+              {/* UPI Payment QR */}
+              <div className="text-center">
+                <div className="bg-white p-4 rounded-lg inline-block border-2 border-violet-300">
+                  <img
+                    src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=upi://pay?pa=pranjalgoswamighy86@okhdfcbank&pn=Tahigo%20International&am=${extraIdPurchase.cost}&cu=INR&tn=Extra%20${extraIdPurchase.roleType}%20ID`}
+                    alt="UPI QR Code"
+                    className="w-48 h-48 mx-auto"
+                  />
+                  <p className="text-xs text-muted-foreground mt-2">Scan to pay ₹{extraIdPurchase.cost}</p>
+                  <p className="text-xs font-mono text-muted-foreground">pranjalgoswamighy86@okhdfcbank</p>
+                </div>
+              </div>
+
+              {/* UTR Input + Screenshot Upload */}
+              <div className="space-y-3">
+                <div>
+                  <label className="text-sm font-medium">UTR / Transaction ID *</label>
+                  <input
+                    type="text"
+                    className="w-full mt-1 px-3 py-2 border rounded-md text-sm"
+                    placeholder="Enter 12-digit UTR number"
+                    id="extra-id-utr"
+                  />
+                </div>
+                <div>
+                  <label className="text-sm font-medium">Payment Screenshot *</label>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="w-full mt-1 text-sm"
+                    id="extra-id-screenshot"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">JPG/PNG. Max 1MB. Show UTR + amount + date.</p>
+                </div>
+              </div>
+            </div>
+          )}
+          <DialogFooter className="flex gap-2">
+            <Button variant="outline" onClick={() => setExtraIdPurchase(null)}>Cancel</Button>
+            <Button
+              className="bg-violet-600 hover:bg-violet-700"
+              onClick={async () => {
+                const utr = (document.getElementById('extra-id-utr') as HTMLInputElement)?.value?.trim()
+                const fileInput = document.getElementById('extra-id-screenshot') as HTMLInputElement
+                const file = fileInput?.files?.[0]
+
+                if (!utr) {
+                  toast({ title: 'UTR Required', description: 'Please enter the UTR/Transaction ID from your payment.', variant: 'destructive' })
+                  return
+                }
+                if (!file) {
+                  toast({ title: 'Screenshot Required', description: 'Please upload the payment success screenshot.', variant: 'destructive' })
+                  return
+                }
+
+                // Convert file to base64
+                const reader = new FileReader()
+                reader.onload = async () => {
+                  const base64 = reader.result as string
+                  const res = await authFetch('/api/subscription', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      action: 'add-extra-id',
+                      tenantId: tenant?.id,
+                      roleType: extraIdPurchase?.roleType,
+                      utr,
+                      screenshot: base64,
+                    }),
+                  })
+                  if (res.ok) {
+                    const data = await res.json()
+                    toast({ title: 'Extra ID Added!', description: `${extraIdPurchase?.roleType === 'JUNIOR_ADMIN' ? 'Junior Admin' : 'Data Entry'} ID added. Cost: ₹149. Recharge increase: ₹${data.details?.rechargeIncrease || 0}.`, duration: 6000 })
+                    setExtraIdPurchase(null)
+                    load()
+                  } else {
+                    const err = await res.json().catch(() => ({}))
+                    toast({ title: 'Error', description: err.error || 'Failed to add extra ID', variant: 'destructive' })
+                  }
+                }
+                reader.readAsDataURL(file)
+              }}
+            >
+              Submit Payment & Activate ID
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
