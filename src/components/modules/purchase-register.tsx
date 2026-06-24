@@ -19,6 +19,7 @@ import { isInterStateSupply } from '@/lib/gst-utils'
 import { Plus, Pencil, Trash2, X, ChevronDown, Eye, Loader2, Sparkles } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import { PartySuggest } from '@/components/app/party-suggest'
+import { ItemSuggest } from '@/components/app/item-suggest'
 import { triggerBackupDownload } from '@/hooks/use-excel-backup'
 import { authFetch } from '@/lib/auth-fetch'
 
@@ -481,8 +482,26 @@ export function PurchaseRegister() {
                       <div className="space-y-3 mb-3">
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                           <div className="sm:col-span-2">
-                            <Label className="text-sm text-muted-foreground block mb-1.5">Item Name</Label>
-                            <Input placeholder="Type item name..." className="h-10 text-base" value={item.name} onChange={(e) => updateItem(idx, 'name', e.target.value)} />
+                            <ItemSuggest
+                              tenantId={tenant?.id}
+                              value={item.name}
+                              onChange={(val) => updateItem(idx, 'name', val)}
+                              onItemSelect={(inv) => {
+                                updateItem(idx, 'name', inv.name)
+                                updateItem(idx, 'category', inv.category || '')
+                                updateItem(idx, 'hsn', inv.hsnCode || '')
+                                updateItem(idx, 'unit', inv.unit)
+                                updateItem(idx, 'rate', inv.purchasePrice)
+                                updateItem(idx, 'mrp', inv.mrp || 0)
+                                if (inv.gstRate > 0 && item.taxes[0]) {
+                                  updateItemTax(idx, 0, 'name', 'GST')
+                                  updateItemTax(idx, 0, 'percent', inv.gstRate)
+                                }
+                              }}
+                              label="Item Name"
+                              placeholder="Type to search inventory..."
+                              priceType="purchasePrice"
+                            />
                           </div>
                           <div>
                             <Label className="text-sm text-muted-foreground block mb-1.5">Unit</Label>

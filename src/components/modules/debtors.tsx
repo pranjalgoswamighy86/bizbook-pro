@@ -13,6 +13,7 @@ import { formatCurrency } from '@/lib/formulas'
 import { Plus, Pencil, Trash2, UserCheck } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import { authFetch } from '@/lib/auth-fetch'
+import { PartySuggest } from '@/components/app/party-suggest'
 
 interface Debtor {
   id: string; name: string; phone: string | null; email: string | null; address: string | null
@@ -107,7 +108,14 @@ export function Debtors() {
           <DialogContent>
             <DialogHeader><DialogTitle>{editingId ? 'Edit Debtor' : 'Add Debtor'}</DialogTitle></DialogHeader>
             <div className="space-y-3">
-              <div><Label>Name</Label><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
+              <PartySuggest
+                  tenantId={tenant?.id}
+                  value={form.name}
+                  onChange={(val) => setForm({ ...form, name: val })}
+                  onPartySelect={(party) => setForm({ ...form, name: party.name })}
+                  label="Name"
+                  placeholder="Type name..."
+                />
               <div className="grid grid-cols-2 gap-3">
                 <div><Label>Phone</Label><Input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} /></div>
                 <div><Label>Email</Label><Input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></div>

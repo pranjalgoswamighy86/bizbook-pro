@@ -14,6 +14,7 @@ import { formatCurrency, formatDate, getDateFilterRange } from '@/lib/formulas'
 import { Plus, Pencil, Trash2, CreditCard } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import { authFetch } from '@/lib/auth-fetch'
+import { PartySuggest } from '@/components/app/party-suggest'
 
 interface Payment {
   id: string; date: string; partyName: string; amount: number; paymentMode: string
@@ -101,7 +102,14 @@ export function Payments() {
                 <div><Label>Date</Label><Input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} /></div>
                 <div><Label>Payment Mode</Label><Select value={form.paymentMode} onValueChange={(v) => setForm({ ...form, paymentMode: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="CASH">Cash</SelectItem><SelectItem value="BANK">Bank</SelectItem><SelectItem value="UPI">UPI</SelectItem><SelectItem value="CHEQUE">Cheque</SelectItem></SelectContent></Select></div>
               </div>
-              <div><Label>Party Name</Label><Input value={form.partyName} onChange={(e) => setForm({ ...form, partyName: e.target.value })} /></div>
+              <PartySuggest
+                  tenantId={tenant?.id}
+                  value={form.partyName}
+                  onChange={(val) => setForm({ ...form, partyName: val })}
+                  onPartySelect={(party) => setForm({ ...form, partyName: party.name })}
+                  label="Party Name"
+                  placeholder="Type party name..."
+                />
               <div><Label>Amount</Label><Input type="number" value={form.amount || ''} onChange={(e) => setForm({ ...form, amount: Number(e.target.value) })} /></div>
               <div><Label>Purpose</Label><Input value={form.purpose} onChange={(e) => setForm({ ...form, purpose: e.target.value })} /></div>
               <div><Label>Reference</Label><Input value={form.reference} onChange={(e) => setForm({ ...form, reference: e.target.value })} /></div>

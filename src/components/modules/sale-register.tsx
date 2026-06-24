@@ -19,6 +19,7 @@ import { isInterStateSupply } from '@/lib/gst-utils'
 import { Plus, Pencil, Trash2, Eye, ChevronDown, X, Loader2, CheckCircle2, Printer, Package, FileCheck, Sparkles } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import { PartySuggest } from '@/components/app/party-suggest'
+import { ItemSuggest } from '@/components/app/item-suggest'
 import { triggerBackupDownload } from '@/hooks/use-excel-backup'
 import { authFetch } from '@/lib/auth-fetch'
 
@@ -866,11 +867,26 @@ export function SaleRegister() {
                           )}
                         </div>
                         <div>
-                          <Label className="text-xs text-muted-foreground">Item Name</Label>
-                          <div className="flex gap-1">
-                            <Input placeholder="Item name" value={item.name} onChange={(e) => updateItem(idx, 'name', e.target.value)} />
-                            <BarcodeScanner onScan={(code) => updateItem(idx, 'name', code)} />
-                          </div>
+                          <ItemSuggest
+                            tenantId={tenant?.id}
+                            value={item.name}
+                            onChange={(val) => updateItem(idx, 'name', val)}
+                            onItemSelect={(inv) => {
+                              updateItem(idx, 'name', inv.name)
+                              updateItem(idx, 'category', inv.category || '')
+                              updateItem(idx, 'hsn', inv.hsnCode || '')
+                              updateItem(idx, 'unit', inv.unit)
+                              updateItem(idx, 'rate', inv.salePrice)
+                              updateItem(idx, 'mrp', inv.mrp || 0)
+                              if (inv.gstRate > 0 && item.taxes[0]) {
+                                updateItemTax(idx, 0, 'name', 'GST')
+                                updateItemTax(idx, 0, 'percent', inv.gstRate)
+                              }
+                            }}
+                            label="Item Name"
+                            placeholder="Type to search inventory..."
+                            priceType="salePrice"
+                          />
                           {/* v4.66: Hide BOM badge for SERVICE items; show for FINISHED_PRODUCT */}
                           {item.saleItemType !== 'SERVICE' && (item.itemType === 'FINISHED_PRODUCT' || (item.name && finishedProductNames.includes(item.name.toLowerCase()))) && (
                             <span className="inline-flex items-center gap-1 mt-1 text-xs text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">
