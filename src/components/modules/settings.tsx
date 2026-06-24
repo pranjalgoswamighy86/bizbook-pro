@@ -24,7 +24,7 @@ type PasswordResetStep = 'idle' | 'request' | 'verify' | 'done'
 type PasswordChangeStep = 'idle' | 'form' | 'done'
 
 export function SettingsPage() {
-  const { tenant, user } = useAppStore()
+  const { tenant, user, setTenant } = useAppStore()
   const { toast } = useToast()
   const [users, setUsers] = useState<UserRecord[]>([])
   const [usersLoading, setUsersLoading] = useState(false)
@@ -207,8 +207,19 @@ export function SettingsPage() {
       body: JSON.stringify({ action: 'update', id: tenant.id, data: bizForm }),
     })
     if (res.ok) {
-      toast({ title: 'Business details updated' })
+      const data = await res.json()
+      // v4.103: Update the tenant in the store so UPI ID persists without refresh
+      if (data.tenant) {
+        setTenant(data.tenant)
+      } else {
+        // Fallback: update from bizForm
+        setTenant({ ...tenant, ...bizForm })
+      }
+      toast({ title: 'Business details updated', description: 'UPI ID and other changes saved.' })
       setShowEditBiz(false)
+    } else {
+      const err = await res.json().catch(() => ({}))
+      toast({ title: 'Error', description: err.error || 'Failed to update', variant: 'destructive' })
     }
   }
 

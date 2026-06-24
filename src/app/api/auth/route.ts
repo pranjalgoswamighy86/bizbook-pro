@@ -270,7 +270,7 @@ export async function POST(req: NextRequest) {
 
       const companies = await db.userTenant.findMany({
         where: { userId: user.id },
-        include: { tenant: { select: { id: true, name: true, address: true, phone: true, email: true, gstNumber: true, panNumber: true, plan: true, currency: true } } },
+        include: { tenant: { select: { id: true, name: true, address: true, phone: true, email: true, gstNumber: true, panNumber: true, upiId: true, plan: true, currency: true } } },
         orderBy: { createdAt: 'asc' },
       })
 
@@ -278,7 +278,7 @@ export async function POST(req: NextRequest) {
       const token = createSessionToken(user.id, user.email)
       const res = NextResponse.json({
         user: { id: user.id, email: user.email, name: user.name, role: user.role, tenantId: user.tenantId },
-        tenant: { id: tenant.id, name: tenant.name, address: tenant.address, phone: tenant.phone, email: tenant.email, gstNumber: tenant.gstNumber, plan: tenant.plan, currency: tenant.currency },
+        tenant: { id: tenant.id, name: tenant.name, address: tenant.address, phone: tenant.phone, email: tenant.email, gstNumber: tenant.gstNumber, panNumber: tenant.panNumber, upiId: (tenant as any).upiId, plan: tenant.plan, currency: tenant.currency },
         companies: companies.map(c => ({ tenantId: c.tenantId, name: c.tenant.name, role: c.role, isOwner: c.isOwner, tenant: c.tenant })),
         sessionToken: token,  // for Bearer header fallback when cookies are blocked
       })
@@ -352,7 +352,7 @@ export async function POST(req: NextRequest) {
       const token = createSessionToken(user.id, user.email)
       const res = NextResponse.json({
         user: { id: user.id, email: user.email, name: user.name, role: user.role, tenantId: user.tenantId },
-        tenant: { id: tenant.id, name: tenant.name, address: tenant.address, phone: tenant.phone, email: tenant.email, gstNumber: tenant.gstNumber, plan: tenant.plan, currency: tenant.currency },
+        tenant: { id: tenant.id, name: tenant.name, address: tenant.address, phone: tenant.phone, email: tenant.email, gstNumber: tenant.gstNumber, panNumber: tenant.panNumber, upiId: tenant.upiId, plan: tenant.plan, currency: tenant.currency },
         sessionToken: token,  // for Bearer header fallback when cookies are blocked
       })
       setSessionCookie(res, token)
@@ -394,7 +394,7 @@ export async function POST(req: NextRequest) {
 
       const companies = await db.userTenant.findMany({
         where: { userId: user.id },
-        include: { tenant: { select: { id: true, name: true, address: true, phone: true, email: true, gstNumber: true, panNumber: true, plan: true, planExpires: true, currency: true } } },
+        include: { tenant: { select: { id: true, name: true, address: true, phone: true, email: true, gstNumber: true, panNumber: true, upiId: true, plan: true, planExpires: true, currency: true } } },
         orderBy: { createdAt: 'asc' },
       })
 
@@ -438,7 +438,7 @@ export async function POST(req: NextRequest) {
       const token = createSessionToken(user.id, user.email)
       const res = NextResponse.json({
         user: { id: user.id, email: user.email, name: user.name, role: user.role, tenantId: user.tenantId },
-        tenant: { id: defaultTenant.id, name: defaultTenant.name, address: defaultTenant.address, phone: defaultTenant.phone, email: defaultTenant.email, gstNumber: defaultTenant.gstNumber, panNumber: defaultTenant.panNumber, plan: defaultTenant.plan, planExpires: defaultTenant.planExpires?.toISOString(), currency: defaultTenant.currency },
+        tenant: { id: defaultTenant.id, name: defaultTenant.name, address: defaultTenant.address, phone: defaultTenant.phone, email: defaultTenant.email, gstNumber: defaultTenant.gstNumber, panNumber: defaultTenant.panNumber, upiId: defaultTenant.upiId, plan: defaultTenant.plan, planExpires: defaultTenant.planExpires?.toISOString(), currency: defaultTenant.currency },
         companies: companies.map(c => ({
           tenantId: c.tenantId,
           name: c.tenant.name,
@@ -521,7 +521,7 @@ export async function POST(req: NextRequest) {
       // Now check workspace selection (Rule 2.2) — same as login flow
       const companies = await db.userTenant.findMany({
         where: { userId: user.id },
-        include: { tenant: { select: { id: true, name: true, address: true, phone: true, email: true, gstNumber: true, panNumber: true, plan: true, planExpires: true, currency: true } } },
+        include: { tenant: { select: { id: true, name: true, address: true, phone: true, email: true, gstNumber: true, panNumber: true, upiId: true, plan: true, planExpires: true, currency: true } } },
         orderBy: { createdAt: 'asc' },
       })
 
@@ -544,7 +544,7 @@ export async function POST(req: NextRequest) {
       const defaultTenant = user.tenant
       const res = NextResponse.json({
         user: { id: user.id, email: user.email, name: user.name, role: user.role, tenantId: user.tenantId },
-        tenant: { id: defaultTenant.id, name: defaultTenant.name, address: defaultTenant.address, phone: defaultTenant.phone, email: defaultTenant.email, gstNumber: defaultTenant.gstNumber, panNumber: defaultTenant.panNumber, plan: defaultTenant.plan, planExpires: defaultTenant.planExpires?.toISOString(), currency: defaultTenant.currency },
+        tenant: { id: defaultTenant.id, name: defaultTenant.name, address: defaultTenant.address, phone: defaultTenant.phone, email: defaultTenant.email, gstNumber: defaultTenant.gstNumber, panNumber: defaultTenant.panNumber, upiId: defaultTenant.upiId, plan: defaultTenant.plan, planExpires: defaultTenant.planExpires?.toISOString(), currency: defaultTenant.currency },
         companies: companies.map(c => ({
           tenantId: c.tenantId,
           name: c.tenant.name,
@@ -573,7 +573,7 @@ export async function POST(req: NextRequest) {
       const userTenant = await db.userTenant.findUnique({
         where: { userId_tenantId: { userId, tenantId } },
         include: {
-          tenant: { select: { id: true, name: true, address: true, phone: true, email: true, gstNumber: true, panNumber: true, plan: true, planExpires: true, currency: true } },
+          tenant: { select: { id: true, name: true, address: true, phone: true, email: true, gstNumber: true, panNumber: true, upiId: true, plan: true, planExpires: true, currency: true } },
           user: { select: { id: true, email: true, name: true, role: true } },
         },
       })
@@ -586,7 +586,7 @@ export async function POST(req: NextRequest) {
       const token = createSessionToken(userTenant.user.id, userTenant.user.email)
       const companies = await db.userTenant.findMany({
         where: { userId },
-        include: { tenant: { select: { id: true, name: true, address: true, phone: true, email: true, gstNumber: true, panNumber: true, plan: true, planExpires: true, currency: true } } },
+        include: { tenant: { select: { id: true, name: true, address: true, phone: true, email: true, gstNumber: true, panNumber: true, upiId: true, plan: true, planExpires: true, currency: true } } },
         orderBy: { createdAt: 'asc' },
       })
 
@@ -607,6 +607,7 @@ export async function POST(req: NextRequest) {
           email: userTenant.tenant.email,
           gstNumber: userTenant.tenant.gstNumber,
           panNumber: userTenant.tenant.panNumber,
+          upiId: userTenant.tenant.upiId,
           plan: userTenant.tenant.plan,
           planExpires: userTenant.tenant.planExpires?.toISOString(),
           currency: userTenant.tenant.currency,
@@ -649,7 +650,7 @@ export async function POST(req: NextRequest) {
 
       const companies = await db.userTenant.findMany({
         where: { userId: auth.userId },
-        include: { tenant: { select: { id: true, name: true, address: true, phone: true, email: true, gstNumber: true, panNumber: true, plan: true, currency: true } } },
+        include: { tenant: { select: { id: true, name: true, address: true, phone: true, email: true, gstNumber: true, panNumber: true, upiId: true, plan: true, currency: true } } },
         orderBy: { createdAt: 'asc' },
       })
 
@@ -720,13 +721,13 @@ export async function POST(req: NextRequest) {
 
       const companies = await db.userTenant.findMany({
         where: { userId: auth.userId },
-        include: { tenant: { select: { id: true, name: true, address: true, phone: true, email: true, gstNumber: true, panNumber: true, plan: true, currency: true } } },
+        include: { tenant: { select: { id: true, name: true, address: true, phone: true, email: true, gstNumber: true, panNumber: true, upiId: true, plan: true, currency: true } } },
         orderBy: { createdAt: 'asc' },
       })
 
       return NextResponse.json({
         success: true,
-        tenant: { id: tenant.id, name: tenant.name, address: tenant.address, phone: tenant.phone, email: tenant.email, gstNumber: tenant.gstNumber, plan: tenant.plan, currency: tenant.currency },
+        tenant: { id: tenant.id, name: tenant.name, address: tenant.address, phone: tenant.phone, email: tenant.email, gstNumber: tenant.gstNumber, panNumber: tenant.panNumber, upiId: tenant.upiId, plan: tenant.plan, currency: tenant.currency },
         companies: companies.map(c => ({ tenantId: c.tenantId, name: c.tenant.name, role: c.role, isOwner: c.isOwner, tenant: c.tenant })),
       })
     }
@@ -760,7 +761,7 @@ export async function POST(req: NextRequest) {
 
       return NextResponse.json({
         success: true,
-        tenant: { id: userTenant.tenant.id, name: userTenant.tenant.name, address: userTenant.tenant.address, phone: userTenant.tenant.phone, email: userTenant.tenant.email, gstNumber: userTenant.tenant.gstNumber, panNumber: userTenant.tenant.panNumber, plan: userTenant.tenant.plan, planExpires: userTenant.tenant.planExpires?.toISOString(), currency: userTenant.tenant.currency },
+        tenant: { id: userTenant.tenant.id, name: userTenant.tenant.name, address: userTenant.tenant.address, phone: userTenant.tenant.phone, email: userTenant.tenant.email, gstNumber: userTenant.tenant.gstNumber, panNumber: userTenant.tenant.panNumber, upiId: userTenant.tenant.upiId, plan: userTenant.tenant.plan, planExpires: userTenant.tenant.planExpires?.toISOString(), currency: userTenant.tenant.currency },
       })
     }
 
@@ -775,7 +776,7 @@ export async function POST(req: NextRequest) {
 
       const companies = await db.userTenant.findMany({
         where: { userId: auth.userId, tenant: { isDeleted: false } },
-        include: { tenant: { select: { id: true, name: true, address: true, phone: true, email: true, gstNumber: true, panNumber: true, plan: true, currency: true } } },
+        include: { tenant: { select: { id: true, name: true, address: true, phone: true, email: true, gstNumber: true, panNumber: true, upiId: true, plan: true, currency: true } } },
         orderBy: { createdAt: 'asc' },
       })
 
