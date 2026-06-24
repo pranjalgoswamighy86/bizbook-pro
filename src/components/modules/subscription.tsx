@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Progress } from '@/components/ui/progress'
 import { UPICheckoutModal } from '@/components/app/upi-checkout-modal'
-import { Clock, Zap, Crown, Check, AlertCircle, TrendingUp, Users, Sparkles, Loader2, Receipt } from 'lucide-react'
+import { Clock, Zap, Crown, Check, AlertCircle, TrendingUp, Users, Sparkles, Loader2, Receipt, UserPlus, Shield } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 
 interface Plan {
@@ -372,6 +372,114 @@ export function SubscriptionPage() {
           </CardContent>
         </Card>
       )}
+
+      {/* v4.97: Extra IDs Section */}
+      <Card className="border-violet-200 dark:border-violet-900">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-lg">
+            <UserPlus className="h-5 w-5 text-violet-600" />
+            Extra User IDs
+          </CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Each plan includes 1 Main Admin, 1 Junior Admin, 1 Data Entry, and unlimited View Only users.
+            Need more? Add extra IDs below.
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {/* Current slots */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="bg-muted/50 p-3 rounded-lg text-center">
+              <Shield className="h-5 w-5 mx-auto text-emerald-600 mb-1" />
+              <p className="text-xs text-muted-foreground">Main Admin</p>
+              <p className="text-lg font-bold">1</p>
+              <p className="text-[10px] text-muted-foreground">Included</p>
+            </div>
+            <div className="bg-muted/50 p-3 rounded-lg text-center">
+              <Users className="h-5 w-5 mx-auto text-blue-600 mb-1" />
+              <p className="text-xs text-muted-foreground">Junior Admin</p>
+              <p className="text-lg font-bold">1 + {(sub as any).extraJuniorAdminSlots || 0}</p>
+              <p className="text-[10px] text-muted-foreground">{(sub as any).extraJuniorAdminSlots || 0} extra</p>
+            </div>
+            <div className="bg-muted/50 p-3 rounded-lg text-center">
+              <Users className="h-5 w-5 mx-auto text-amber-600 mb-1" />
+              <p className="text-xs text-muted-foreground">Data Entry</p>
+              <p className="text-lg font-bold">1 + {(sub as any).extraDataEntrySlots || 0}</p>
+              <p className="text-[10px] text-muted-foreground">{(sub as any).extraDataEntrySlots || 0} extra</p>
+            </div>
+            <div className="bg-muted/50 p-3 rounded-lg text-center">
+              <Users className="h-5 w-5 mx-auto text-slate-500 mb-1" />
+              <p className="text-xs text-muted-foreground">View Only</p>
+              <p className="text-lg font-bold">∞</p>
+              <p className="text-[10px] text-muted-foreground">Always Free</p>
+            </div>
+          </div>
+
+          {/* Pricing info */}
+          <div className="bg-violet-50 dark:bg-violet-950/20 border border-violet-200 dark:border-violet-900 rounded-lg p-4">
+            <div className="flex items-start gap-2">
+              <Sparkles className="h-4 w-4 text-violet-600 mt-0.5 flex-shrink-0" />
+              <div className="text-sm text-violet-900 dark:text-violet-200">
+                <p className="font-semibold mb-1">Extra ID Pricing</p>
+                <p>• Cost: <strong>₹149 per ID</strong> (Junior Admin or Data Entry)</p>
+                <p>• Recharge increase: <strong>15% of current plan MRP</strong> ({(sub as any).mrp ? `₹${Math.round((sub as any).mrp * 0.15)}` : '₹0 for Free Tier'}) per extra ID</p>
+                <p className="text-xs text-violet-700 dark:text-violet-400 mt-1">Extra IDs are permanent for your subscription. Recharge increase applies to all future recharges.</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Add Extra ID buttons */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Button
+              variant="outline"
+              className="h-auto py-4 border-blue-300 hover:bg-blue-50 dark:hover:bg-blue-950"
+              onClick={async () => {
+                const res = await authFetch('/api/subscription', {
+                  method: 'POST', headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ action: 'add-extra-id', tenantId: tenant?.id, roleType: 'JUNIOR_ADMIN' }),
+                })
+                if (res.ok) {
+                  const data = await res.json()
+                  toast({ title: 'Extra Junior Admin ID Added', description: `Cost: ₹149. Recharge increase: ₹${data.details?.rechargeIncrease || 0}. Total Junior Admin slots: ${data.details?.totalJuniorAdminSlots || 1}`, duration: 6000 })
+                  load()
+                } else {
+                  const err = await res.json().catch(() => ({}))
+                  toast({ title: 'Error', description: err.error || 'Failed to add extra ID', variant: 'destructive' })
+                }
+              }}
+            >
+              <div className="flex flex-col items-center gap-1">
+                <UserPlus className="h-6 w-6 text-blue-600" />
+                <span className="font-semibold">Add Junior Admin ID</span>
+                <span className="text-xs text-muted-foreground">₹149 · +15% recharge</span>
+              </div>
+            </Button>
+            <Button
+              variant="outline"
+              className="h-auto py-4 border-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950"
+              onClick={async () => {
+                const res = await authFetch('/api/subscription', {
+                  method: 'POST', headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ action: 'add-extra-id', tenantId: tenant?.id, roleType: 'DATA_ENTRY' }),
+                })
+                if (res.ok) {
+                  const data = await res.json()
+                  toast({ title: 'Extra Data Entry ID Added', description: `Cost: ₹149. Recharge increase: ₹${data.details?.rechargeIncrease || 0}. Total Data Entry slots: ${data.details?.totalDataEntrySlots || 1}`, duration: 6000 })
+                  load()
+                } else {
+                  const err = await res.json().catch(() => ({}))
+                  toast({ title: 'Error', description: err.error || 'Failed to add extra ID', variant: 'destructive' })
+                }
+              }}
+            >
+              <div className="flex flex-col items-center gap-1">
+                <UserPlus className="h-6 w-6 text-amber-600" />
+                <span className="font-semibold">Add Data Entry ID</span>
+                <span className="text-xs text-muted-foreground">₹149 · +15% recharge</span>
+              </div>
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Recharge Confirmation Dialog */}
       <Dialog open={!!rechargePlan} onOpenChange={(open) => !open && setRechargePlan(null)}>
