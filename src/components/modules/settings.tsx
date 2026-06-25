@@ -714,9 +714,34 @@ export function SettingsPage() {
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="bg-rose-50 dark:bg-rose-950/20 p-4 rounded-lg border border-rose-200 dark:border-rose-900">
+                  <h4 className="font-medium text-sm mb-1 flex items-center gap-2"><Database className="h-4 w-4 text-rose-600" /> Complete Database Backup</h4>
+                  <p className="text-xs text-muted-foreground mb-3">Download a <strong>complete backup of the entire database</strong> (all tables, all records). Keep this safe — if you ever lose access to the server, you can restore the entire software from this file.</p>
+                  <Button size="sm" className="bg-rose-600 hover:bg-rose-700" onClick={async () => {
+                    try {
+                      const res = await authFetch('/api/backup/download')
+                      if (res.ok) {
+                        const blob = await res.blob()
+                        const url = URL.createObjectURL(blob)
+                        const a = document.createElement('a')
+                        a.href = url
+                        a.download = `bizbook_pro_complete_backup_${new Date().toISOString().split('T')[0]}.json`
+                        a.click()
+                        URL.revokeObjectURL(url)
+                        toast({ title: 'Complete Backup Downloaded', description: 'Keep this file safe. It contains your entire database.', duration: 8000 })
+                      } else {
+                        toast({ title: 'Backup Failed', variant: 'destructive' })
+                      }
+                    } catch {
+                      toast({ title: 'Backup Failed', variant: 'destructive' })
+                    }
+                  }}>
+                    <Download className="h-3.5 w-3.5 mr-1" /> Download Complete Backup
+                  </Button>
+                </div>
                 <div className="bg-muted/50 p-4 rounded-lg">
-                  <h4 className="font-medium text-sm mb-1 flex items-center gap-2"><Download className="h-4 w-4 text-emerald-600" /> Export Data</h4>
-                  <p className="text-xs text-muted-foreground mb-3">Download a complete backup of your business data in JSON format.</p>
+                  <h4 className="font-medium text-sm mb-1 flex items-center gap-2"><Download className="h-4 w-4 text-emerald-600" /> Export Data (JSON)</h4>
+                  <p className="text-xs text-muted-foreground mb-3">Download business data in JSON format for import into other systems.</p>
                   <Button size="sm" variant="outline" onClick={async () => {
                     if (!tenant) return
                     try {
