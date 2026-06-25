@@ -271,3 +271,61 @@ Stage Summary:
   5. Purchase Register: Same as Sale
 - Issue 3 (Barcode = SKU, not product name): DONE. The printBarcodeLabel and printBulkBarcodeLabels functions receive the SKU as the barcode value. The Inventory form keeps Barcode and SKU in sync — editing one updates the other. Scan button fills both with the same value.
 - The barcode scanner uses the browser's BarcodeDetector API (Chrome/Edge 83+) with manual-entry fallback. The barcode printer uses SVG + window.print() so it works in all browsers. Labels are formatted for 80mm × 40mm thermal printers (single) or A4 sheets (bulk, 12 per page).
+
+---
+Task ID: v4.111
+Agent: Main (Super Z)
+Task: User reported two issues via screenshots:
+  1. Screenshot 1 (034809.png): Settings > Data Management shows three red "Backup Failed - Server returned 404" toasts. The "Download Complete Backup" button returns 404.
+  2. Screenshot 2 (034907.png): New Sale Invoice form — user drew a RED BOX at the top of the "Items" section indicating they want a barcode scanner button there (for bulk/rapid scanning). The per-row Scan button added in v4.110 IS visible next to Item Name, but they want a top-level bulk scanner too.
+
+Work Log:
+- Read uploaded deploy log (logs.1782425904927.log): Confirmed v4.110 deploy succeeded. Build clean, healthcheck passed. BUT — noticed the route list only shows /api/backup and /api/backup/emergency. The /api/backup/download route is MISSING.
+- Verified file exists locally: src/app/api/backup/download/route.ts is on disk (created in v4.108 session).
+- Ran 'git ls-files src/app/api/backup/': confirmed the file is NOT tracked in git. Only emergency/route.ts and route.ts are tracked.
+- Ran 'git check-ignore -v src/app/api/backup/download/route.ts': Found that .gitignore line 75 has 'download/' which matches ANY directory named download/ anywhere in the project, including src/app/api/backup/download/.
+- Root cause: .gitignore had TWO 'download/' entries (lines 68 and 75) intended to ignore a top-level local downloads folder, but the pattern was too broad — it accidentally blocked the API route directory.
+
+Fix 1 — Backup 404:
+- .gitignore: Changed both 'download/' entries to '/download/' so they only match a top-level 'download/' folder at project root. This is the intended use case (local downloads folder), not API route folders.
+- src/app/api/backup/download/route.ts: Now properly tracked in git. Will deploy to Railway on next build. This is the v4.108 endpoint that exports all DB tables as a downloadable JSON attachment (requires logged-in session).
+
+Fix 2 — Bulk "Scan Barcode to Add Item" button:
+- src/components/app/barcode-scanner.tsx: Added new 'continuous' prop (default false). When true:
+    • Scanner stays open after each scan and immediately resumes detecting
+    • 2-second cooldown prevents same barcode firing onScan multiple times
+    • Visible scan counter ('X scanned' badge in dialog header)
+    • 'Done' button label after first scan (instead of 'Close')
+    • detectLoopRef stores the detect loop function so handleDetected can resume it (previously scoped to startScanning, couldn't be resumed)
+    • Manual entry input is cleared after each entry in continuous mode
+
+- src/components/modules/sale-register.tsx: Added bulk "Scan Barcode to Add Item" button at top of Items section (where red box is in screenshot). On each scan:
+    1. Calls /api/inventory with search=scannedCode
+    2. Finds item whose sku or barcode matches (case-insensitive)
+    3. Creates new SaleItem via emptyItem() + fills name/category/hsn/unit/salePrice/mrp
+    4. Adds GST tax entry if item has gstRate > 0
+    5. Auto-detects BOM (FINISHED_PRODUCT) items
+    6. Runs calcItemTotals() so amount/tax/total are correct
+    7. Appends to items array via setItems(prev => [...prev, finalItem])
+    8. Shows success toast: "Added: <name>" / "SKU: ... · ₹<price>"
+    Scanner stays open for next scan. User clicks Done when finished.
+
+- src/components/modules/purchase-register.tsx: Same bulk scan button at top of Items section. Uses purchasePrice (not salePrice) since this is a purchase invoice.
+
+- src/components/modules/settings.tsx: v4.110.0 → v4.111.0
+- src/components/app/help-modal.tsx: v4.110 → v4.111
+
+Verification:
+- npx tsc --noEmit (full project): 0 errors in any of the 7 changed files
+- npx eslint on all 7 files: 0 errors, 0 warnings
+
+Deployment:
+- Committed as v4.111 (commit 137ebb6)
+- Pushed to GitHub: b6972a2..137ebb6 main → main
+- Railway auto-build triggered (~3 min typical)
+
+Stage Summary:
+- Issue 1 (Backup 404): FIXED. The root cause was a .gitignore pattern that was too broad — 'download/' matched any directory named download/, including the API route folder. Changed to '/download/' (root-only). The /api/backup/download/route.ts file is now tracked in git and will deploy.
+- Issue 2 (Bulk barcode scanner): FIXED. A new "Scan Barcode to Add Item" button appears at the top of the Items section in both Sale Register and Purchase Register. Click it → camera opens → scan item → row auto-added with all details → scan next item → row auto-added → click Done. The scanner stays open for rapid-fire scanning (with 2-second cooldown to prevent duplicate scans of the same item).
+- The per-row "Scan" button (added in v4.110) remains for editing existing rows in place. Users now have two ways to scan: bulk-add (top of Items section) or per-row edit (next to Item Name).
+- Note: Barcode scanning requires Chrome/Edge 83+ (BarcodeDetector API) and HTTPS. Falls back to manual entry on unsupported browsers. The bulk scanner also supports manual entry — type a SKU and press Enter to add an item, then type another SKU and press Enter again.
