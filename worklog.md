@@ -210,3 +210,64 @@ Stage Summary:
 - This was a recovery/safety-net fix, not just a feature add. The user's "option not working" was actually a symptom of a deeper issue: their primary tenant was missing, which crashed the login flow, which blocked them from reaching the Settings page where the backup option lives.
 - The new /emergency-backup.html page is the safety net — it works even when everything else is broken, as long as the user knows their email and password.
 - After this deploy, the user should hard-refresh (Ctrl+Shift+R) and try the Download Complete Backup option again. If it still fails, they can go directly to https://their-app.up.railway.app/emergency-backup.html and download their data with just email+password.
+
+---
+Task ID: v4.110
+Agent: Main (Super Z)
+Task: User requested three fixes:
+  1. "Help & Support Management + Help & Support > should be in one panel"
+  2. "barcode scanner and barcode printer option is gone"
+  3. "the barcode is not the name of any product its SKU instead"
+  User also confirmed v4.109 emergency backup worked by uploading the actual downloaded JSON file (bizbook_pro_EMERGENCY_backup_2026-06-25T21-58-52-151Z.json).
+
+Work Log:
+- Verified v4.109 deploy succeeded by reading uploaded deploy/runtime logs (logs.1782425145445.log + logs.1782425148371.log). Build clean, container started, DB synced.
+- Reviewed sidebar.tsx: Found that SUPER_ADMIN saw a separate "Help & Support Management" nav item (id: 'help-support-management') that loaded the bare management page, AND on mobile the regular "Help & Support" button was hidden for SUPER_ADMIN (per v4.67 comment). So SUPER_ADMIN on mobile only saw the management page — no FAQ/Guides/Chat access.
+- Reviewed help-modal.tsx: Already had 4 tabs (FAQ, Guides, AI Chat, Manage) with Manage tab visible only to SUPER_ADMIN. So the unified panel already existed — it was just being hidden from SUPER_ADMIN.
+- Reviewed help-support-management.tsx: Standalone module that loads support tickets. Already embedded inside HelpModal's Manage tab via lazy import.
+- Reviewed barcode-scanner.tsx: Full implementation exists (camera + BarcodeDetector API), but only imported (not actually used) in sale-register.tsx and purchase-register.tsx.
+- Reviewed barcode-label.tsx: BarcodeLabel component + printBarcodeLabel() function exist, but never imported anywhere.
+- Reviewed inventory.tsx: Has both 'sku' and 'barcode' fields on InventoryItem, with separate form inputs. No barcode scanner or printer UI.
+- Reviewed lib/barcode.ts: Has generateBarcodeSvg() (Code128 encoder), generateRandomBarcode(), and generateBarcodeFromSku() — all ready to use.
+- Reviewed sale-register.tsx + purchase-register.tsx: Both import BarcodeScanner but never render it. ItemSuggest is used for item search.
+
+Fix 1 — Merge Help panels:
+- src/components/app/sidebar.tsx: Removed the 'help-support-management' nav item (line 83) from navItems array. Updated comment explaining the v4.110 change.
+- src/components/app/sidebar.tsx: Removed the !isSuperAdmin condition on the mobile drawer Help button (line 318) — now shown to ALL users.
+- src/components/app/help-modal.tsx: Updated version string v4.64 → v4.110. Updated Manage tab description to clarify it's SUPER_ADMIN-only.
+- Left the lazy import + switch case in page.tsx for 'help-support-management' view in place (defensive — if user's stored view state is 'help-support-management' from a previous session, it still loads correctly. They just don't see the nav item to click it.)
+
+Fix 2+3 — Restore Barcode scanner/printer using SKU:
+- src/components/app/barcode-label.tsx: Added new printBulkBarcodeLabels() function — prints multiple labels on one A4 sheet (3 cols × 4 rows = 12 per page). Each label: product name + price + SKU-as-barcode.
+- src/components/modules/inventory.tsx:
+  • Added imports: BarcodeScanner, printBarcodeLabel, printBulkBarcodeLabels, Printer + ScanLine icons.
+  • Added 'Scan' button next to the Barcode input field in the Add/Edit form. On scan, fills BOTH barcode and SKU fields with the scanned value (they stay in sync since barcode = SKU per user instruction).
+  • Updated Barcode field onChange to also update SKU, and SKU field onChange to also update Barcode — so editing one updates the other.
+  • Updated field labels: "Barcode (Unique ID)" → kept, "SKU" → "SKU (used as barcode)" with helpful placeholder.
+  • Added blue Printer icon button to each inventory item row (after Status, before the +/- stock adjustment buttons). Only shown if item has a SKU. Click → printBarcodeLabel() opens new window with single label using item.sku as the barcode value.
+  • Added "Print All Barcodes" bulk button at the top of the raw materials tab, next to "Add Item". Click → filters items with non-empty SKU, maps them to label data, calls printBulkBarcodeLabels(). Shows helpful error toast if no items have SKUs.
+- src/components/modules/sale-register.tsx:
+  • Added 'Scan' button next to ItemSuggest in each sale item row (Row 1, col-span-2). On scan, fetches /api/inventory with search=scannedCode, finds the item whose sku or barcode matches (case-insensitive), and auto-fills the row with name, category, hsn, unit, sale price, mrp, gst rate. Shows success toast with item name + SKU. Shows helpful error toast if no match.
+- src/components/modules/purchase-register.tsx:
+  • Same as sale-register, but uses purchase price (not sale price) for the auto-fill.
+- src/components/modules/settings.tsx: Version bumped v4.109.0 → v4.110.0.
+
+Verification:
+- npx tsc --noEmit (full project): 0 errors in any of the 7 changed files. Pre-existing errors in unrelated files (excel-backup.ts, totp.ts, zai-client.ts, enforce-v2.ts, etc.) unchanged.
+- npx eslint on all 7 files: 0 errors, 1 pre-existing warning in sidebar.tsx (unused eslint-disable directive at line 113 — was there before my changes).
+
+Deployment:
+- Committed as v4.110 (commit b6972a2)
+- Pushed to GitHub: 39681bc..b6972a2 main → main
+- Railway auto-build triggered (~3 min typical)
+
+Stage Summary:
+- Issue 1 (Help panels merged): DONE. SUPER_ADMIN now sees the same unified Help & Support button as everyone else. The HelpModal's Manage tab gives them ticket management — no separate panel needed.
+- Issue 2 (Barcode scanner/printer restored): DONE. Three access points:
+  1. Inventory form: Scan button fills Barcode + SKU fields
+  2. Inventory list: Printer icon per row prints single label
+  3. Inventory list: Print All Barcodes button prints all SKUs on one A4 sheet
+  4. Sale Register: Scan button per item row looks up by SKU and auto-fills
+  5. Purchase Register: Same as Sale
+- Issue 3 (Barcode = SKU, not product name): DONE. The printBarcodeLabel and printBulkBarcodeLabels functions receive the SKU as the barcode value. The Inventory form keeps Barcode and SKU in sync — editing one updates the other. Scan button fills both with the same value.
+- The barcode scanner uses the browser's BarcodeDetector API (Chrome/Edge 83+) with manual-entry fallback. The barcode printer uses SVG + window.print() so it works in all browsers. Labels are formatted for 80mm × 40mm thermal printers (single) or A4 sheets (bulk, 12 per page).
