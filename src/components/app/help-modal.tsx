@@ -20,15 +20,20 @@
  *   - Add Company page (floating Help button)
  */
 
-import { useState } from 'react'
+import { useState, lazy, Suspense } from 'react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import {
   HelpCircle, ChevronDown, ChevronRight, Sparkles,
-  UserPlus, KeyRound, CreditCard, FileText, ShieldCheck, BookOpen, Lightbulb, MessageCircle
+  UserPlus, KeyRound, CreditCard, FileText, ShieldCheck, BookOpen, Lightbulb, MessageCircle, Loader2
 } from 'lucide-react'
 import { HelpChatTab } from '@/components/app/help-chat'
 import { useAppStore } from '@/store/app-store'
+
+// v4.107: Lazy-load HelpSupportManagement for the Manage tab
+const HelpSupportManagementInline = lazy(() =>
+  import('@/components/modules/help-support-management').then(m => ({ default: m.HelpSupportManagement }))
+)
 
 interface HelpModalProps {
   open: boolean
@@ -141,8 +146,11 @@ const GUIDES = [
 
 export function HelpModal({ open, onClose }: HelpModalProps) {
   const [expandedFAQ, setExpandedFAQ] = useState<number | null>(0)
-  const [activeTab, setActiveTab] = useState<'faq' | 'guides' | 'chat'>('faq')
+  const [activeTab, setActiveTab] = useState<'faq' | 'guides' | 'chat' | 'management'>('faq')
   const { user, tenant } = useAppStore()
+  // v4.107: Super Admin check for Management tab
+  const SUPER_ADMIN_EMAILS = ['admin@bizbook.pro', 'pranjalgoswamighy86@gmail.com']
+  const isSuperAdmin = user ? SUPER_ADMIN_EMAILS.includes(user.email.toLowerCase()) : false
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
@@ -217,6 +225,20 @@ export function HelpModal({ open, onClose }: HelpModalProps) {
               <span className="hidden sm:inline">AI Support Chat</span>
             </span>
           </Button>
+          {isSuperAdmin && (
+            <Button
+              variant={activeTab === 'management' ? 'default' : 'ghost'}
+              size="sm"
+              onClick={() => setActiveTab('management')}
+              className={`
+                flex-shrink-0 min-h-11 px-3 sm:px-4
+                ${activeTab === 'management' ? 'bg-violet-600 hover:bg-violet-700' : ''}
+              `}
+            >
+              <ShieldCheck className="h-4 w-4 sm:mr-1.5 flex-shrink-0" />
+              <span className="text-xs sm:text-sm">Manage</span>
+            </Button>
+          )}
         </div>
 
         {/* FAQ Tab */}
@@ -285,6 +307,22 @@ export function HelpModal({ open, onClose }: HelpModalProps) {
               </p>
             </div>
             <HelpChatTab userEmail={user?.email} tenantName={tenant?.name} />
+          </div>
+        )}
+
+        {activeTab === 'management' && isSuperAdmin && (
+          <div className="space-y-3">
+            <div className="bg-violet-50 border border-violet-200 rounded-lg p-2 sm:p-3 flex items-center gap-2">
+              <ShieldCheck className="h-4 w-4 text-violet-600 flex-shrink-0" />
+              <p className="text-xs text-violet-700">
+                Support ticket management — review and respond to user support requests.
+              </p>
+            </div>
+            <div className="max-h-[50vh] overflow-y-auto">
+              <Suspense fallback={<div className="flex justify-center py-8 text-sm text-muted-foreground">Loading management panel...</div>}>
+                <HelpSupportManagementInline />
+              </Suspense>
+            </div>
           </div>
         )}
 
