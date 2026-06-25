@@ -17,7 +17,7 @@ import { Plus, Pencil, Trash2, AlertTriangle, Package, ArrowUp, ArrowDown, ChefH
 import { useToast } from '@/hooks/use-toast'
 import { authFetch } from '@/lib/auth-fetch'
 import { BarcodeScanner } from '@/components/app/barcode-scanner'
-import { printBarcodeLabel, printBulkBarcodeLabels } from '@/components/app/barcode-label'
+import { printBarcodeLabel } from '@/components/app/barcode-label'
 
 interface InventoryItem {
   id: string; name: string; sku: string | null; barcode: string | null; hsnCode: string | null; unit: string
@@ -300,36 +300,14 @@ export function Inventory() {
               {canEdit(user?.role || 'VIEW_ONLY') && (
                 <Button onClick={() => { resetForm(); setShowForm(true) }} className="bg-emerald-600 hover:bg-emerald-700"><Plus className="h-4 w-4 mr-2" />Add Item</Button>
               )}
-              {/* v4.110: Print all barcodes bulk button — uses SKU as the barcode value */}
+              {/* v4.112: Removed the "Print All Barcodes" bulk button per user request —
+                  printing should be done individually, item by item, using the printer
+                  icon in each row's Actions column. */}
               {items.length > 0 && (
-                <Button
-                  onClick={() => {
-                    const printable = items
-                      .filter((i) => (i.sku || '').trim().length > 0)
-                      .map((i) => ({
-                        name: i.name,
-                        barcode: i.sku as string,
-                        price: i.salePrice,
-                        currency: tenant?.currency,
-                      }))
-                    if (printable.length === 0) {
-                      toast({
-                        title: 'No SKUs to print',
-                        description: 'Add SKUs to your inventory items first — the SKU is what gets printed as the barcode.',
-                        variant: 'destructive',
-                        duration: 6000,
-                      })
-                      return
-                    }
-                    printBulkBarcodeLabels(printable)
-                    toast({ title: `Printing ${printable.length} barcode labels`, duration: 3000 })
-                  }}
-                  variant="outline"
-                  size="sm"
-                >
-                  <Printer className="h-4 w-4 mr-2" />
-                  Print All Barcodes
-                </Button>
+                <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+                  <Printer className="h-3.5 w-3.5 text-blue-600" />
+                  Click the <Printer className="h-3 w-3 inline-block text-blue-600" /> icon on any row to print that item&rsquo;s barcode label.
+                </p>
               )}
             </div>
 
@@ -375,21 +353,31 @@ export function Inventory() {
                           </TableCell>
                           <TableCell className="text-right">
                             <div className="flex justify-end gap-1">
-                              {/* v4.110: Print barcode label for this item — uses SKU as the barcode */}
-                              {(i.sku || '').trim().length > 0 && (
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-8 w-8"
-                                  title={`Print barcode label (SKU: ${i.sku})`}
-                                  onClick={() => {
-                                    printBarcodeLabel(i.name, i.sku as string, i.salePrice, tenant?.currency)
-                                    toast({ title: 'Printing barcode label', description: `SKU: ${i.sku}`, duration: 3000 })
-                                  }}
-                                >
-                                  <Printer className="h-4 w-4 text-blue-600" />
-                                </Button>
-                              )}
+                              {/* v4.112: Print barcode label for THIS item only (per user request —
+                                  print individually, item by item, not all at once).
+                                  Uses SKU as the barcode value. If item has no SKU, falls back
+                                  to a sanitized version of the item name. */}
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-8 px-2 text-xs border-blue-200 text-blue-700 hover:bg-blue-50"
+                                title={`Print barcode label for "${i.name}" (SKU: ${i.sku || i.name})`}
+                                onClick={() => {
+                                  // Use SKU as the barcode; if no SKU, use a sanitized name as fallback
+                                  const barcodeValue = (i.sku && i.sku.trim().length > 0)
+                                    ? i.sku
+                                    : i.name.replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(0, 12)
+                                  printBarcodeLabel(i.name, barcodeValue, i.salePrice, tenant?.currency)
+                                  toast({
+                                    title: `Printing barcode for: ${i.name}`,
+                                    description: `Barcode value: ${barcodeValue}`,
+                                    duration: 3000,
+                                  })
+                                }}
+                              >
+                                <Printer className="h-3.5 w-3.5" />
+                                <span className="ml-1 hidden sm:inline">Barcode</span>
+                              </Button>
                               {canEdit(user?.role || 'VIEW_ONLY') && (
                                 <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setAdjustId(i.id); setAdjustQty(0); setAdjustType('in'); setShowAdjust(true) }}>
                                   <ArrowUp className="h-4 w-4 text-emerald-600" />
@@ -471,6 +459,29 @@ export function Inventory() {
                             </div>
                           </div>
                           <div className="flex items-center gap-1 ml-4">
+                            {/* v4.112: Print barcode label for this finished product —
+                                uses the linked inventory item's SKU (or product name as fallback) */}
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="text-blue-600 border-blue-200 hover:bg-blue-50"
+                              title={`Print barcode label for ${product.name}`}
+                              onClick={() => {
+                                // Use the linked inventory item's SKU if available;
+                                // otherwise fall back to a sanitized product name.
+                                const barcodeValue = (inventoryItem?.sku && inventoryItem.sku.trim().length > 0)
+                                  ? inventoryItem.sku
+                                  : product.name.replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(0, 12)
+                                printBarcodeLabel(product.name, barcodeValue, product.salePrice, tenant?.currency)
+                                toast({
+                                  title: `Printing barcode for: ${product.name}`,
+                                  description: `Barcode value: ${barcodeValue}`,
+                                  duration: 3000,
+                                })
+                              }}
+                            >
+                              <Printer className="h-4 w-4 mr-1" />Barcode
+                            </Button>
                             {canEdit(user?.role || 'VIEW_ONLY') && (
                               <Button
                                 variant="outline"
