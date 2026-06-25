@@ -468,7 +468,66 @@ export function PurchaseRegister() {
 
               {/* ===== ITEMS SECTION ===== */}
               <div>
-                <Label className="text-sm font-semibold">Items</Label>
+                {/* v4.111: Bulk Scan button at the top of the Items section.
+                    User can rapidly scan multiple barcodes one after another —
+                    each scan looks up the inventory item by SKU and adds a new
+                    pre-filled row. Closes the scanner only when the user clicks
+                    Done or Escape. */}
+                <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+                  <Label className="text-sm font-semibold">Items</Label>
+                  <BarcodeScanner
+                    buttonText="Scan Barcode to Add Item"
+                    continuous={true}
+                    onScan={async (code) => {
+                      if (!tenant) return
+                      try {
+                        const res = await authFetch('/api/inventory', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ action: 'list', tenantId: tenant.id, search: code }),
+                        })
+                        if (!res.ok) return
+                        const data = await res.json()
+                        const match = (data.items || []).find(
+                          (inv: { sku?: string | null; barcode?: string | null }) =>
+                            (inv.sku && inv.sku.toLowerCase() === code.toLowerCase()) ||
+                            (inv.barcode && inv.barcode.toLowerCase() === code.toLowerCase())
+                        ) || (data.items || [])[0]
+                        if (match) {
+                          // Build a new item with the matched item's details pre-filled,
+                          // then run it through calcItemTotals so amount/tax/total are correct.
+                          // Note: purchase uses purchasePrice (not salePrice) for the rate.
+                          const base = emptyItem()
+                          base.name = match.name
+                          base.category = match.category || ''
+                          base.hsn = match.hsnCode || ''
+                          base.unit = match.unit
+                          base.rate = match.purchasePrice
+                          base.mrp = match.mrp || 0
+                          if (match.gstRate > 0) {
+                            base.taxes = [{ ...emptyTax('GST', match.gstRate) }]
+                          }
+                          const finalItem = calcItemTotals(base)
+                          setItems(prev => [...prev, finalItem])
+                          toast({
+                            title: `Added: ${match.name}`,
+                            description: `SKU: ${match.sku || code} · ₹${match.purchasePrice}`,
+                            duration: 2000,
+                          })
+                        } else {
+                          toast({
+                            title: 'No item matches this barcode',
+                            description: `Scanned "${code}" — no inventory item has this SKU. Add it to inventory first.`,
+                            variant: 'destructive',
+                            duration: 5000,
+                          })
+                        }
+                      } catch {
+                        toast({ title: 'Lookup failed', variant: 'destructive' })
+                      }
+                    }}
+                  />
+                </div>
                 <div className="mt-2 space-y-3">
                   {items.map((item, idx) => (
                     <div key={idx} className="border rounded-lg p-3 bg-white">

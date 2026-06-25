@@ -65,14 +65,14 @@ tool-results/
 # Platform-specific (not part of the app)
 skills/
 upload/
-download/
+/download/
 tool-results/
 bizbook.db
 page_content.json
 .zscripts/
 security-patch*/
 bizbook-pro-deployed/
-download/
+/download/
 
 # TypeScript build cache (must NOT be committed — breaks Railway build cache mount)
 tsconfig.tsbuildinfo

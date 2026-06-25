@@ -25,16 +25,32 @@ import { useToast } from '@/hooks/use-toast'
 interface BarcodeScannerProps {
   onScan: (code: string) => void
   buttonText?: string
+  /**
+   * v4.111: When true, the scanner stays open after each scan so the user
+   * can rapidly scan multiple barcodes in a row (e.g., for adding many
+   * items to a sale invoice). Each scan still fires onScan().
+   *
+   * Default: false (scanner closes after first scan)
+   */
+  continuous?: boolean
 }
 
-export function BarcodeScanner({ onScan, buttonText = 'Scan Barcode' }: BarcodeScannerProps) {
+export function BarcodeScanner({ onScan, buttonText = 'Scan Barcode', continuous = false }: BarcodeScannerProps) {
   const { toast } = useToast()
   const [open, setOpen] = useState(false)
   const [scanning, setScanning] = useState(false)
   const [error, setError] = useState('')
+  const [scanCount, setScanCount] = useState(0) // v4.111: visible counter in continuous mode
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const animationRef = useRef<number | null>(null)
+  // v4.111: Cooldown to prevent the same barcode being detected many times
+  // in rapid succession while the camera is still pointed at it.
+  const lastCodeRef = useRef<string>('')
+  const lastTimeRef = useRef<number>(0)
+  // v4.111: Store the detect loop function so handleDetected can resume it
+  // in continuous mode. detectLoop is otherwise scoped to startScanning.
+  const detectLoopRef = useRef<(() => Promise<void>) | null>(null)
 
   const startScanning = async () => {
     setError('')
@@ -78,6 +94,8 @@ export function BarcodeScanner({ onScan, buttonText = 'Scan Barcode' }: BarcodeS
 
           animationRef.current = requestAnimationFrame(detectLoop)
         }
+        // Store in ref so handleDetected can resume scanning in continuous mode
+        detectLoopRef.current = detectLoop
         detectLoop()
       } else {
         // Fallback: manual entry (BarcodeDetector not supported)
@@ -92,11 +110,42 @@ export function BarcodeScanner({ onScan, buttonText = 'Scan Barcode' }: BarcodeS
   }
 
   const handleDetected = (code: string) => {
+    // v4.111: Cooldown — if the same code was detected in the last 2 seconds,
+    // ignore it. This prevents the camera from firing onScan 10+ times for
+    // the same barcode while the user is still pointing at it.
+    const now = Date.now()
+    if (code === lastCodeRef.current && now - lastTimeRef.current < 2000) {
+      // Same code within 2s — skip, but keep scanning in continuous mode
+      if (continuous && scanning && detectLoopRef.current) {
+        animationRef.current = requestAnimationFrame(detectLoopRef.current)
+      }
+      return
+    }
+    lastCodeRef.current = code
+    lastTimeRef.current = now
+
     console.log('[BARCODE] Detected:', code)
-    stopScanning()
-    setOpen(false)
+    setScanCount(prev => prev + 1)
     onScan(code)
-    toast({ title: 'Barcode Scanned', description: code, duration: 3000 })
+    toast({
+      title: continuous ? `Scan #${scanCount + 1}: ${code}` : 'Barcode Scanned',
+      description: code,
+      duration: continuous ? 1500 : 3000,
+    })
+
+    if (continuous) {
+      // Stay open — keep scanning. Brief pause so the toast is readable,
+      // then resume the detect loop.
+      setTimeout(() => {
+        if (open && scanning && detectLoopRef.current) {
+          animationRef.current = requestAnimationFrame(detectLoopRef.current)
+        }
+      }, 400)
+    } else {
+      // Single-scan mode — close the dialog
+      stopScanning()
+      setOpen(false)
+    }
   }
 
   const stopScanning = () => {
@@ -139,7 +188,12 @@ export function BarcodeScanner({ onScan, buttonText = 'Scan Barcode' }: BarcodeS
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <ScanLine className="h-5 w-5 text-emerald-600" />
-              Barcode Scanner
+              {continuous ? 'Continuous Barcode Scanner' : 'Barcode Scanner'}
+              {continuous && scanCount > 0 && (
+                <span className="ml-auto text-xs font-normal text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">
+                  {scanCount} scanned
+                </span>
+              )}
             </DialogTitle>
           </DialogHeader>
 
@@ -154,6 +208,7 @@ export function BarcodeScanner({ onScan, buttonText = 'Scan Barcode' }: BarcodeS
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') {
                       handleDetected((e.target as HTMLInputElement).value)
+                      ;(e.target as HTMLInputElement).value = ''
                     }
                   }}
                 />
@@ -175,7 +230,7 @@ export function BarcodeScanner({ onScan, buttonText = 'Scan Barcode' }: BarcodeS
                 {scanning && (
                   <div className="absolute top-2 left-2 bg-black/60 text-white text-xs px-2 py-1 rounded flex items-center gap-1">
                     <Loader2 className="h-3 w-3 animate-spin" />
-                    Scanning...
+                    {continuous ? `Scanning... (${scanCount} done)` : 'Scanning...'}
                   </div>
                 )}
               </div>
@@ -189,12 +244,14 @@ export function BarcodeScanner({ onScan, buttonText = 'Scan Barcode' }: BarcodeS
                 </Button>
               )}
               <Button variant="outline" onClick={handleClose} className="flex-1">
-                Close
+                {continuous && scanCount > 0 ? 'Done' : 'Close'}
               </Button>
             </div>
 
             <p className="text-[11px] text-muted-foreground text-center">
-              Point your camera at a barcode (EAN, UPC, Code-128, QR). Works best with good lighting.
+              {continuous
+                ? 'Scan barcodes one after another — each scan adds a new item. Press Done when finished.'
+                : 'Point your camera at a barcode (EAN, UPC, Code-128, QR). Works best with good lighting.'}
             </p>
           </div>
         </DialogContent>
