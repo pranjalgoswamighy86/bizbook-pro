@@ -80,7 +80,9 @@ const navItems: NavItem[] = [
   { id: 'ai-valuation', label: 'Smart AI Company Valuation', icon: <Sparkles className="h-4 w-4" /> },
   { id: 'super-admin-subscriptions', label: 'Super Admin Panel', icon: <Crown className="h-4 w-4" />, minRole: 'SUPER_ADMIN' },
   { id: 'payment-proof-review', label: 'Payment Proofs', icon: <ShieldCheck className="h-4 w-4" />, minRole: 'SUPER_ADMIN' },
-  { id: 'help-support-management', label: 'Help & Support Management', icon: <HelpCircle className="h-4 w-4" />, minRole: 'SUPER_ADMIN' },
+  // v4.110: Removed separate 'help-support-management' nav item — now unified into the
+  // Help & Support button at the bottom of the sidebar. The HelpModal already has a
+  // "Manage" tab for SUPER_ADMIN that shows the same ticket-management interface.
   { id: 'backup', label: 'Backup & Restore', icon: <HardDrive className="h-4 w-4" />, minRole: 'MAIN_ADMIN' },
   { id: 'settings', label: 'Settings', icon: <Settings className="h-4 w-4" />, minRole: 'MAIN_ADMIN' },
 ]
@@ -314,17 +316,17 @@ export function AppSidebar() {
 
           {/* v4.49: Help button — opens Help modal with FAQ + guides + AI chat
               v4.51: Use handleHelpClick to close mobile drawer first
-              v4.67: Hide for Super Admin (they have Help & Support Management panel) */}
-          {!isSuperAdmin && (
-            <button
-              onClick={handleHelpClick}
-              className="w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground"
-              title={!sidebarOpen && !isMobile ? 'Help & Support' : undefined}
-            >
-              <HelpCircle className="h-4 w-4" />
-              <span className="truncate">Help &amp; Support</span>
-            </button>
-          )}
+              v4.67: Hide for Super Admin (they have Help & Support Management panel)
+              v4.110: Show for ALL users — Help & Support Management is now a tab inside
+                     the Help modal (Manage tab, SUPER_ADMIN only). One unified panel. */}
+          <button
+            onClick={handleHelpClick}
+            className="w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground"
+            title={!sidebarOpen && !isMobile ? 'Help & Support' : undefined}
+          >
+            <HelpCircle className="h-4 w-4" />
+            <span className="truncate">Help &amp; Support</span>
+          </button>
         </nav>
       </ScrollArea>
 

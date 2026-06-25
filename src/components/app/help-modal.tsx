@@ -315,7 +315,7 @@ export function HelpModal({ open, onClose }: HelpModalProps) {
             <div className="bg-violet-50 border border-violet-200 rounded-lg p-2 sm:p-3 flex items-center gap-2">
               <ShieldCheck className="h-4 w-4 text-violet-600 flex-shrink-0" />
               <p className="text-xs text-violet-700">
-                Support ticket management — review and respond to user support requests.
+                Support ticket management — review and respond to user support requests. This tab is only visible to Super Admins.
               </p>
             </div>
             <div className="max-h-[50vh] overflow-y-auto">
@@ -327,8 +327,8 @@ export function HelpModal({ open, onClose }: HelpModalProps) {
         )}
 
         <div className="border-t pt-3 mt-3 sm:mt-4 flex items-center justify-between text-xs text-slate-500 gap-2">
-          <span className="hidden sm:inline">BizBook Pro v4.64 — A Product by Tahigo International</span>
-          <span className="sm:hidden text-[11px]">v4.64 — Tahigo International</span>
+          <span className="hidden sm:inline">BizBook Pro v4.110 — A Product by Tahigo International</span>
+          <span className="sm:hidden text-[11px]">v4.110 — Tahigo International</span>
           <Button variant="outline" size="sm" onClick={onClose} className="min-h-9">Close</Button>
         </div>
       </DialogContent>

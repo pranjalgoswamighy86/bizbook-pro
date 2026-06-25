@@ -13,9 +13,11 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { formatCurrency, formatDate, getDateFilterRange } from '@/lib/formulas'
-import { Plus, Pencil, Trash2, AlertTriangle, Package, ArrowUp, ArrowDown, ChefHat, Factory, X, Loader2 } from 'lucide-react'
+import { Plus, Pencil, Trash2, AlertTriangle, Package, ArrowUp, ArrowDown, ChefHat, Factory, X, Loader2, Printer, ScanLine } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import { authFetch } from '@/lib/auth-fetch'
+import { BarcodeScanner } from '@/components/app/barcode-scanner'
+import { printBarcodeLabel, printBulkBarcodeLabels } from '@/components/app/barcode-label'
 
 interface InventoryItem {
   id: string; name: string; sku: string | null; barcode: string | null; hsnCode: string | null; unit: string
@@ -294,9 +296,40 @@ export function Inventory() {
 
           {/* ==================== RAW MATERIALS TAB ==================== */}
           <TabsContent value="raw-materials" className="space-y-4">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between flex-wrap gap-2">
               {canEdit(user?.role || 'VIEW_ONLY') && (
                 <Button onClick={() => { resetForm(); setShowForm(true) }} className="bg-emerald-600 hover:bg-emerald-700"><Plus className="h-4 w-4 mr-2" />Add Item</Button>
+              )}
+              {/* v4.110: Print all barcodes bulk button — uses SKU as the barcode value */}
+              {items.length > 0 && (
+                <Button
+                  onClick={() => {
+                    const printable = items
+                      .filter((i) => (i.sku || '').trim().length > 0)
+                      .map((i) => ({
+                        name: i.name,
+                        barcode: i.sku as string,
+                        price: i.salePrice,
+                        currency: tenant?.currency,
+                      }))
+                    if (printable.length === 0) {
+                      toast({
+                        title: 'No SKUs to print',
+                        description: 'Add SKUs to your inventory items first — the SKU is what gets printed as the barcode.',
+                        variant: 'destructive',
+                        duration: 6000,
+                      })
+                      return
+                    }
+                    printBulkBarcodeLabels(printable)
+                    toast({ title: `Printing ${printable.length} barcode labels`, duration: 3000 })
+                  }}
+                  variant="outline"
+                  size="sm"
+                >
+                  <Printer className="h-4 w-4 mr-2" />
+                  Print All Barcodes
+                </Button>
               )}
             </div>
 
@@ -342,6 +375,21 @@ export function Inventory() {
                           </TableCell>
                           <TableCell className="text-right">
                             <div className="flex justify-end gap-1">
+                              {/* v4.110: Print barcode label for this item — uses SKU as the barcode */}
+                              {(i.sku || '').trim().length > 0 && (
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-8 w-8"
+                                  title={`Print barcode label (SKU: ${i.sku})`}
+                                  onClick={() => {
+                                    printBarcodeLabel(i.name, i.sku as string, i.salePrice, tenant?.currency)
+                                    toast({ title: 'Printing barcode label', description: `SKU: ${i.sku}`, duration: 3000 })
+                                  }}
+                                >
+                                  <Printer className="h-4 w-4 text-blue-600" />
+                                </Button>
+                              )}
                               {canEdit(user?.role || 'VIEW_ONLY') && (
                                 <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setAdjustId(i.id); setAdjustQty(0); setAdjustType('in'); setShowAdjust(true) }}>
                                   <ArrowUp className="h-4 w-4 text-emerald-600" />
@@ -490,10 +538,29 @@ export function Inventory() {
                   </Select>
                 </div>
               </div>
-              {/* v4.91: Barcode field — unique product identification number */}
+              {/* v4.91: Barcode field — unique product identification number
+                  v4.110: Barcode = SKU (per user instruction "barcode is not the name
+                         of any product its SKU instead"). The Scan button fills BOTH
+                         fields with the scanned value, so they stay in sync. */}
               <div className="grid grid-cols-2 gap-3">
-                <div><Label>Barcode (Unique ID)</Label><Input value={form.barcode} onChange={(e) => setForm({ ...form, barcode: e.target.value })} placeholder="Scan or enter barcode number" /></div>
-                <div><Label>SKU</Label><Input value={form.sku} onChange={(e) => setForm({ ...form, sku: e.target.value })} placeholder="Stock keeping unit" /></div>
+                <div>
+                  <Label>Barcode (Unique ID)</Label>
+                  <div className="flex gap-1">
+                    <Input value={form.barcode} onChange={(e) => setForm({ ...form, barcode: e.target.value, sku: e.target.value })} placeholder="Scan or enter barcode" />
+                    <BarcodeScanner
+                      buttonText="Scan"
+                      onScan={(code) => {
+                        // Scanned value is the SKU — fill both Barcode and SKU fields
+                        setForm({ ...form, barcode: code, sku: code })
+                        toast({ title: 'Barcode Scanned', description: code, duration: 3000 })
+                      }}
+                    />
+                  </div>
+                </div>
+                <div>
+                  <Label>SKU (used as barcode)</Label>
+                  <Input value={form.sku} onChange={(e) => setForm({ ...form, sku: e.target.value, barcode: e.target.value })} placeholder="Stock keeping unit — printed on barcode label" />
+                </div>
               </div>
               <div className="grid grid-cols-3 gap-3">
                 <div><Label>HSN Code</Label><Input value={form.hsnCode} onChange={(e) => setForm({ ...form, hsnCode: e.target.value })} placeholder="For GST" /></div>

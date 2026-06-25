@@ -879,26 +879,75 @@ export function SaleRegister() {
                         {/* Row 1: Item Name (full width on mobile) + Item Type */}
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                           <div className="sm:col-span-2">
-                            <ItemSuggest
-                              tenantId={tenant?.id}
-                              value={item.name}
-                              onChange={(val) => updateItem(idx, 'name', val)}
-                              onItemSelect={(inv) => {
-                                updateItem(idx, 'name', inv.name)
-                                updateItem(idx, 'category', inv.category || '')
-                                updateItem(idx, 'hsn', inv.hsnCode || '')
-                                updateItem(idx, 'unit', inv.unit)
-                                updateItem(idx, 'rate', inv.salePrice)
-                                updateItem(idx, 'mrp', inv.mrp || 0)
-                                if (inv.gstRate > 0 && item.taxes[0]) {
-                                  updateItemTax(idx, 0, 'name', 'GST')
-                                  updateItemTax(idx, 0, 'percent', inv.gstRate)
-                                }
-                              }}
-                              label="Item Name"
-                              placeholder="Type to search inventory..."
-                              priceType="salePrice"
-                            />
+                            {/* v4.110: Scan Barcode button — scans SKU/barcode, looks up inventory item, auto-fills row */}
+                            <div className="flex gap-1.5 items-end">
+                              <div className="flex-1">
+                                <ItemSuggest
+                                  tenantId={tenant?.id}
+                                  value={item.name}
+                                  onChange={(val) => updateItem(idx, 'name', val)}
+                                  onItemSelect={(inv) => {
+                                    updateItem(idx, 'name', inv.name)
+                                    updateItem(idx, 'category', inv.category || '')
+                                    updateItem(idx, 'hsn', inv.hsnCode || '')
+                                    updateItem(idx, 'unit', inv.unit)
+                                    updateItem(idx, 'rate', inv.salePrice)
+                                    updateItem(idx, 'mrp', inv.mrp || 0)
+                                    if (inv.gstRate > 0 && item.taxes[0]) {
+                                      updateItemTax(idx, 0, 'name', 'GST')
+                                      updateItemTax(idx, 0, 'percent', inv.gstRate)
+                                    }
+                                  }}
+                                  label="Item Name"
+                                  placeholder="Type to search inventory..."
+                                  priceType="salePrice"
+                                />
+                              </div>
+                              <BarcodeScanner
+                                buttonText="Scan"
+                                onScan={async (code) => {
+                                  if (!tenant) return
+                                  try {
+                                    // Look up inventory item by scanned SKU/barcode
+                                    const res = await authFetch('/api/inventory', {
+                                      method: 'POST',
+                                      headers: { 'Content-Type': 'application/json' },
+                                      body: JSON.stringify({ action: 'list', tenantId: tenant.id, search: code }),
+                                    })
+                                    if (!res.ok) return
+                                    const data = await res.json()
+                                    const match = (data.items || []).find(
+                                      (inv: { sku?: string | null; barcode?: string | null }) =>
+                                        (inv.sku && inv.sku.toLowerCase() === code.toLowerCase()) ||
+                                        (inv.barcode && inv.barcode.toLowerCase() === code.toLowerCase())
+                                    ) || (data.items || [])[0]
+                                    if (match) {
+                                      // Reuse the same fill logic as ItemSuggest's onItemSelect
+                                      updateItem(idx, 'name', match.name)
+                                      updateItem(idx, 'category', match.category || '')
+                                      updateItem(idx, 'hsn', match.hsnCode || '')
+                                      updateItem(idx, 'unit', match.unit)
+                                      updateItem(idx, 'rate', match.salePrice)
+                                      updateItem(idx, 'mrp', match.mrp || 0)
+                                      if (match.gstRate > 0 && item.taxes[0]) {
+                                        updateItemTax(idx, 0, 'name', 'GST')
+                                        updateItemTax(idx, 0, 'percent', match.gstRate)
+                                      }
+                                      toast({ title: 'Item found', description: `${match.name} (SKU: ${match.sku || code})`, duration: 3000 })
+                                    } else {
+                                      toast({
+                                        title: 'No item matches this barcode',
+                                        description: `Scanned "${code}" but no inventory item has this SKU or barcode. Add the item to inventory first.`,
+                                        variant: 'destructive',
+                                        duration: 6000,
+                                      })
+                                    }
+                                  } catch {
+                                    toast({ title: 'Lookup failed', variant: 'destructive' })
+                                  }
+                                }}
+                              />
+                            </div>
                             {item.saleItemType !== 'SERVICE' && (item.itemType === 'FINISHED_PRODUCT' || (item.name && finishedProductNames.includes(item.name.toLowerCase()))) && (
                               <span className="inline-flex items-center gap-1 mt-1 text-xs text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">
                                 <Package className="h-3 w-3" /> Includes raw materials

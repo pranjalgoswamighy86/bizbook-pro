@@ -64,3 +64,105 @@ export function printBarcodeLabel(name: string, barcode: string, price?: number,
   `)
   printWindow.document.close()
 }
+
+/**
+ * Print multiple barcode labels on a single page (grid layout).
+ * v4.110: Used for "Print All Barcodes" bulk action in Inventory.
+ *
+ * Each label is 70mm × 35mm — fits 12 labels per A4 sheet (3 cols × 4 rows).
+ */
+export function printBulkBarcodeLabels(
+  items: Array<{ name: string; barcode: string; price?: number; currency?: string }>
+) {
+  if (!items || items.length === 0) return
+
+  const labelsHtml = items
+    .map((item) => {
+      const svg = generateBarcodeSvg(item.barcode, {
+        width: 200,
+        height: 45,
+        showText: true,
+        fontSize: 9,
+      })
+      const escapedName = item.name
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;')
+      return `
+        <div class="label">
+          <div class="name">${escapedName}</div>
+          ${item.price !== undefined && item.price > 0
+            ? `<div class="price">${item.currency || '₹'}${item.price.toLocaleString('en-IN')}</div>`
+            : ''}
+          ${svg}
+        </div>
+      `
+    })
+    .join('')
+
+  const printWindow = window.open('', '_blank', 'width=800,height=600')
+  if (!printWindow) return
+
+  printWindow.document.write(`
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>Barcode Labels — ${items.length} items</title>
+      <style>
+        @page { margin: 8mm; size: A4; }
+        body { margin: 0; padding: 8px; font-family: Arial, sans-serif; }
+        .grid {
+          display: grid;
+          grid-template-columns: repeat(3, 1fr);
+          gap: 6mm;
+        }
+        .label {
+          text-align: center;
+          border: 1px solid #000;
+          padding: 6px 4px;
+          border-radius: 3px;
+          width: 70mm;
+          height: 35mm;
+          box-sizing: border-box;
+          display: flex;
+          flex-direction: column;
+          justify-content: center;
+          align-items: center;
+          page-break-inside: avoid;
+        }
+        .name {
+          font-size: 10px;
+          font-weight: bold;
+          margin-bottom: 2px;
+          max-width: 100%;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .price {
+          font-size: 12px;
+          font-weight: bold;
+          margin-bottom: 2px;
+        }
+        @media print {
+          body { padding: 0; }
+          .label { border: 1px solid #000; }
+        }
+      </style>
+    </head>
+    <body>
+      <div class="grid">${labelsHtml}</div>
+      <script>
+        window.onload = function() {
+          setTimeout(function() {
+            window.print();
+          }, 300);
+        }
+      </script>
+    </body>
+    </html>
+  `)
+  printWindow.document.close()
+}
