@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BizBook Pro — Emergency Database Backup</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background: linear-gradient(135deg, #fee2e2 0%, #fecaca 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1rem;
+    }
+    .container {
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
+      max-width: 560px;
+      width: 100%;
+      overflow: hidden;
+    }
+    .header {
+      background: linear-gradient(135deg, #e11d48 0%, #be123c 100%);
+      color: white;
+      padding: 1.75rem 2rem;
+    }
+    .header h1 {
+      font-size: 1.4rem;
+      font-weight: 600;
+      margin-bottom: 0.4rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .header p {
+      font-size: 0.85rem;
+      opacity: 0.95;
+      line-height: 1.45;
+    }
+    .body {
+      padding: 2rem;
+    }
+    .warning {
+      background: #fef3c7;
+      border: 1px solid #fcd34d;
+      border-radius: 8px;
+      padding: 0.85rem 1rem;
+      font-size: 0.8rem;
+      color: #92400e;
+      margin-bottom: 1.5rem;
+      line-height: 1.5;
+    }
+    .warning strong { color: #78350f; }
+    form { display: flex; flex-direction: column; gap: 1rem; }
+    label {
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: #374151;
+      margin-bottom: 0.35rem;
+      display: block;
+    }
+    input[type="email"], input[type="password"] {
+      width: 100%;
+      padding: 0.75rem 1rem;
+      border: 1px solid #d1d5db;
+      border-radius: 8px;
+      font-size: 0.95rem;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+    input:focus {
+      outline: none;
+      border-color: #e11d48;
+      box-shadow: 0 0 0 3px rgba(225, 29, 72, 0.15);
+    }
+    button {
+      background: #e11d48;
+      color: white;
+      border: none;
+      padding: 0.85rem 1.5rem;
+      border-radius: 8px;
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s, transform 0.05s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+    }
+    button:hover:not(:disabled) { background: #be123c; }
+    button:active:not(:disabled) { transform: translateY(1px); }
+    button:disabled { opacity: 0.6; cursor: not-allowed; }
+    .spinner {
+      width: 16px;
+      height: 16px;
+      border: 2px solid rgba(255, 255, 255, 0.3);
+      border-top-color: white;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .status {
+      margin-top: 1rem;
+      padding: 0.85rem 1rem;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      line-height: 1.5;
+      display: none;
+    }
+    .status.error { background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; display: block; }
+    .status.success { background: #d1fae5; color: #065f46; border: 1px solid #a7f3d0; display: block; }
+    .status.progress { background: #dbeafe; color: #1e40af; border: 1px solid #bfdbfe; display: block; }
+    .help {
+      margin-top: 1.5rem;
+      padding-top: 1.5rem;
+      border-top: 1px solid #e5e7eb;
+      font-size: 0.8rem;
+      color: #6b7280;
+      line-height: 1.6;
+    }
+    .help details { margin-top: 0.5rem; }
+    .help summary {
+      cursor: pointer;
+      color: #374151;
+      font-weight: 600;
+      padding: 0.4rem 0;
+    }
+    .help code {
+      background: #f3f4f6;
+      padding: 0.15rem 0.4rem;
+      border-radius: 3px;
+      font-size: 0.78rem;
+      color: #1f2937;
+    }
+    .help pre {
+      background: #f3f4f6;
+      padding: 0.75rem;
+      border-radius: 6px;
+      overflow-x: auto;
+      font-size: 0.78rem;
+      margin-top: 0.5rem;
+      color: #1f2937;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>⚠️ Emergency Database Backup</h1>
+      <p>Download a complete copy of your entire BizBook Pro database. Works even if you can't log in normally.</p>
+    </div>
+
+    <div class="body">
+      <div class="warning">
+        <strong>When to use this:</strong> If you can't log in to the app, or if the regular backup option in Settings isn't working, this page will still let you download all your data using just your email and password.
+      </div>
+
+      <form id="backupForm">
+        <div>
+          <label for="email">Your Email Address</label>
+          <input type="email" id="email" name="email" required autocomplete="email" placeholder="you@example.com" />
+        </div>
+        <div>
+          <label for="password">Your Password</label>
+          <input type="password" id="password" name="password" required autocomplete="current-password" placeholder="Your account password" />
+        </div>
+        <button type="submit" id="submitBtn">
+          <span id="btnText">⬇️ Download Complete Backup</span>
+        </button>
+      </form>
+
+      <div id="status" class="status"></div>
+
+      <div class="help">
+        <details>
+          <summary>What happens when I click Download?</summary>
+          <p style="margin-top:0.5rem;">Your email and password are verified against the BizBook Pro database. If correct, the server packages <strong>every table, every record</strong> (all companies, all sales, all purchases, all inventory — everything) into a single JSON file and downloads it to your computer.</p>
+          <p style="margin-top:0.5rem;">The backup includes soft-deleted records too, so nothing is lost.</p>
+        </details>
+
+        <details>
+          <summary>How long does it take?</summary>
+          <p style="margin-top:0.5rem;">Usually 5–30 seconds depending on how much data you have. For large databases (50,000+ records), it may take up to 2 minutes. Don't close this tab while the download is in progress.</p>
+        </details>
+
+        <details>
+          <summary>How do I restore from this backup?</summary>
+          <p style="margin-top:0.5rem;">The downloaded JSON file contains step-by-step restoration instructions in its <code>_metadata.instructions</code> field. In short:</p>
+          <ol style="margin-left:1.5rem; margin-top:0.5rem;">
+            <li>Set up a new PostgreSQL database</li>
+            <li>Deploy BizBook Pro pointing to that database</li>
+            <li>Use the <code>/api/db-admin</code> endpoint with action <code>restore</code> to import this JSON</li>
+            <li>Log in with your email + password — all data will be there</li>
+          </ol>
+        </details>
+
+        <details>
+          <summary>Prefer the command line?</summary>
+          <p style="margin-top:0.5rem;">You can also download a backup using curl:</p>
+          <pre>curl -X POST https://YOUR-APP-URL.up.railway.app/api/backup/emergency \
+  -H "Content-Type: application/json" \
+  -d '{"email":"you@example.com","password":"yourpassword"}' \
+  --output backup.json</pre>
+        </details>
+
+        <details>
+          <summary>Is this secure?</summary>
+          <p style="margin-top:0.5rem;">Yes — your password is verified against the database just like a normal login. We do <em>not</em> store your password, and the backup is only generated after successful authentication. The download is logged to the audit trail.</p>
+          <p style="margin-top:0.5rem;">Even if your account has been deactivated or soft-deleted, you can still use this — the data is yours and you have the right to export it.</p>
+        </details>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const form = document.getElementById('backupForm');
+    const submitBtn = document.getElementById('submitBtn');
+    const btnText = document.getElementById('btnText');
+    const statusEl = document.getElementById('status');
+
+    function setStatus(type, msg) {
+      statusEl.className = 'status ' + type;
+      statusEl.innerHTML = msg;
+    }
+
+    function clearStatus() {
+      statusEl.className = 'status';
+      statusEl.innerHTML = '';
+    }
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      clearStatus();
+
+      const email = document.getElementById('email').value.trim();
+      const password = document.getElementById('password').value;
+
+      if (!email || !password) {
+        setStatus('error', '⚠️ Please enter both your email and password.');
+        return;
+      }
+
+      // Disable button + show spinner
+      submitBtn.disabled = true;
+      btnText.innerHTML = '<span class="spinner"></span> Preparing backup...';
+      setStatus('progress', '⏳ Verifying your credentials and packaging the database...<br><br>This may take 5–30 seconds. Please don\'t close this tab.');
+
+      const startTime = Date.now();
+
+      try {
+        const response = await fetch('/api/backup/emergency', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password }),
+        });
+
+        const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+
+        if (!response.ok) {
+          let errMsg = 'Backup failed (HTTP ' + response.status + ')';
+          try {
+            const errJson = await response.json();
+            if (errJson.error) errMsg = errJson.error;
+            if (errJson.details) errMsg += '<br><br><small style="color:#6b7280;">Details: ' + errJson.details + '</small>';
+          } catch {}
+          setStatus('error', '⚠️ ' + errMsg);
+          submitBtn.disabled = false;
+          btnText.textContent = '⬇️ Download Complete Backup';
+          return;
+        }
+
+        // Check if it's a JSON error response (server returned JSON with error field)
+        const contentType = response.headers.get('Content-Type') || '';
+        if (contentType.includes('application/json') && !contentType.includes('attachment')) {
+          // Could be either a valid backup JSON or an error JSON
+          // Check Content-Disposition header to distinguish
+          const cd = response.headers.get('Content-Disposition') || '';
+          if (!cd.includes('attachment')) {
+            // It's an error response
+            const errJson = await response.json().catch(() => ({}));
+            setStatus('error', '⚠️ ' + (errJson.error || 'Backup failed') + (errJson.details ? '<br><br><small style="color:#6b7280;">Details: ' + errJson.details + '</small>' : ''));
+            submitBtn.disabled = false;
+            btnText.textContent = '⬇️ Download Complete Backup';
+            return;
+          }
+        }
+
+        // Success — trigger download
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+
+        // Try to extract filename from Content-Disposition
+        const cd = response.headers.get('Content-Disposition') || '';
+        const filenameMatch = cd.match(/filename="?([^"]+)"?/);
+        a.download = filenameMatch
+          ? filenameMatch[1]
+          : 'bizbook_pro_EMERGENCY_backup_' + new Date().toISOString().split('T')[0] + '.json';
+
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+        const sizeMB = (blob.size / (1024 * 1024)).toFixed(2);
+        setStatus('success', '✅ Backup downloaded successfully!<br><br>⏱️ Completed in ' + elapsed + 's<br>📦 File size: ' + sizeMB + ' MB<br><br><strong>Keep this file safe</strong> — it contains your entire database. Store it on your computer, in cloud storage (Google Drive, Dropbox), and/or on a USB drive for maximum safety.');
+        submitBtn.disabled = false;
+        btnText.textContent = '⬇️ Download Another Backup';
+      } catch (err) {
+        setStatus('error', '⚠️ Network error: ' + (err.message || 'Unknown error') + '<br><br>Please check your internet connection and try again.');
+        submitBtn.disabled = false;
+        btnText.textContent = '⬇️ Download Complete Backup';
+      }
+    });
+  </script>
+</body>
+</html>

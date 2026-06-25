@@ -398,7 +398,31 @@ export async function POST(req: NextRequest) {
         orderBy: { createdAt: 'asc' },
       })
 
-      const defaultTenant = user.tenant
+      // v4.109: Handle the case where the user's primary tenant was
+      // soft-deleted (or hard-deleted) but the User row still exists.
+      // Previously, the code accessed defaultTenant.id and crashed with
+      // a 500 "Internal server error" — leaving the user unable to log in
+      // at all, even to download a backup.
+      //
+      // Now: fall back to the first available company's tenant. If no
+      // companies exist (all tenants deleted), return a clear error
+      // pointing the user to /emergency-backup.html so they can still
+      // get their data out.
+      let defaultTenant = user.tenant
+      if (!defaultTenant) {
+        console.warn(`[AUTH-GATE] User ${user.email} has no primary tenant (id=${user.tenantId}). Falling back to companies list.`);
+        // Pick the first company whose tenant actually loaded
+        const fallbackCompany = companies.find(c => c.tenant && c.tenant.id)
+        if (fallbackCompany) {
+          defaultTenant = fallbackCompany.tenant as any
+          // Also update the user's tenantId so future logins use the valid tenant
+          await db.user.update({
+            where: { id: user.id },
+            data: { tenantId: fallbackCompany.tenantId },
+          }).catch(() => {}); // non-blocking
+          console.log(`[AUTH-GATE] Migrated user ${user.email} to tenant ${defaultTenant.id} (${defaultTenant.name})`);
+        }
+      }
 
       // === v4.60: REMOVED 3-Day OTP Gate for login ===
       // USER REQUIREMENT: "NO NEED OTP VERIFICATION > AFTER EVERY LOGOUT
@@ -425,13 +449,23 @@ export async function POST(req: NextRequest) {
           user: { id: user.id, email: user.email, name: user.name },
           workspaces: companies.map(c => ({
             tenantId: c.tenantId,
-            tenantName: c.tenant.name,
+            tenantName: c.tenant?.name || '(deleted company)',
             role: c.role,
             isOwner: c.isOwner,
             isOwnTenant: c.role === 'MAIN_ADMIN' && c.isOwner,
           })),
           // NO session token issued yet — user must select workspace first
         });
+      }
+
+      // v4.109: If still no defaultTenant and no companies, the user's
+      // account is orphaned. Don't crash with 500 — return a clear error.
+      if (!defaultTenant) {
+        return NextResponse.json({
+          error: 'Your account is not linked to any active company. This can happen if your company was deleted. You can still download your data using the Emergency Backup page.',
+          emergencyBackupUrl: '/emergency-backup.html',
+          supportEmail: 'support@bizbook.pro',
+        }, { status: 403 })
       }
 
       // ---- SECURITY PATCH v1: set session cookie ----
@@ -441,7 +475,7 @@ export async function POST(req: NextRequest) {
         tenant: { id: defaultTenant.id, name: defaultTenant.name, address: defaultTenant.address, phone: defaultTenant.phone, email: defaultTenant.email, gstNumber: defaultTenant.gstNumber, panNumber: defaultTenant.panNumber, upiId: defaultTenant.upiId, plan: defaultTenant.plan, planExpires: defaultTenant.planExpires?.toISOString(), currency: defaultTenant.currency },
         companies: companies.map(c => ({
           tenantId: c.tenantId,
-          name: c.tenant.name,
+          name: c.tenant?.name || '(deleted company)',
           role: c.role,
           isOwner: c.isOwner,
           tenant: c.tenant,

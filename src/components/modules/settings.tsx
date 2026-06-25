@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Settings, Users, Building2, Crown, KeyRound, Loader2, ArrowLeft, Eye, EyeOff, RefreshCw, Database, Info, Trash2, Download, Activity } from 'lucide-react'
+import { Settings, Users, Building2, Crown, KeyRound, Loader2, ArrowLeft, Eye, EyeOff, RefreshCw, Database, Info, Trash2, Download, Activity, AlertTriangle } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import { formatDate } from '@/lib/formulas'
 import { authFetch } from '@/lib/auth-fetch'
@@ -730,15 +730,44 @@ export function SettingsPage() {
                         URL.revokeObjectURL(url)
                         toast({ title: 'Complete Backup Downloaded', description: 'Keep this file safe. It contains your entire database.', duration: 8000 })
                       } else {
-                        toast({ title: 'Backup Failed', variant: 'destructive' })
+                        // Read the error response body for details
+                        let errDetail = `Server returned ${res.status} ${res.statusText}`
+                        try {
+                          const errJson = await res.json()
+                          if (errJson?.error) errDetail = errJson.error
+                          if (errJson?.details) errDetail += ` — ${errJson.details}`
+                        } catch {}
+                        toast({
+                          title: 'Backup Failed',
+                          description: `${errDetail}. Try the Emergency Backup option below.`,
+                          variant: 'destructive',
+                          duration: 10000,
+                        })
                       }
-                    } catch {
-                      toast({ title: 'Backup Failed', variant: 'destructive' })
+                    } catch (err: any) {
+                      toast({
+                        title: 'Backup Failed',
+                        description: err?.message || 'Network error. Try the Emergency Backup option below.',
+                        variant: 'destructive',
+                        duration: 10000,
+                      })
                     }
                   }}>
                     <Download className="h-3.5 w-3.5 mr-1" /> Download Complete Backup
                   </Button>
                 </div>
+
+                {/* v4.109: Emergency Backup — works without a logged-in session */}
+                <div className="bg-amber-50 dark:bg-amber-950/20 p-4 rounded-lg border border-amber-300 dark:border-amber-800">
+                  <h4 className="font-medium text-sm mb-1 flex items-center gap-2"><AlertTriangle className="h-4 w-4 text-amber-600" /> Emergency Backup</h4>
+                  <p className="text-xs text-muted-foreground mb-3"><strong>Last-resort backup.</strong> Use this if the regular backup above doesn't work, or if you can't log in normally. Opens a separate page where you enter your email + password to download all your data.</p>
+                  <Button size="sm" variant="outline" className="border-amber-400 text-amber-700 hover:bg-amber-100 dark:text-amber-400 dark:hover:bg-amber-950/40" onClick={() => {
+                    window.open('/emergency-backup.html', '_blank')
+                  }}>
+                    <Download className="h-3.5 w-3.5 mr-1" /> Open Emergency Backup Page
+                  </Button>
+                </div>
+
                 <div className="bg-muted/50 p-4 rounded-lg">
                   <h4 className="font-medium text-sm mb-1 flex items-center gap-2"><Download className="h-4 w-4 text-emerald-600" /> Export Data (JSON)</h4>
                   <p className="text-xs text-muted-foreground mb-3">Download business data in JSON format for import into other systems.</p>
@@ -759,9 +788,11 @@ export function SettingsPage() {
                         a.click()
                         URL.revokeObjectURL(url)
                         toast({ title: 'Backup Downloaded' })
+                      } else {
+                        toast({ title: 'Export Failed', description: `Server returned ${res.status}`, variant: 'destructive' })
                       }
-                    } catch {
-                      toast({ title: 'Export Failed', variant: 'destructive' })
+                    } catch (err: any) {
+                      toast({ title: 'Export Failed', description: err?.message || 'Network error', variant: 'destructive' })
                     }
                   }}>
                     <Download className="h-3.5 w-3.5 mr-1" /> Download Backup
@@ -820,7 +851,7 @@ export function SettingsPage() {
                   </div>
                   <div className="bg-muted/50 p-3 rounded-lg">
                     <p className="text-xs text-muted-foreground">Version</p>
-                    <p className="font-semibold">v4.66.0</p>
+                    <p className="font-semibold">v4.109.0</p>
                     <p className="text-xs text-muted-foreground">Built with Next.js 16 + Prisma + PostgreSQL</p>
                     <p className="text-[10px] text-muted-foreground mt-1">A Product by Tahigo International</p>
                   </div>
