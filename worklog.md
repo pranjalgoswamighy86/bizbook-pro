@@ -329,3 +329,64 @@ Stage Summary:
 - Issue 2 (Bulk barcode scanner): FIXED. A new "Scan Barcode to Add Item" button appears at the top of the Items section in both Sale Register and Purchase Register. Click it → camera opens → scan item → row auto-added with all details → scan next item → row auto-added → click Done. The scanner stays open for rapid-fire scanning (with 2-second cooldown to prevent duplicate scans of the same item).
 - The per-row "Scan" button (added in v4.110) remains for editing existing rows in place. Users now have two ways to scan: bulk-add (top of Items section) or per-row edit (next to Item Name).
 - Note: Barcode scanning requires Chrome/Edge 83+ (BarcodeDetector API) and HTTPS. Falls back to manual entry on unsupported browsers. The bulk scanner also supports manual entry — type a SKU and press Enter to add an item, then type another SKU and press Enter again.
+
+---
+Task ID: v4.112
+Agent: Main (Super Z)
+Task: User requested: "print barcode individually item wise instead of print all product barcode."
+  Interpretation: Remove the bulk "Print All Barcodes" button. Keep only per-item barcode printing (one item at a time).
+
+Work Log:
+- Reviewed current state of inventory.tsx:
+  • v4.110 added a "Print All Barcodes" bulk button at the top of the Raw Materials tab
+  • v4.110 also added a per-item printer icon button in each inventory row
+  • The Products (BOM) tab did NOT have any barcode print button
+- Decided on three changes:
+  1. Remove the bulk "Print All Barcodes" button (per user request)
+  2. Improve the per-item print button (make it a labeled outline button instead of icon-only ghost button — more discoverable)
+  3. Add the same per-item print button to the Products (BOM) tab so finished products can also have barcodes printed individually
+
+Changes Applied:
+1. src/components/modules/inventory.tsx (Raw Materials tab):
+   - Removed the entire "Print All Barcodes" Button block (lines 303-333 of v4.111)
+   - Replaced with a small hint message: "Click the [printer icon] on any row to print that item's barcode label."
+   - The hint uses the Printer icon inline so users immediately see what to look for
+
+2. src/components/modules/inventory.tsx (per-item print button in Raw Materials tab):
+   - Changed from icon-only ghost button (h-8 w-8) to labeled outline button (h-8 px-2)
+   - Added "Barcode" text label (hidden on mobile, visible on sm+ screens)
+   - Added blue border + text color (border-blue-200 text-blue-700 hover:bg-blue-50)
+   - Now works even when item has NO SKU — falls back to a sanitized version of the item name (uppercase, alphanumeric only, truncated to 12 chars) so users can always print a label
+   - Toast message now shows both the item name AND the barcode value that was used
+
+3. src/components/modules/inventory.tsx (Products/BOM tab — NEW):
+   - Added a "Barcode" print button to each product card's action area
+   - Position: first button in the action area (before "Produce", "Edit", "Delete")
+   - Uses the linked inventory item's SKU if available (the inventoryItem variable already exists at line 429)
+   - Falls back to sanitized product name if no SKU
+   - Uses the product's salePrice (not purchase price) on the label
+
+4. Cleaned up unused import:
+   - Removed `printBulkBarcodeLabels` from the import in inventory.tsx (no longer used)
+   - Kept the function in src/components/app/barcode-label.tsx for potential future use
+
+5. Version bumps:
+   - settings.tsx: v4.111.0 → v4.112.0
+   - help-modal.tsx: v4.111 → v4.112
+
+Verification:
+- npx tsc --noEmit (full project): 0 errors in any of the 3 changed files
+- npx eslint on all 3 files: 0 errors, 0 warnings
+
+Deployment:
+- Committed as v4.112 (commit 2e6931a)
+- Pushed to GitHub: 137ebb6..2e6931a main → main
+- Railway auto-build triggered (~3 min typical)
+
+Stage Summary:
+- The bulk "Print All Barcodes" button is GONE.
+- Each inventory item (raw materials) and each product (BOM) now has its own "Barcode" button.
+- Click any one of them → print preview opens with just that item's label.
+- Label contents: item name (top), sale price (middle, if > 0), SKU as the barcode (bottom).
+- The barcode value is the SKU if available, or a sanitized item/product name as fallback (so printing always works).
+- Label size: 80mm × 40mm — fits standard thermal label printers.
