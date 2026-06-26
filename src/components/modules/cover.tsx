@@ -237,6 +237,31 @@ export function CoverPage() {
         return
       }
 
+      // v4.116: Handle OTP bypass fallback — when email/SMS is not configured,
+      // the backend returns the OTP directly in the response. Show it to the
+      // user so they can complete registration.
+      if (data.otpBypass && data.devOtp) {
+        setRegOtpSent(true)
+        setRegStep('verify-otp')
+        setRegResendCooldown(60)
+        setRegOtp(data.devOtp) // Pre-fill the OTP field
+
+        // Start countdown
+        const countdown = setInterval(() => {
+          setRegResendCooldown(prev => {
+            if (prev <= 1) { clearInterval(countdown); return 0 }
+            return prev - 1
+          })
+        }, 1000)
+
+        toast({
+          title: '⚠️ OTP Delivery Not Configured',
+          description: `Your verification code is: ${data.devOtp}. The OTP has been pre-filled below — just click "Verify OTP & Continue".`,
+          duration: 15000,
+        })
+        return
+      }
+
       // OTP sent successfully — move to verification step
       setRegOtpSent(true)
       setRegStep('verify-otp')
@@ -378,12 +403,24 @@ export function CoverPage() {
         setResetError(data.error || 'Failed to send OTP')
         return
       }
-      if (data.sent === false && !data.emailSent && !data.smsSent) {
+      if (data.sent === false && !data.emailSent && !data.smsSent && !data.otpBypass) {
         setResetError(data.message || 'No account found with this email or phone number.')
         return
       }
       if (data.email) {
         setResetEmail(data.email)
+      }
+      // v4.116: Handle OTP bypass fallback for password reset
+      if (data.otpBypass && data.devOtp) {
+        setResetOtp(data.devOtp) // Pre-fill the OTP field
+        setOtpDeliveryMethod('unknown')
+        setResetStep('verify')
+        toast({
+          title: '⚠️ OTP Delivery Not Configured',
+          description: `Your verification code is: ${data.devOtp}. The OTP has been pre-filled below — just enter your new password and click Reset.`,
+          duration: 15000,
+        })
+        return
       }
       if (data.emailSent && data.smsSent) {
         setOtpDeliveryMethod('both')
