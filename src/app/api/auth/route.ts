@@ -267,6 +267,7 @@ export async function POST(req: NextRequest) {
       })
 
       console.log(`[REGISTER] New account created: ${email} (Company: ${tenant.name})`)
+      console.log(`[TENANT-PROTECT] ✓ Tenant "${tenant.name}" (email: ${tenant.email}) is now a PROTECTED TENANT — data cannot be hard-deleted.`)
 
       const companies = await db.userTenant.findMany({
         where: { userId: user.id },
@@ -347,6 +348,10 @@ export async function POST(req: NextRequest) {
         })
         return { tenant, user }
       })
+
+      // v4.114: Log that this tenant is now protected
+      console.log(`[REGISTER] New account created: ${email} (Company: ${tenant.name})`)
+      console.log(`[TENANT-PROTECT] ✓ Tenant "${tenant.name}" (email: ${tenant.email}) is now a PROTECTED TENANT — data cannot be hard-deleted.`)
 
       // ---- SECURITY PATCH v1: set session cookie ----
       const token = createSessionToken(user.id, user.email)

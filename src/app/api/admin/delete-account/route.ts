@@ -178,43 +178,65 @@ export async function POST(req: NextRequest) {
           removedStaffLinks.push(ut.tenantId)
         }
 
-        // 3. Delete owned tenants — cascades to ALL related data
-        //    (sales, purchases, expenses, inventory, parties, debtors, creditors,
-        //     payments, receipts, journal entries, accounts, subscriptions, batches,
-        //     price lists, bank transactions, staff, audit logs, AND all users
-        //     whose primary tenantId points to this tenant)
+        // 3. v4.114: PROTECTED TENANT GUARD
+        //    Every registered tenant is now a protected tenant. Their data
+        //    CANNOT be hard-deleted through any API endpoint. Instead of
+        //    tx.tenant.delete() (which cascades to ALL related data and
+        //    permanently destroys it), we now SOFT-DELETE the tenant:
+        //      - Sets isDeleted=true, deletedAt=now()
+        //      - Preserves ALL data (sales, purchases, inventory, etc.)
+        //      - The tenant becomes inaccessible via normal queries
+        //      - Data can be recovered by setting isDeleted=false
+        //
+        //    The ONLY way to truly hard-delete a tenant is to connect to
+        //    the database directly (psql / Prisma Studio) and run a raw
+        //    DELETE query. This is intentional — it prevents accidental
+        //    data loss through the UI or API.
         for (const ut of ownedTenants) {
-          // Also delete OTHER users whose primary tenantId is this tenant
-          // (i.e., staff members of the tenant being deleted)
-          await tx.user.deleteMany({
-            where: { tenantId: ut.tenantId, id: { not: targetUser.id } },
+          // Soft-delete the tenant (preserves all data)
+          await tx.tenant.update({
+            where: { id: ut.tenantId },
+            data: {
+              isDeleted: true,
+              deletedAt: new Date(),
+            },
           })
-
-          // Now delete the tenant — cascades everything else
-          await tx.tenant.delete({ where: { id: ut.tenantId } })
+          // Soft-delete OTHER users whose primary tenantId is this tenant
+          // (i.e., staff members of the tenant being deactivated)
+          await tx.user.updateMany({
+            where: { tenantId: ut.tenantId, id: { not: targetUser.id } },
+            data: {
+              isDeleted: true,
+              deletedAt: new Date(),
+            },
+          })
           deletedTenants.push(ut.tenantId)
         }
 
-        // 4. Finally, delete the target user (if not already cascade-deleted)
-        //    This handles the edge case where targetUser had only staff links (no owned tenants)
-        try {
-          await tx.user.delete({ where: { id: targetUser.id } })
-        } catch {
-          // Already cascade-deleted via tenant deletion — that's fine
-        }
+        // 4. Soft-delete the target user (preserve their record for audit)
+        await tx.user.update({
+          where: { id: targetUser.id },
+          data: {
+            isDeleted: true,
+            deletedAt: new Date(),
+            // Deactivate so they can't log in
+            isActive: false,
+          },
+        })
 
         return { deletedTenants, removedStaffLinks }
       })
 
       return NextResponse.json({
         success: true,
-        message: `Account ${targetEmail} has been permanently deleted.`,
+        message: `Account ${targetEmail} has been deactivated (soft-deleted). Data preserved per v4.114 protected-tenant policy.`,
         details: {
           userId: targetUser.id,
           userEmail: targetUser.email,
           userName: targetUser.name,
-          deletedTenants: result.deletedTenants,
+          softDeletedTenants: result.deletedTenants,
           removedStaffLinks: result.removedStaffLinks,
+          note: 'Tenant data (sales, purchases, inventory, etc.) has been PRESERVED. The user can no longer log in. To restore, set isDeleted=false on the User and Tenant records via direct database access.',
         },
       })
     }
