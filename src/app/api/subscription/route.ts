@@ -398,37 +398,99 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'FORBIDDEN — Super Admin only' }, { status: 403 })
       }
 
-      // Fetch ALL subscriptions with tenant info
-      const allSubs = await db.subscription.findMany({
-        include: {
-          tenant: {
-            select: { id: true, name: true, email: true, phone: true, plan: true, createdAt: true },
-          },
-        },
+      // v4.118: Query ALL tenants (not just those with subscription records).
+      // Previously this only queried db.subscription.findMany() which missed any
+      // tenant that didn't have a subscription row yet. Now we query tenants
+      // first, then LEFT JOIN subscriptions + record counts for a full report.
+      const allTenants = await db.tenant.findMany({
         orderBy: { createdAt: 'desc' },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          phone: true,
+          plan: true,
+          isDeleted: true,
+          deletedAt: true,
+          createdAt: true,
+        },
       })
 
+      // Fetch all subscriptions (for the tenants that have them)
+      const allSubs = await db.subscription.findMany({
+        where: { tenantId: { in: allTenants.map(t => t.id) } },
+      })
+      const subMap = new Map(allSubs.map(s => [s.tenantId, s]))
+
+      // Fetch record counts per tenant (sales, purchases, expenses, inventory, parties)
+      // Using rawDb to bypass soft-delete filter — we want to see ALL data including soft-deleted
+      const { rawDb } = await import('@/lib/db-soft-delete')
+      const tenantIds = allTenants.map(t => t.id)
+
+      // Use groupBy to count records per tenant for each table
+      const [salesCounts, purchaseCounts, expenseCounts, inventoryCounts, partyCounts, userCounts] = await Promise.all([
+        rawDb.sale.groupBy({ by: ['tenantId'], where: { tenantId: { in: tenantIds } }, _count: { _all: true } }),
+        rawDb.purchase.groupBy({ by: ['tenantId'], where: { tenantId: { in: tenantIds } }, _count: { _all: true } }),
+        rawDb.expense.groupBy({ by: ['tenantId'], where: { tenantId: { in: tenantIds } }, _count: { _all: true } }),
+        rawDb.inventoryItem.groupBy({ by: ['tenantId'], where: { tenantId: { in: tenantIds } }, _count: { _all: true } }),
+        rawDb.party.groupBy({ by: ['tenantId'], where: { tenantId: { in: tenantIds } }, _count: { _all: true } }),
+        rawDb.user.groupBy({ by: ['tenantId'], where: { tenantId: { in: tenantIds } }, _count: { _all: true } }),
+      ])
+
+      // Build count maps
+      const toCountMap = (rows: Array<{ tenantId: string; _count: { _all: number } }>) => {
+        const map = new Map<string, number>()
+        for (const r of rows) map.set(r.tenantId, r._count._all)
+        return map
+      }
+      const salesMap = toCountMap(salesCounts as any[])
+      const purchaseMap = toCountMap(purchaseCounts as any[])
+      const expenseMap = toCountMap(expenseCounts as any[])
+      const inventoryMap = toCountMap(inventoryCounts as any[])
+      const partyMap = toCountMap(partyCounts as any[])
+      const userMap = toCountMap(userCounts as any[])
+
       return NextResponse.json({
-        totalTenants: allSubs.length,
-        subscriptions: allSubs.map(s => ({
-          id: s.id,
-          tenantId: s.tenantId,
-          tenantName: s.tenant?.name || 'Unknown',
-          tenantEmail: s.tenant?.email || '',
-          tenantPhone: s.tenant?.phone || '',
-          planName: s.planName,
-          planHours: s.planHours,
-          remainingSeconds: s.remainingSeconds,
-          remainingHours: Math.floor(s.remainingSeconds / 3600),
-          totalSeconds: s.totalSeconds,
-          status: s.status,
-          isFreeTier: s.isFreeTier,
-          freeTierHours: s.freeTierHours,
-          startDate: s.startDate.toISOString(),
-          endDate: s.endDate?.toISOString() || null,
-          maxUsersAllowed: (s as any).maxUsersAllowed || null,
-          customPlanType: (s as any).customPlanType || null,
-        })),
+        totalTenants: allTenants.length,
+        activeTenants: allTenants.filter(t => !t.isDeleted).length,
+        softDeletedTenants: allTenants.filter(t => t.isDeleted).length,
+        tenantsWithSubscriptions: allSubs.length,
+        subscriptions: allTenants.map(t => {
+          const s = subMap.get(t.id)
+          return {
+            id: s?.id || `tenant-${t.id}`,
+            tenantId: t.id,
+            tenantName: t.name,
+            tenantEmail: t.email || '',
+            tenantPhone: t.phone || '',
+            tenantPlan: t.plan,
+            isDeleted: t.isDeleted,
+            deletedAt: t.deletedAt?.toISOString() || null,
+            tenantCreatedAt: t.createdAt.toISOString(),
+            // Subscription fields (may be null if no subscription record)
+            planName: s?.planName || null,
+            planHours: s?.planHours || 0,
+            remainingSeconds: s?.remainingSeconds || 0,
+            remainingHours: s ? Math.floor(s.remainingSeconds / 3600) : 0,
+            totalSeconds: s?.totalSeconds || 0,
+            status: s?.status || 'NO_SUBSCRIPTION',
+            isFreeTier: s?.isFreeTier ?? true,
+            freeTierHours: s?.freeTierHours || 100,
+            startDate: s?.startDate?.toISOString() || null,
+            endDate: s?.endDate?.toISOString() || null,
+            maxUsersAllowed: (s as any)?.maxUsersAllowed || null,
+            customPlanType: (s as any)?.customPlanType || null,
+            // v4.118: Record counts for full tenant report
+            recordCounts: {
+              users: userMap.get(t.id) || 0,
+              sales: salesMap.get(t.id) || 0,
+              purchases: purchaseMap.get(t.id) || 0,
+              expenses: expenseMap.get(t.id) || 0,
+              inventory: inventoryMap.get(t.id) || 0,
+              parties: partyMap.get(t.id) || 0,
+            },
+          }
+        }),
       })
     }
 
