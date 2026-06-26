@@ -67,6 +67,7 @@ export function CoverPage() {
   const [businessPhone, setBusinessPhone] = useState('')
   const [businessGst, setBusinessGst] = useState('')
   const [regOtp, setRegOtp] = useState('')
+  const [regOtpBypass, setRegOtpBypass] = useState('') // v4.117: visible OTP when email/SMS not configured
   const [regOtpSent, setRegOtpSent] = useState(false)
   const [regResendCooldown, setRegResendCooldown] = useState(0)
 
@@ -75,6 +76,7 @@ export function CoverPage() {
   const [resetIdentifier, setResetIdentifier] = useState('')
   const [resetEmail, setResetEmail] = useState('') // resolved email from server
   const [resetOtp, setResetOtp] = useState('')
+  const [resetOtpBypass, setResetOtpBypass] = useState('') // v4.117: visible OTP for password reset bypass
   const [resetNewPassword, setResetNewPassword] = useState('')
   const [resetConfirmPassword, setResetConfirmPassword] = useState('')
   const [resetLoading, setResetLoading] = useState(false)
@@ -245,6 +247,7 @@ export function CoverPage() {
         setRegStep('verify-otp')
         setRegResendCooldown(60)
         setRegOtp(data.devOtp) // Pre-fill the OTP field
+        setRegOtpBypass(data.devOtp) // v4.117: show visible banner on verify step
 
         // Start countdown
         const countdown = setInterval(() => {
@@ -413,6 +416,7 @@ export function CoverPage() {
       // v4.116: Handle OTP bypass fallback for password reset
       if (data.otpBypass && data.devOtp) {
         setResetOtp(data.devOtp) // Pre-fill the OTP field
+        setResetOtpBypass(data.devOtp) // v4.117: show visible banner
         setOtpDeliveryMethod('unknown')
         setResetStep('verify')
         toast({
@@ -764,29 +768,49 @@ export function CoverPage() {
                       <button
                         type="button"
                         className="text-sm text-emerald-600 hover:text-emerald-700 font-medium inline-flex items-center gap-1"
-                        onClick={() => { setRegStep('form'); setError(''); setRegOtp('') }}
+                        onClick={() => { setRegStep('form'); setError(''); setRegOtp(''); setRegOtpBypass('') }}
                       >
                         <ArrowLeft className="h-3.5 w-3.5" /> Back to form
                       </button>
 
-                      {/* OTP sent confirmation */}
-                      <div className="bg-emerald-50 dark:bg-emerald-950 p-3 rounded-lg text-sm">
-                        <p className="font-medium text-emerald-700 dark:text-emerald-300 flex items-center gap-2">
-                          <MailCheck className="h-4 w-4" />
-                          Verification OTP Sent
-                        </p>
-                        <p className="text-emerald-600 dark:text-emerald-400 text-xs mt-1">
-                          Email: {regEmail.replace(/(.{2})(.*)(@.*)/, '$1***$3')}
-                        </p>
-                        {businessPhone && (
-                          <p className="text-emerald-600 dark:text-emerald-400 text-xs mt-0.5">
-                            Phone: {businessPhone.slice(0, 2)}****{businessPhone.slice(-2)}
+                      {/* v4.117: Visible OTP bypass banner — shown when email/SMS is not configured */}
+                      {regOtpBypass && (
+                        <div className="bg-amber-50 dark:bg-amber-950/30 border-2 border-amber-400 dark:border-amber-700 rounded-lg p-4">
+                          <p className="font-bold text-amber-800 dark:text-amber-300 text-sm flex items-center gap-2">
+                            ⚠️ OTP Delivery Not Configured
                           </p>
-                        )}
-                        <p className="text-xs text-emerald-500 dark:text-emerald-400 mt-1">
-                          Please check your email inbox/spam and mobile for the 6-digit OTP.
-                        </p>
-                      </div>
+                          <p className="text-amber-700 dark:text-amber-400 text-xs mt-1">
+                            Email/SMS service is not set up on the server. Your verification code is:
+                          </p>
+                          <p className="text-3xl font-bold text-amber-900 dark:text-amber-200 text-center tracking-[0.5em] font-mono mt-2 mb-1">
+                            {regOtpBypass}
+                          </p>
+                          <p className="text-amber-600 dark:text-amber-500 text-xs text-center">
+                            ✅ The OTP field below is pre-filled — just click "Verify OTP & Continue"
+                          </p>
+                        </div>
+                      )}
+
+                      {/* OTP sent confirmation — hidden when bypass is active */}
+                      {!regOtpBypass && (
+                        <div className="bg-emerald-50 dark:bg-emerald-950 p-3 rounded-lg text-sm">
+                          <p className="font-medium text-emerald-700 dark:text-emerald-300 flex items-center gap-2">
+                            <MailCheck className="h-4 w-4" />
+                            Verification OTP Sent
+                          </p>
+                          <p className="text-emerald-600 dark:text-emerald-400 text-xs mt-1">
+                            Email: {regEmail.replace(/(.{2})(.*)(@.*)/, '$1***$3')}
+                          </p>
+                          {businessPhone && (
+                            <p className="text-emerald-600 dark:text-emerald-400 text-xs mt-0.5">
+                              Phone: {businessPhone.slice(0, 2)}****{businessPhone.slice(-2)}
+                            </p>
+                          )}
+                          <p className="text-xs text-emerald-500 dark:text-emerald-400 mt-1">
+                            Please check your email inbox/spam and mobile for the 6-digit OTP.
+                          </p>
+                        </div>
+                      )}
 
                       <div>
                         <Label htmlFor="reg-otp">Enter 6-digit OTP</Label>
@@ -874,12 +898,33 @@ export function CoverPage() {
                 <button
                   type="button"
                   className="text-sm text-emerald-600 hover:text-emerald-700 font-medium inline-flex items-center gap-1"
-                  onClick={() => { setResetStep('request'); setResetError('') }}
+                  onClick={() => { setResetStep('request'); setResetError(''); setResetOtpBypass('') }}
                 >
                   <ArrowLeft className="h-3.5 w-3.5" /> Back
                 </button>
               </div>
-              {/* Status banner */}
+
+              {/* v4.117: Visible OTP bypass banner for password reset */}
+              {resetOtpBypass && (
+                <div className="bg-amber-50 dark:bg-amber-950/30 border-2 border-amber-400 dark:border-amber-700 rounded-lg p-4">
+                  <p className="font-bold text-amber-800 dark:text-amber-300 text-sm flex items-center gap-2">
+                    ⚠️ OTP Delivery Not Configured
+                  </p>
+                  <p className="text-amber-700 dark:text-amber-400 text-xs mt-1">
+                    Email/SMS service is not set up on the server. Your verification code is:
+                  </p>
+                  <p className="text-3xl font-bold text-amber-900 dark:text-amber-200 text-center tracking-[0.5em] font-mono mt-2 mb-1">
+                    {resetOtpBypass}
+                  </p>
+                  <p className="text-amber-600 dark:text-amber-500 text-xs text-center">
+                    ✅ The OTP field below is pre-filled — just enter your new password and click Reset
+                  </p>
+                </div>
+              )}
+
+              {/* Status banner — hidden when bypass is active */}
+              {!resetOtpBypass && (
+              <>
               {otpDeliveryMethod === 'both' ? (
                 <div className="bg-emerald-50 dark:bg-emerald-950 p-3 rounded-lg text-sm">
                   <p className="font-medium text-emerald-700 dark:text-emerald-300">OTP sent to email & mobile</p>
@@ -927,6 +972,8 @@ export function CoverPage() {
                     </p>
                   )}
                 </div>
+              )}
+              </>
               )}
               <div>
                 <Label htmlFor="reset-otp">Enter OTP</Label>
