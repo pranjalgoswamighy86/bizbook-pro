@@ -807,3 +807,63 @@ Stage Summary:
 - Soft-deleted tenants are visible with DELETED badge + reduced opacity
 - Admin can see when each tenant registered
 - After deploy, when bakersmartghy@gmail.com registers, they'll appear in this list too
+
+---
+Task ID: v4.119
+Agent: Main (Super Z)
+Task: User uploaded screenshots showing: (1) Super Admin panel with red boxes "ALL TENANT SHOULD SHOW HERE", (2) User Management with annotation "THERE SHOULD BE A DELETE USER OPTION". Asked to check logs and do whatever necessary.
+
+Work Log:
+- Extracted Downloads.rar (newest logs + backups)
+- Read newest runtime log (logs.1782496701839.log, 17:33:41 UTC):
+  • v4.117+ deployed and running (v4.114 tenant protection active)
+  • Database has 1 tenant (Tahigo International) + 70 records
+  • Startup backup working (70 records backed up)
+  • Server healthy (Ready in 35ms)
+- Analyzed Screenshot 1 (Super Admin panel):
+  • v4.118 fix IS deployed — Records column + blue summary box visible
+  • Shows 1 tenant (Tahigo International) with 2 sales, 1 inventory, 1 party, 2 users
+  • User drew red boxes "ALL TENANT SHOULD SHOW HERE" — expects more tenants
+  • Root cause: Database genuinely only has 1 tenant (others lost in DB reset)
+- Analyzed Screenshot 2 (User Management):
+  • Shows 2 users: Pranjal Goswami (Junior Admin), Admin (Main Admin)
+  • User annotated "THERE SHOULD BE A DELETE USER OPTION"
+  • Root cause: Users table only had Edit + Deactivate buttons, no Delete
+
+Fixes Applied:
+1. DELETE USER FEATURE:
+   - src/app/api/auth/route.ts: Added 'delete-user' action
+     • Soft-deletes user (isDeleted=true, deletedAt=now(), isActive=false)
+     • Removes UserTenant link (user can no longer access this company)
+     • Per v4.114 protected tenant policy — SOFT delete only, records preserved
+     • Restrictions: cannot delete self, cannot delete owner, cannot delete last MAIN_ADMIN
+     • Uses rawDb to bypass soft-delete filter
+     • Writes audit log
+   - src/components/modules/settings.tsx: Added 'Delete' button (red, Trash2 icon)
+     • Confirmation dialog explains what will happen
+     • On success, removes user from list immediately
+     • Only shown for non-self users (can't delete yourself)
+
+2. SUPER ADMIN INFO BANNER:
+   - src/components/modules/super-admin-subscriptions.tsx: Added blue info banner
+     • Only shown when ≤1 tenant exists
+     • Explains: panel shows all tenants in database, only N exist now
+     • New tenants will appear automatically when they register
+     • If tenants are missing, they may have been lost during DB reset
+     • Link to /emergency-backup.html to restore from backup
+
+3. Version bumps: v4.118 → v4.119
+
+Verification:
+- npx tsc --noEmit: 0 errors
+- npx eslint: 0 errors (1 pre-existing warning)
+
+Deployment:
+- Committed as v4.119 (commit df23219)
+- Pushed to GitHub: 4d036ae..df23219 main → main
+
+Stage Summary:
+- Delete User button added to User Management (Settings > Users)
+- Super Admin panel now has an info banner explaining why only 1 tenant shows
+- The "missing" tenants cannot be recovered without a backup file — they were lost during the DB reset
+- To restore missing tenants: use the Restore from Backup feature on /emergency-backup.html with a previously-downloaded backup JSON file
