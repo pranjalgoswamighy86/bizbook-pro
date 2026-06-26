@@ -1022,6 +1022,93 @@ export async function POST(req: NextRequest) {
     }
 
     // ============================================================
+    // v4.119: Delete User — soft-deletes a user from a tenant.
+    // Per v4.114 protected tenant policy, this is a SOFT delete:
+    //   - Sets isDeleted=true, deletedAt=now(), isActive=false
+    //   - Removes the UserTenant link (user can no longer access this company)
+    //   - Preserves the User record + all their created records (sales, etc.)
+    //     for audit/history purposes
+    //   - The user can no longer log in
+    // Restrictions:
+    //   - Cannot delete yourself (prevent lockout)
+    //   - Cannot delete the tenant owner (would orphan the business)
+    //   - Cannot delete the last MAIN_ADMIN (would lock out the company)
+    // ============================================================
+    if (action === 'delete-user') {
+      const { userId: targetUserId, tenantId } = body
+      const access = await requireAuthAndRole(req, tenantId, ['MAIN_ADMIN'])
+      if (access instanceof NextResponse) return access
+
+      if (!targetUserId) {
+        return NextResponse.json({ error: 'User ID is required' }, { status: 400 })
+      }
+
+      // Verify target user belongs to this tenant
+      const targetUserTenant = await db.userTenant.findUnique({
+        where: { userId_tenantId: { userId: targetUserId, tenantId } },
+      })
+      if (!targetUserTenant) {
+        return NextResponse.json({ error: 'User not found in this business' }, { status: 404 })
+      }
+
+      // Don't allow deleting yourself
+      if (targetUserId === access.userId) {
+        return NextResponse.json({ error: 'You cannot delete your own account. Ask another Main Admin to do this.' }, { status: 400 })
+      }
+
+      // Don't allow deleting the tenant owner
+      if (targetUserTenant.isOwner) {
+        return NextResponse.json({ error: 'Cannot delete the business owner. The owner account is protected.' }, { status: 400 })
+      }
+
+      // Don't allow deleting the last MAIN_ADMIN (would lock out the company)
+      if (targetUserTenant.role === 'MAIN_ADMIN') {
+        const mainAdminCount = await db.userTenant.count({
+          where: { tenantId, role: 'MAIN_ADMIN' },
+        })
+        if (mainAdminCount <= 1) {
+          return NextResponse.json({ error: 'Cannot delete the last Main Admin. Promote another user to Main Admin first.' }, { status: 400 })
+        }
+      }
+
+      // Use rawDb for the soft-delete to bypass the soft-delete filter
+      // (the extension blocks updates on already-deleted records, but we
+      // need to update a non-deleted record to mark it as deleted)
+      const { rawDb } = await import('@/lib/db-soft-delete')
+
+      // Soft-delete the user + remove their tenant link
+      await rawDb.$transaction([
+        rawDb.user.update({
+          where: { id: targetUserId },
+          data: {
+            isDeleted: true,
+            deletedAt: new Date(),
+            isActive: false,
+          },
+        }),
+        rawDb.userTenant.delete({
+          where: { userId_tenantId: { userId: targetUserId, tenantId } },
+        }),
+      ])
+
+      await writeAuditLog({
+        tenantId,
+        userId: access.userId,
+        userName: access.user.name,
+        action: 'DELETE',
+        entityType: 'User',
+        entityId: targetUserId,
+        entityName: targetUserTenant.userId, // will be enriched below
+        changes: { deletedBy: access.email, deletedAt: new Date().toISOString() },
+      }).catch(() => {}) // non-blocking
+
+      return NextResponse.json({
+        success: true,
+        message: 'User has been deleted (soft-deleted). They can no longer log in. Their historical records are preserved for audit.',
+      })
+    }
+
+    // ============================================================
     // Send OTP for password reset
     // ============================================================
     if (action === 'send-otp') {

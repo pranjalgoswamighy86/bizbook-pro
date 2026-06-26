@@ -227,6 +227,20 @@ export function SuperAdminSubscriptionPanel() {
         </Button>
       </div>
 
+      {/* v4.119: Info banner explaining what tenants are shown */}
+      {subscriptions.length <= 1 && (
+        <div className="bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900 rounded-lg p-3 text-xs text-blue-800 dark:text-blue-300">
+          <p className="font-semibold mb-1">📋 About this report</p>
+          <p>
+            This panel shows all tenants currently registered in the database.
+            Only <strong>{subscriptions.length} tenant(s)</strong> exist in the database right now.
+            When new tenants register via the Register page, they will automatically appear here with their record counts.
+            If tenants are missing that you expected to see, they may have been lost during a database reset —
+            use the <strong>Restore from Backup</strong> option on the <a href="/emergency-backup.html" className="underline font-medium" target="_blank" rel="noopener noreferrer">Emergency Backup page</a> to restore them from a previously-downloaded backup file.
+          </p>
+        </div>
+      )}
+
       {/* Stats summary */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <StatCard label="Total Tenants" value={subscriptions.length} color="indigo" />

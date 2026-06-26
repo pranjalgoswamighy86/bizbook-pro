@@ -249,6 +249,42 @@ export function SettingsPage() {
     }
   }
 
+  // --- v4.119: Delete User (soft-delete — removes access, preserves records) ---
+  const handleDeleteUser = async (userId: string, userName: string, userEmail: string) => {
+    if (!tenant) {
+      toast({ title: 'Error', description: 'No business selected', variant: 'destructive' })
+      return
+    }
+    // Confirm with the user before deleting
+    if (!window.confirm(
+      `Delete user "${userName}" (${userEmail})?\n\n` +
+      `This will:\n` +
+      `• Remove their access to this company\n` +
+      `• Prevent them from logging in\n` +
+      `• Preserve their historical records (sales, purchases, etc.) for audit\n\n` +
+      `This action can be undone by an admin via direct database access.\n\n` +
+      `Are you sure?`
+    )) {
+      return
+    }
+    try {
+      const res = await authFetch('/api/auth', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'delete-user', userId, tenantId: tenant.id }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (res.ok) {
+        toast({ title: 'User deleted', description: `${userEmail} can no longer log in.`, duration: 5000 })
+        // Remove from local state immediately for instant UI feedback
+        setUsers((prev) => prev.filter((u) => u.id !== userId))
+      } else {
+        toast({ title: 'Error', description: data.error || 'Failed to delete user', variant: 'destructive', duration: 8000 })
+      }
+    } catch {
+      toast({ title: 'Error', description: 'Network error. Please try again.', variant: 'destructive' })
+    }
+  }
+
   // --- Edit User Role ---
   const handleOpenEditUser = (u: UserRecord) => {
     setEditUserTarget(u)
@@ -581,6 +617,15 @@ export function SettingsPage() {
                                   <Button variant="outline" size="sm" onClick={() => handleToggleUser(u.id, u.isActive)}>
                                     {u.isActive ? 'Deactivate' : 'Activate'}
                                   </Button>
+                                  {/* v4.119: Delete User button — soft-deletes the user */}
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="text-destructive border-destructive/30 hover:bg-destructive/10"
+                                    onClick={() => handleDeleteUser(u.id, u.name, u.email)}
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5 mr-1" />Delete
+                                  </Button>
                                 </>
                               )}
                               {u.id === user?.id && (
@@ -863,7 +908,7 @@ export function SettingsPage() {
                   </div>
                   <div className="bg-muted/50 p-3 rounded-lg">
                     <p className="text-xs text-muted-foreground">Version</p>
-                    <p className="font-semibold">v4.118.0</p>
+                    <p className="font-semibold">v4.119.0</p>
                     <p className="text-xs text-muted-foreground">Built with Next.js 16 + Prisma + PostgreSQL</p>
                     <p className="text-[10px] text-muted-foreground mt-1">A Product by Tahigo International</p>
                   </div>
