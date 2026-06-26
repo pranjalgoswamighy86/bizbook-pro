@@ -148,9 +148,23 @@ export async function POST(req: NextRequest) {
         const errorMsg = otpResult.fallbackReason || 'All OTP delivery channels failed'
         console.error(`[REG-OTP] All channels failed: ${errorMsg}`)
         if (errorMsg.includes('NOT_CONFIGURED') || errorMsg.includes('not configured')) {
+          // v4.116: OTP bypass fallback — when no email/SMS service is configured,
+          // return the OTP directly in the API response so the user can verify
+          // their account. This is an EMERGENCY fallback for situations like
+          // database resets where env vars are lost. The OTP is also logged
+          // server-side and shown in the frontend.
+          console.warn(`[REG-OTP] ⚠️ OTP delivery not configured — returning OTP directly for emergency registration`)
+          console.warn(`[REG-OTP] ⚠️ OTP for ${email}: ${otp}`)
           return NextResponse.json({
-            error: 'OTP delivery is not configured. Please contact your administrator to set up email or SMS service.',
-          }, { status: 500 })
+            sent: true,
+            message: 'OTP delivery service is not configured. Your verification code is shown below — use it to complete registration.',
+            emailSent: false,
+            smsSent: false,
+            email,
+            devOtp: otp, // Emergency fallback — OTP returned directly
+            otpBypass: true,
+            warning: 'Email/SMS service is not configured. Please set BREVO_API_KEY or RESEND_API_KEY on Railway for production OTP delivery.',
+          })
         }
         return NextResponse.json({
           error: 'Failed to send verification OTP. Please try again.',
@@ -1090,6 +1104,8 @@ export async function POST(req: NextRequest) {
       const delivered = otpResult.ok
 
       let message = ''
+      let devOtp: string | undefined
+      let otpBypass = false
       if (emailSent && smsSent) {
         message = 'OTP sent to your email and registered mobile number.'
       } else if (emailSent) {
@@ -1101,18 +1117,25 @@ export async function POST(req: NextRequest) {
       } else {
         const reason = otpResult.fallbackReason || ''
         if (reason.includes('NOT_CONFIGURED') || reason.includes('not configured')) {
-          message = 'OTP delivery is not configured. Please contact your administrator to set up email or SMS service.'
+          // v4.116: OTP bypass fallback for password reset too
+          console.warn(`[RESET-OTP] ⚠️ OTP delivery not configured — returning OTP directly for emergency reset`)
+          console.warn(`[RESET-OTP] ⚠️ OTP for ${targetUser.email}: ${otp}`)
+          message = 'OTP delivery service is not configured. Your verification code is shown below.'
+          devOtp = otp
+          otpBypass = true
         } else {
           message = 'Failed to send OTP. Please try again or contact support.'
         }
       }
 
       return NextResponse.json({
-        sent: delivered,
+        sent: delivered || otpBypass,
         message,
         emailSent,
         smsSent,
         email: targetUser.email,
+        devOtp,
+        otpBypass,
       })
     }
 
