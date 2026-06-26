@@ -613,7 +613,31 @@ export function CoverPage() {
                         <Label htmlFor="login-pass">Password</Label>
                         <Input id="login-pass" type="password" value={loginPassword} onChange={(e) => setLoginPassword(e.target.value)} required placeholder="Enter password" />
                       </div>
-                      {error && tab === 'login' && <p className="text-sm text-destructive">{error}</p>}
+                      {error && tab === 'login' && (
+                        <div className="space-y-1.5">
+                          <p className="text-sm text-destructive font-medium">{error}</p>
+                          {/* v4.113: Helpful hints for common login failures */}
+                          {error.toLowerCase().includes('invalid credential') && (
+                            <div className="text-xs text-muted-foreground bg-amber-50 border border-amber-200 rounded-md p-2.5 space-y-1">
+                              <p className="font-medium text-amber-800">Possible reasons:</p>
+                              <ul className="list-disc list-inside space-y-0.5 text-amber-700">
+                                <li>Email not registered — switch to the <strong>Register</strong> tab to create an account</li>
+                                <li>Wrong password — click <strong>Forgot Password</strong> below to reset it</li>
+                                <li>Typos in email — double-check the spelling (especially the part after @)</li>
+                              </ul>
+                            </div>
+                          )}
+                          {error.toLowerCase().includes('deactivated') && (
+                            <p className="text-xs text-muted-foreground">Contact your administrator to reactivate your account.</p>
+                          )}
+                          {error.toLowerCase().includes('not linked to any active company') && (
+                            <div className="text-xs text-muted-foreground bg-blue-50 border border-blue-200 rounded-md p-2.5">
+                              <p>Your company may have been deleted. You can still download your data using the <strong>Emergency Backup</strong> page:</p>
+                              <a href="/emergency-backup.html" className="text-blue-600 hover:underline font-medium" target="_blank" rel="noopener noreferrer">Open Emergency Backup →</a>
+                            </div>
+                          )}
+                        </div>
+                      )}
                       <Button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-700" disabled={loading}>
                         {loading ? 'Signing in...' : 'Sign In'}
                       </Button>
