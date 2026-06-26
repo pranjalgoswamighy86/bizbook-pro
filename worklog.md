@@ -446,3 +446,78 @@ Stage Summary:
 - After deploy, the login error will show a helpful amber hint box listing 3 possible reasons + actions, so users immediately know what to do instead of being stuck on a vague "Invalid credentials" message.
 - The system was working correctly all along — this was a UX improvement, not a bug fix.
 - The database currently has 2 users: admin@bizbook.pro and pranjalgoswamighy86@gmail.com. Any other email will get "Invalid credentials" until the user registers.
+
+---
+Task ID: v4.114
+Agent: Main (Super Z)
+Task: User requested two things:
+  1. "Each tenant once registered with BizBook Pro is a protected tenant."
+  2. "Select company option is gone from add user"
+
+Work Log:
+- Reviewed existing tenant protection:
+  • scripts/protect-tenants.js had a hardcoded PROTECTED_TENANTS array with only 'kdhomesghy@gmail.com'
+  • src/app/api/admin/delete-account/route.ts performed HARD deletion via tx.tenant.delete() (cascades to ALL related data — permanently destroys sales, purchases, inventory, etc.)
+  • No automatic protection for newly registered tenants
+- Reviewed Add User flow:
+  • settings.tsx handleAddUser always used the CURRENT tenant.id — no way to pick a different company
+  • The newUser state had {name, email, password, role} but no tenantId field
+  • The Add User dialog UI had Name/Email/Password/Role fields but no "Select Company" dropdown
+  • Backend /api/auth add-user action already accepts tenantId and validates MAIN_ADMIN role for the target tenant — no backend changes needed
+  • The 'companies' array was available in useAppStore but not destructured in Settings
+
+Changes Applied (backend — committed in 1a8a081):
+1. scripts/protect-tenants.js (complete rewrite):
+   • Removed hardcoded PROTECTED_TENANTS array
+   • Now dynamically queries ALL tenants from the database using raw SQL (bypasses soft-delete filter)
+   • Logs every tenant as "protected" at container startup
+   • Distinguishes active vs soft-deleted tenants in the log output
+   • Warns (but doesn't block) if database has zero tenants
+2. src/app/api/admin/delete-account/route.ts:
+   • Step 3 (owned tenants): Changed from tx.tenant.delete() (hard-delete with cascade) to tx.tenant.update({ data: { isDeleted: true, deletedAt: new Date() } }) (soft-delete — preserves all data)
+   • Step 3 (staff users): Changed from tx.user.deleteMany() to tx.user.updateMany({ data: { isDeleted: true, deletedAt: new Date() } })
+   • Step 4 (target user): Changed from tx.user.delete() to tx.user.update({ data: { isDeleted: true, deletedAt: new Date(), isActive: false } })
+   • Updated success message: "permanently deleted" → "deactivated (soft-deleted). Data preserved per v4.114 protected-tenant policy."
+   • Added 'note' field in response explaining how to restore (set isDeleted=false via direct DB access)
+3. src/app/api/auth/route.ts:
+   • Added [TENANT-PROTECT] log line after both tenant registration paths (OTP-verified at line 269, simplified at line 352)
+   • Log message: "✓ Tenant '<name>' (email: <email>) is now a PROTECTED TENANT — data cannot be hard-deleted."
+
+Changes Applied (frontend — committed in 70999ed):
+4. src/components/modules/settings.tsx:
+   • Added 'companies' to useAppStore destructuring
+   • Added 'tenantId' field to newUser state (defaults to '')
+   • Updated handleAddUser to use newUser.tenantId (falls back to current tenant.id)
+   • Added 'Select Company' dropdown at the top of the Add User dialog — only shown when user has 2+ companies. Lists all companies with '(current)' marker on the active one.
+   • Added green 'Protected Tenant' info box at the bottom of Settings > Company > Business Details, with ShieldCheck icon + explanation of data protection policy + pointer to Download Complete Backup
+   • Added ShieldCheck to lucide-react imports
+   • Version bumped v4.113.0 → v4.114.0
+5. src/components/app/help-modal.tsx: v4.113 → v4.114
+
+Verification:
+- npx tsc --noEmit: 0 errors in changed files
+- npx eslint on all changed files: clean
+
+Deployment:
+- Backend changes committed as 1a8a081 (already pushed)
+- Frontend changes committed as 70999ed
+- Pushed to GitHub: 27b8807..70999ed main → main
+- Railway auto-build triggered (~3 min typical)
+
+Stage Summary:
+- PROTECTED TENANT policy is now enforced:
+  • Every registered tenant is automatically protected (no hardcoded list)
+  • Tenant data CANNOT be hard-deleted through any API endpoint
+  • The /api/admin/delete-account endpoint now soft-deletes instead of hard-deleting
+  • All data (sales, purchases, inventory, parties, etc.) is preserved permanently
+  • The only way to truly hard-delete is via direct database access (psql/Prisma Studio)
+  • At container startup, all registered tenants are logged as "protected"
+  • When a new tenant registers, a [TENANT-PROTECT] log line is emitted
+  • Settings > Company tab shows a green "Protected Tenant" badge explaining the policy
+
+- SELECT COMPANY dropdown in Add User is restored:
+  • Settings > Users > Add User now shows a "Select Company" dropdown at the top
+  • Only appears when the admin has 2+ companies
+  • Defaults to the currently selected company (marked with "(current)")
+  • Lets MAIN_ADMIN add users to ANY of their companies, not just the current one
+  • Backend already supported this — the UI was just missing the dropdown
