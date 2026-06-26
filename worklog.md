@@ -752,3 +752,58 @@ Stage Summary:
 - The bakersmartghy@gmail.com tenant data is permanently lost (never captured in any backup)
 - User can now register bakersmartghy@gmail.com fresh using the OTP bypass banner
 - No code issues found — everything is working as designed
+
+---
+Task ID: v4.118
+Agent: Main (Super Z)
+Task: User reported "this is super admin panel should show all tenant report" — the Super Admin panel was only showing 1 tenant (Tahigo International) instead of all tenants.
+
+Work Log:
+- Read uploaded logs (logs.1782494653448.log + logs.1782494650541.log):
+  • Confirmed v4.117 is deployed and running (build succeeded at 09:11:18 UTC)
+  • Database has 2 users, 1 tenant (pranjalgoswamighy86@gmail.com / Tahigo International)
+  • Startup backup working (69 records backed up)
+  • All systems healthy
+- Checked screenshot from previous message: Super Admin panel showing 1 tenant
+- Investigated /api/subscription admin-list-all action:
+  • Found it queries db.subscription.findMany() — only returns tenants WITH a subscription record
+  • Tenants without a subscription row are invisible
+  • No record counts (sales, purchases, etc.) were returned
+- Root cause: The query was subscription-centric, not tenant-centric
+
+Fix Applied:
+1. src/app/api/subscription/route.ts (admin-list-all action):
+   - Changed to query db.tenant.findMany() FIRST (gets ALL tenants)
+   - LEFT JOINs subscriptions via Map lookup
+   - Added record counts per tenant using rawDb.groupBy() for: Sales, Purchases, Expenses, Inventory, Parties, Users
+   - Returns enriched data with totalTenants, activeTenants, softDeletedTenants, tenantsWithSubscriptions
+   - Uses rawDb (bypasses soft-delete filter) so admin sees ALL data
+
+2. src/components/modules/super-admin-subscriptions.tsx:
+   - Updated interface with new fields (tenantPlan, isDeleted, deletedAt, tenantCreatedAt, recordCounts)
+   - Updated dashboard cards: 'Expired' → 'Soft-Deleted', 'Active' filters out deleted
+   - Added 'Total Records Across All Tenants' blue summary box with aggregate counts
+   - Added 'Records' column to tenant table showing per-tenant counts
+   - Tenant name shows DELETED badge + registration date
+   - Plan shows 'No plan' for tenants without subscription
+   - Status handles 'NO_SUBSCRIPTION' state
+   - Soft-deleted tenants shown with reduced opacity
+   - Fixed null-safety on planName in search
+
+3. Version bumps: v4.117 → v4.118
+
+Verification:
+- npx tsc --noEmit: 0 errors
+- npx eslint: 0 errors (1 pre-existing warning)
+
+Deployment:
+- Committed as v4.118 (commit 4d036ae)
+- Pushed to GitHub: 3be4e76..4d036ae main → main
+
+Stage Summary:
+- Super Admin Panel now shows ALL tenants (not just those with subscriptions)
+- Each tenant row shows full record counts (sales, purchases, expenses, inventory, parties, users)
+- Dashboard shows aggregate totals across all tenants
+- Soft-deleted tenants are visible with DELETED badge + reduced opacity
+- Admin can see when each tenant registered
+- After deploy, when bakersmartghy@gmail.com registers, they'll appear in this list too
