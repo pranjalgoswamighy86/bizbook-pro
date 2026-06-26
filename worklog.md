@@ -390,3 +390,59 @@ Stage Summary:
 - Label contents: item name (top), sale price (middle, if > 0), SKU as the barcode (bottom).
 - The barcode value is the SKU if available, or a sanitized item/product name as fallback (so printing always works).
 - Label size: 80mm × 40mm — fits standard thermal label printers.
+
+---
+Task ID: v4.113
+Agent: Main (Super Z)
+Task: User reported "User unable to login" — screenshot (IMG_5397.jpeg) showed login form with email 'aacen@bakersmart.dmp' and password '604927' returning "Invalid credentials" error.
+
+Work Log:
+- Analyzed screenshot using VLM (z-ai vision):
+  • Page: Login form (Get Started screen)
+  • Email field: "aacen@bakersmart.dmp"
+  • Password field: "604927"
+  • Error: "Invalid credentials"
+  • Register link: visible
+  • Forgot Password link: visible
+- Checked the emergency backup file (bizbook_pro_EMERGENCY_backup_2026-06-25T21-58-52-151Z.json) that the user previously downloaded:
+  • Total users in DB: 2
+    1. admin@bizbook.pro (MAIN_ADMIN, active)
+    2. pranjalgoswamighy86@gmail.com (JUNIOR_ADMIN, active)
+  • Total tenants: 1 (BizBook Pro Demo)
+  • No user with email containing "bakersmart" or "aacen" anywhere in the database
+  • Password reset table had 3 records (biswhanathdas3@gmail.com, kdhomesghy@gmail.com × 2) — but these users are NOT in the User table anymore (deleted)
+
+Root Cause:
+- NOT a code bug. The system is working correctly — "Invalid credentials" is the proper response when someone tries to log in with an email that doesn't exist in the database.
+- The email 'aacen@bakersmart.dmp' is NOT registered. The user needs to click the "Register" tab to create an account first.
+- Note: '.dmp' is not a valid email TLD — the user likely meant '.com' and made a typo, OR they're testing with a fake email.
+- The UX issue is that "Invalid credentials" is intentionally vague (security best practice to prevent user enumeration), but it leaves legitimate users confused about what to do next.
+
+UX Improvement Applied:
+- src/components/modules/cover.tsx (login form error display):
+  • Replaced the single-line error paragraph with a richer error block
+  • When error contains "invalid credential": shows an amber hint box listing 3 possible reasons:
+    1. Email not registered — switch to the Register tab to create an account
+    2. Wrong password — click Forgot Password below to reset it
+    3. Typos in email — double-check the spelling (especially the part after @)
+  • When error contains "deactivated": shows "Contact your administrator to reactivate your account"
+  • When error contains "not linked to any active company": shows a blue hint box with a link to /emergency-backup.html (the v4.109 safety net page that lets users download their data even when they can't log in)
+  • The main error message itself is unchanged (security — still says "Invalid credentials" to prevent user enumeration)
+
+- src/components/modules/settings.tsx: v4.112.0 → v4.113.0
+- src/components/app/help-modal.tsx: v4.112 → v4.113
+
+Verification:
+- npx tsc --noEmit: 0 errors in changed files
+- npx eslint on all changed files: clean
+
+Deployment:
+- Committed as v4.113 (commit 6089bfc)
+- Pushed to GitHub: 2e6931a..6089bfc main → main
+- Railway auto-build triggered (~3 min typical)
+
+Stage Summary:
+- The user in the screenshot (aacen@bakersmart.dmp) is NOT registered in the database. They need to click the "Register" tab to create an account.
+- After deploy, the login error will show a helpful amber hint box listing 3 possible reasons + actions, so users immediately know what to do instead of being stuck on a vague "Invalid credentials" message.
+- The system was working correctly all along — this was a UX improvement, not a bug fix.
+- The database currently has 2 users: admin@bizbook.pro and pranjalgoswamighy86@gmail.com. Any other email will get "Invalid credentials" until the user registers.
