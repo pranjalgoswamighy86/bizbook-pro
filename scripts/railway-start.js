@@ -132,15 +132,18 @@ try {
     }
     await prisma.$disconnect();
     runTenantProtectionCheck();
+    runStartupBackup(); // v4.115: auto-backup all tenants on every startup
     startServer();
   }).catch((err) => {
     console.log('⚠️ Seed check failed:', err.message);
     runTenantProtectionCheck();
+    runStartupBackup();
     startServer();
   });
 } catch (e) {
   console.log('⚠️ Prisma error:', e.message);
   runTenantProtectionCheck();
+  runStartupBackup();
   startServer();
 }
 
@@ -164,6 +167,29 @@ function runTenantProtectionCheck() {
   } catch (e) {
     console.error('[TENANT-PROTECT] Error:', e.message);
     console.error('[TENANT-PROTECT] Set SKIP_TENANT_PROTECTION=true to bypass on first deploy');
+  }
+}
+
+// === v4.115: Automatic Startup Backup ===
+// On every successful startup, export all tenant data to a JSON file.
+// This protects against database resets — if Railway loses the DB volume,
+// the backup file is still on the container's /tmp filesystem (persists
+// across restarts within the same deployment, but NOT across new deploys).
+// For true cross-deploy protection, users should use the Emergency Backup
+// page (/emergency-backup.html) to download a copy to their own computer.
+function runStartupBackup() {
+  try {
+    const backupScript = path.join(__dirname, 'startup-backup.js');
+    if (fs.existsSync(backupScript)) {
+      console.log('→ Creating automatic startup backup...');
+      execSync(`node "${backupScript}"`, {
+        stdio: 'inherit',
+        env: process.env,
+      });
+    }
+  } catch (e) {
+    console.error('[STARTUP-BACKUP] Error:', e.message);
+    // Non-blocking — don't fail startup if backup fails
   }
 }
 

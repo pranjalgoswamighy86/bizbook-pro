@@ -213,6 +213,37 @@
           <p style="margin-top:0.5rem;">Even if your account has been deactivated or soft-deleted, you can still use this — the data is yours and you have the right to export it.</p>
         </details>
       </div>
+
+      <!-- v4.115: Restore from Backup section -->
+      <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 2px dashed #e5e7eb;">
+        <h3 style="font-size: 1rem; font-weight: 600; color: #1f2937; margin-bottom: 0.5rem;">
+          🔄 Restore from Backup
+        </h3>
+        <p style="font-size: 0.8rem; color: #6b7280; margin-bottom: 1rem; line-height: 1.5;">
+          If your database was reset or you lost access, you can restore all your data from a previously-downloaded backup file. Enter your email + password (must match the backup file), then select the backup JSON file you downloaded earlier.
+        </p>
+        <form id="restoreForm" style="display: flex; flex-direction: column; gap: 0.75rem;">
+          <div>
+            <label for="restoreEmail" style="font-size: 0.85rem; font-weight: 600; color: #374151; margin-bottom: 0.35rem; display: block;">Email Address</label>
+            <input type="email" id="restoreEmail" required autocomplete="email" placeholder="you@example.com" style="width: 100%; padding: 0.75rem 1rem; border: 1px solid #d1d5db; border-radius: 8px; font-size: 0.95rem;" />
+          </div>
+          <div>
+            <label for="restorePassword" style="font-size: 0.85rem; font-weight: 600; color: #374151; margin-bottom: 0.35rem; display: block;">Password (from backup file)</label>
+            <input type="password" id="restorePassword" required autocomplete="current-password" placeholder="Your account password" style="width: 100%; padding: 0.75rem 1rem; border: 1px solid #d1d5db; border-radius: 8px; font-size: 0.95rem;" />
+          </div>
+          <div>
+            <label for="backupFile" style="font-size: 0.85rem; font-weight: 600; color: #374151; margin-bottom: 0.35rem; display: block;">Backup File (.json)</label>
+            <input type="file" id="backupFile" accept=".json" required style="width: 100%; padding: 0.5rem; border: 1px solid #d1d5db; border-radius: 8px; font-size: 0.85rem;" />
+          </div>
+          <button type="submit" id="restoreBtn" style="background: #2563eb; color: white; border: none; padding: 0.85rem 1.5rem; border-radius: 8px; font-size: 0.95rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 0.5rem;">
+            <span id="restoreBtnText">🔄 Restore Database</span>
+          </button>
+        </form>
+        <div id="restoreStatus" class="status"></div>
+        <div style="margin-top: 0.75rem; font-size: 0.75rem; color: #6b7280; line-height: 1.5;">
+          <strong>Note:</strong> The restore process only adds records that don't already exist. Existing records are NOT overwritten. This may take 1-5 minutes for large backups.
+        </div>
+      </div>
     </div>
   </div>
 
@@ -315,6 +346,115 @@
         setStatus('error', '⚠️ Network error: ' + (err.message || 'Unknown error') + '<br><br>Please check your internet connection and try again.');
         submitBtn.disabled = false;
         btnText.textContent = '⬇️ Download Complete Backup';
+      }
+    });
+
+    // v4.115: Restore form handler
+    const restoreForm = document.getElementById('restoreForm');
+    const restoreBtn = document.getElementById('restoreBtn');
+    const restoreBtnText = document.getElementById('restoreBtnText');
+    const restoreStatusEl = document.getElementById('restoreStatus');
+
+    function setRestoreStatus(type, msg) {
+      restoreStatusEl.className = 'status ' + type;
+      restoreStatusEl.innerHTML = msg;
+    }
+
+    restoreForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      const email = document.getElementById('restoreEmail').value.trim();
+      const password = document.getElementById('restorePassword').value;
+      const fileInput = document.getElementById('backupFile');
+      const file = fileInput.files[0];
+
+      if (!email || !password) {
+        setRestoreStatus('error', '⚠️ Please enter both email and password.');
+        return;
+      }
+      if (!file) {
+        setRestoreStatus('error', '⚠️ Please select a backup JSON file.');
+        return;
+      }
+
+      // Read the backup file
+      setRestoreStatus('progress', '📖 Reading backup file...');
+      let backupData;
+      try {
+        const fileText = await file.text();
+        backupData = JSON.parse(fileText);
+      } catch (err) {
+        setRestoreStatus('error', '⚠️ Could not read the backup file. Make sure it is a valid JSON file downloaded from BizBook Pro.');
+        return;
+      }
+
+      // Validate backup structure
+      if (!backupData._metadata || !backupData.data) {
+        setRestoreStatus('error', '⚠️ Invalid backup file. The file must have _metadata and data fields. This may not be a BizBook Pro backup file.');
+        return;
+      }
+
+      if (backupData._metadata.software !== 'BizBook Pro') {
+        setRestoreStatus('error', '⚠️ This backup file was not created by BizBook Pro. Cannot restore.');
+        return;
+      }
+
+      // Confirm with user
+      const totalRecords = backupData._metadata.totalRecords || 'unknown';
+      const backupDate = backupData._metadata.exportDate || 'unknown';
+      if (!confirm(
+        `Ready to restore database from backup file:\n\n` +
+        `Backup date: ${backupDate}\n` +
+        `Total records: ${totalRecords}\n\n` +
+        `This will import all data into the current database. Records that already exist will be skipped (not overwritten).\n\n` +
+        `Do you want to continue?`
+      )) {
+        setRestoreStatus('progress', 'Restore cancelled.');
+        return;
+      }
+
+      // Submit to restore endpoint
+      restoreBtn.disabled = true;
+      restoreBtnText.innerHTML = '<span class="spinner"></span> Restoring...';
+      setRestoreStatus('progress', '⏳ Restoring database... This may take 1-5 minutes for large backups. Please don\'t close this tab.');
+
+      const startTime = Date.now();
+      try {
+        const response = await fetch('/api/backup/restore', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password, backupData }),
+        });
+
+        const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+        const result = await response.json();
+
+        if (!response.ok) {
+          let errMsg = result.error || 'Restore failed (HTTP ' + response.status + ')';
+          if (result.backupUsers) {
+            errMsg += '<br><br>Users in the backup file: ' + result.backupUsers.join(', ');
+          }
+          setRestoreStatus('error', '⚠️ ' + errMsg);
+          restoreBtn.disabled = false;
+          restoreBtnText.textContent = '🔄 Restore Database';
+          return;
+        }
+
+        // Success
+        setRestoreStatus('success',
+          '✅ Restore complete!<br><br>' +
+          '⏱️ Completed in ' + elapsed + 's<br>' +
+          '📥 Records imported: <strong>' + result.summary.recordsImported + '</strong><br>' +
+          '⏭️ Records skipped: <strong>' + result.summary.recordsSkipped + '</strong><br>' +
+          '📅 Backup date: ' + result.summary.backupDate + '<br><br>' +
+          '<strong>You can now log in with your email and password.</strong> Click <a href="/" style="color: #2563eb; font-weight: 600;">here</a> to go to the login page.'
+        );
+        restoreBtn.disabled = false;
+        restoreBtnText.textContent = '🔄 Restore Again';
+      } catch (err) {
+        setRestoreStatus('error', '⚠️ Network error: ' + (err.message || 'Unknown error') + '<br><br>Please check your internet connection and try again.');
+        restoreBtn.disabled = false;
+        restoreBtnText.textContent = '🔄 Restore Database';
       }
     });
   </script>
