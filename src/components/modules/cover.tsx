@@ -618,13 +618,19 @@ export function CoverPage() {
                           <p className="text-sm text-destructive font-medium">{error}</p>
                           {/* v4.113: Helpful hints for common login failures */}
                           {error.toLowerCase().includes('invalid credential') && (
-                            <div className="text-xs text-muted-foreground bg-amber-50 border border-amber-200 rounded-md p-2.5 space-y-1">
+                            <div className="text-xs text-muted-foreground bg-amber-50 border border-amber-200 rounded-md p-2.5 space-y-2">
                               <p className="font-medium text-amber-800">Possible reasons:</p>
                               <ul className="list-disc list-inside space-y-0.5 text-amber-700">
                                 <li>Email not registered — switch to the <strong>Register</strong> tab to create an account</li>
                                 <li>Wrong password — click <strong>Forgot Password</strong> below to reset it</li>
                                 <li>Typos in email — double-check the spelling (especially the part after @)</li>
+                                <li>Browser autofill may have entered an old/wrong email — clear the field and retype manually</li>
                               </ul>
+                              {loginEmail && (
+                                <p className="text-amber-800 bg-amber-100 border border-amber-300 rounded px-2 py-1 font-mono text-[11px]">
+                                  You typed: <strong>{loginEmail}</strong>
+                                </p>
+                              )}
                             </div>
                           )}
                           {error.toLowerCase().includes('deactivated') && (
