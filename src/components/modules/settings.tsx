@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Settings, Users, Building2, Crown, KeyRound, Loader2, ArrowLeft, Eye, EyeOff, RefreshCw, Database, Info, Trash2, Download, Activity, AlertTriangle } from 'lucide-react'
+import { Settings, Users, Building2, Crown, KeyRound, Loader2, ArrowLeft, Eye, EyeOff, RefreshCw, Database, Info, Trash2, Download, Activity, AlertTriangle, ShieldCheck } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import { formatDate } from '@/lib/formulas'
 import { authFetch } from '@/lib/auth-fetch'
@@ -24,7 +24,7 @@ type PasswordResetStep = 'idle' | 'request' | 'verify' | 'done'
 type PasswordChangeStep = 'idle' | 'form' | 'done'
 
 export function SettingsPage() {
-  const { tenant, user, setTenant } = useAppStore()
+  const { tenant, user, setTenant, companies } = useAppStore()
   const { toast } = useToast()
   const [users, setUsers] = useState<UserRecord[]>([])
   const [usersLoading, setUsersLoading] = useState(false)
@@ -34,7 +34,7 @@ export function SettingsPage() {
   const [editUserTarget, setEditUserTarget] = useState<UserRecord | null>(null)
   const [editUserRole, setEditUserRole] = useState<string>('DATA_ENTRY')
   const [editUserLoading, setEditUserLoading] = useState(false)
-  const [newUser, setNewUser] = useState({ name: '', email: '', password: '', role: 'DATA_ENTRY' })
+  const [newUser, setNewUser] = useState({ name: '', email: '', password: '', role: 'DATA_ENTRY', tenantId: '' })
   // v4.66: Staff Activity state
   const [activityLogs, setActivityLogs] = useState<any[]>([])
   const [activityUsers, setActivityUsers] = useState<Array<{ id: string; name: string | null; email: string }>>([])
@@ -185,14 +185,16 @@ export function SettingsPage() {
       toast({ title: 'All fields required', description: 'Name, email, and password are required.', variant: 'destructive' })
       return
     }
+    // v4.114: Use the selected company's tenantId, or fall back to current tenant
+    const targetTenantId = newUser.tenantId || tenant.id
     const res = await authFetch('/api/auth', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'add-user', tenantId: tenant.id, ...newUser }),
+      body: JSON.stringify({ action: 'add-user', tenantId: targetTenantId, name: newUser.name, email: newUser.email, password: newUser.password, role: newUser.role }),
     })
     if (res.ok) {
-      toast({ title: 'User added successfully' })
+      toast({ title: 'User added successfully', description: `${newUser.email} can now log in to the selected company.` })
       setShowAddUser(false)
-      setNewUser({ name: '', email: '', password: '', role: 'DATA_ENTRY' })
+      setNewUser({ name: '', email: '', password: '', role: 'DATA_ENTRY', tenantId: '' })
       loadUsers() // Refresh users list
     } else {
       const errData = await res.json().catch(() => ({}))
@@ -479,6 +481,16 @@ export function SettingsPage() {
                 <div><span className="text-muted-foreground">GST:</span> <span className="font-medium">{tenant?.gstNumber || '-'}</span></div>
                 <div><span className="text-muted-foreground">Address:</span> <span className="font-medium">{tenant?.address || '-'}</span></div>
                 <div><span className="text-muted-foreground">Plan:</span> <Badge className="bg-emerald-600">{tenant?.plan || 'Free'}</Badge></div>
+              </div>
+              {/* v4.114: Protected Tenant badge — every registered tenant is protected */}
+              <div className="mt-3 flex items-start gap-2 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900 rounded-lg p-2.5">
+                <ShieldCheck className="h-4 w-4 text-emerald-600 flex-shrink-0 mt-0.5" />
+                <div className="text-xs">
+                  <p className="font-semibold text-emerald-800 dark:text-emerald-400">Protected Tenant</p>
+                  <p className="text-emerald-700 dark:text-emerald-500 mt-0.5">
+                    Your business data is protected. Once registered, your tenant cannot be hard-deleted through any API or UI — all data (sales, purchases, inventory, parties, etc.) is preserved permanently. Use <strong>Settings &gt; Data Management &gt; Download Complete Backup</strong> to export a copy for offline safekeeping.
+                  </p>
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -851,7 +863,7 @@ export function SettingsPage() {
                   </div>
                   <div className="bg-muted/50 p-3 rounded-lg">
                     <p className="text-xs text-muted-foreground">Version</p>
-                    <p className="font-semibold">v4.113.0</p>
+                    <p className="font-semibold">v4.114.0</p>
                     <p className="text-xs text-muted-foreground">Built with Next.js 16 + Prisma + PostgreSQL</p>
                     <p className="text-[10px] text-muted-foreground mt-1">A Product by Tahigo International</p>
                   </div>
@@ -1138,6 +1150,28 @@ export function SettingsPage() {
         <DialogContent>
           <DialogHeader><DialogTitle>Add New User</DialogTitle></DialogHeader>
           <div className="space-y-3">
+            {/* v4.114: Select Company dropdown — lets MAIN_ADMIN choose which
+                company the new user should be added to. Defaults to the
+                currently selected company. Only shown if user has 2+ companies. */}
+            {companies && companies.length > 1 && (
+              <div>
+                <Label>Select Company</Label>
+                <Select
+                  value={newUser.tenantId || tenant?.id || ''}
+                  onValueChange={(v) => setNewUser({ ...newUser, tenantId: v })}
+                >
+                  <SelectTrigger><SelectValue placeholder="Choose company..." /></SelectTrigger>
+                  <SelectContent>
+                    {companies.map((c) => (
+                      <SelectItem key={c.tenantId} value={c.tenantId}>
+                        {c.name}{c.tenantId === tenant?.id ? ' (current)' : ''}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground mt-1">The user will be added to the selected company.</p>
+              </div>
+            )}
             <div><Label>Name</Label><Input value={newUser.name} onChange={(e) => setNewUser({ ...newUser, name: e.target.value })} /></div>
             <div><Label>Email</Label><Input type="email" value={newUser.email} onChange={(e) => setNewUser({ ...newUser, email: e.target.value })} /></div>
             <div><Label>Password</Label><Input type="password" value={newUser.password} onChange={(e) => setNewUser({ ...newUser, password: e.target.value })} /></div>
