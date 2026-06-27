@@ -36,6 +36,31 @@ export async function POST(req: NextRequest) {
       data.gstAmount = roundTo2(sanitize(data.gstAmount))
       data.totalAmount = roundTo2(sanitize(data.totalAmount))
       data.amountPaid = roundTo2(sanitize(data.amountPaid))
+
+      // v4.125: Anti-Negative Value Validation — purchases can NEVER be negative
+      const negFields: string[] = []
+      if (data.subtotal < 0) negFields.push('subtotal')
+      if (data.gstAmount < 0) negFields.push('gstAmount')
+      if (data.totalAmount < 0) negFields.push('totalAmount')
+      if (data.amountPaid < 0) negFields.push('amountPaid')
+      const purItems = typeof data.items === 'string' ? JSON.parse(data.items) : data.items
+      if (Array.isArray(purItems)) {
+        for (let i = 0; i < purItems.length; i++) {
+          const item = purItems[i]
+          if (item.qty !== undefined && item.qty < 0) negFields.push(`item[${i}].qty`)
+          if (item.rate !== undefined && item.rate < 0) negFields.push(`item[${i}].rate`)
+          if (item.discount !== undefined && item.discount < 0) negFields.push(`item[${i}].discount`)
+          if (item.amount !== undefined && item.amount < 0) negFields.push(`item[${i}].amount`)
+          if (item.total !== undefined && item.total < 0) negFields.push(`item[${i}].total`)
+        }
+      }
+      if (negFields.length > 0) {
+        return NextResponse.json({
+          error: `Negative values are not allowed in purchases. Fields: ${negFields.join(', ')}. Use a Debit Note to reverse a purchase instead of negative values.`,
+          fields: negFields,
+          code: 'NEGATIVE_VALUE_NOT_ALLOWED',
+        }, { status: 422 })
+      }
       // Ensure empty strings for optional fields become null
       data.partyAddress = data.partyAddress || null
       data.partyGst = data.partyGst || null

@@ -65,6 +65,7 @@ const navItems: NavItem[] = [
   { id: 'price-lists', label: 'Price Lists', icon: <Tag className="h-4 w-4" /> },
   { id: 'chart-of-accounts', label: 'Chart of Accounts', icon: <BookOpen className="h-4 w-4" /> },
   { id: 'general-ledger', label: 'General Ledger', icon: <ArrowRightLeft className="h-4 w-4" /> },
+  { id: 'trial-balance', label: 'Trial Balance', icon: <Scale className="h-4 w-4" /> },
   { id: 'pnl', label: 'P&L Summary', icon: <TrendingUp className="h-4 w-4" /> },
   { id: 'day-report', label: 'Day Report', icon: <CalendarDays className="h-4 w-4" /> },
   { id: 'balance-sheet', label: 'Balance Sheet', icon: <Scale className="h-4 w-4" /> },

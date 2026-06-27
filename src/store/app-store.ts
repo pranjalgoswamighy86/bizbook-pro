@@ -26,6 +26,7 @@ export type ViewType =
   | 'backup'
   | 'chart-of-accounts'
   | 'general-ledger'
+  | 'trial-balance'
   | 'ai-import'
   | 'subscription'
   | 'ai-valuation'

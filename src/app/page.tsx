@@ -81,6 +81,7 @@ function ModuleRouter() {
       case 'backup': return <BackupPage />
       case 'chart-of-accounts': return <ChartOfAccounts />
       case 'general-ledger': return <GeneralLedger />
+      case 'trial-balance': return <GeneralLedger initialTab="trial" />
       case 'ai-import': return <AIImportPage />
       case 'subscription': return <SubscriptionPage />
       case 'ai-valuation': return <AIValuationPage />

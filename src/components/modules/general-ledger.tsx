@@ -49,7 +49,7 @@ const TYPE_COLORS: Record<string, string> = {
   Expense: 'bg-orange-100 text-orange-800',
 }
 
-export function GeneralLedger() {
+export function GeneralLedger({ initialTab }: { initialTab?: 'ledger' | 'journal' | 'trial' }) {
   const { tenant, user } = useAppStore()
   const { toast } = useToast()
   const [accounts, setAccounts] = useState<Account[]>([])
@@ -63,7 +63,7 @@ export function GeneralLedger() {
   const [loadingLedger, setLoadingLedger] = useState(false)
 
   // Journal entry view
-  const [activeTab, setActiveTab] = useState<'ledger' | 'journal' | 'trial'>('ledger')
+  const [activeTab, setActiveTab] = useState<'ledger' | 'journal' | 'trial'>(initialTab || 'ledger')
   const [journalEntries, setJournalEntries] = useState<JournalEntry[]>([])
   const [loadingJournal, setLoadingJournal] = useState(false)
 

@@ -51,6 +51,36 @@ export async function POST(req: NextRequest) {
       data.paymentMode = data.paymentMode || null
       data.invoiceStatus = data.invoiceStatus || 'CONFIRMED'
       data.upiAmount = roundTo2(sanitize(data.upiAmount))
+
+      // v4.125: Anti-Negative Value Validation — GST compliance
+      // Sales amounts can NEVER be negative. Opening/closing/stock can never be negative.
+      // Per GST law, negative invoices are invalid — credit notes must be used instead.
+      const negativeFields: string[] = []
+      if (data.subtotal < 0) negativeFields.push('subtotal')
+      if (data.gstAmount < 0) negativeFields.push('gstAmount')
+      if (data.totalAmount < 0) negativeFields.push('totalAmount')
+      if (data.amountPaid < 0) negativeFields.push('amountPaid')
+      if (data.amountReceived < 0) negativeFields.push('amountReceived')
+      if (data.upiAmount < 0) negativeFields.push('upiAmount')
+      // Check item-level negative values
+      const items = typeof data.items === 'string' ? JSON.parse(data.items) : data.items
+      if (Array.isArray(items)) {
+        for (let i = 0; i < items.length; i++) {
+          const item = items[i]
+          if (item.qty !== undefined && item.qty < 0) negativeFields.push(`item[${i}].qty`)
+          if (item.rate !== undefined && item.rate < 0) negativeFields.push(`item[${i}].rate`)
+          if (item.discount !== undefined && item.discount < 0) negativeFields.push(`item[${i}].discount`)
+          if (item.amount !== undefined && item.amount < 0) negativeFields.push(`item[${i}].amount`)
+          if (item.total !== undefined && item.total < 0) negativeFields.push(`item[${i}].total`)
+        }
+      }
+      if (negativeFields.length > 0) {
+        return NextResponse.json({
+          error: `Negative values are not allowed in sales. The following fields have negative values: ${negativeFields.join(', ')}. Per GST law, if you need to reverse a sale, issue a Credit Note instead of entering negative values.`,
+          fields: negativeFields,
+          code: 'NEGATIVE_VALUE_NOT_ALLOWED',
+        }, { status: 422 })
+      }
       data.createdBy = access.userId  // ← use authenticated user, not body
       if (!data.date || isNaN(new Date(data.date).getTime())) {
         return NextResponse.json({ error: 'Invalid date provided' }, { status: 400 })
