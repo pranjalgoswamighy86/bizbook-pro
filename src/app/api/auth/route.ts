@@ -393,10 +393,14 @@ export async function POST(req: NextRequest) {
         }, { status: 429 })
       }
 
-      const user = await db.user.findUnique({
-        where: { email },
-        include: { tenant: true },
-      })
+      // v4.123: Case-insensitive email lookup using rawDb (bypasses soft-delete + WASM limitations)
+      const { rawDb } = await import('@/lib/db-soft-delete')
+      const userRows = await rawDb.$queryRaw`SELECT * FROM "User" WHERE LOWER(email) = LOWER(${email}) AND "isDeleted" = false LIMIT 1` as any[]
+      const userRow = userRows[0] || null
+      const user = userRow ? {
+        ...userRow,
+        tenant: await rawDb.tenant.findUnique({ where: { id: userRow.tenantId } }),
+      } : null
 
       // ---- SECURITY PATCH v1: use verifyPassword instead of `!==` ----
       // Always run verifyPassword even if user is null, to keep timing
@@ -553,11 +557,14 @@ export async function POST(req: NextRequest) {
         data: { used: true },
       })
 
-      // Find user
-      const user = await db.user.findUnique({
-        where: { email },
-        include: { tenant: true },
-      })
+      // v4.123: Case-insensitive email lookup using rawDb
+      const { rawDb } = await import('@/lib/db-soft-delete')
+      const swUserRows = await rawDb.$queryRaw`SELECT * FROM "User" WHERE LOWER(email) = LOWER(${email}) AND "isDeleted" = false LIMIT 1` as any[]
+      const swUserRow = swUserRows[0] || null
+      const user = swUserRow ? {
+        ...swUserRow,
+        tenant: await rawDb.tenant.findUnique({ where: { id: swUserRow.tenantId } }),
+      } : null
       if (!user) {
         return NextResponse.json({ error: 'User not found' }, { status: 404 })
       }
@@ -1035,7 +1042,10 @@ export async function POST(req: NextRequest) {
         }, { status: 429 })
       }
 
-      let userByEmail = await db.user.findUnique({ where: { email: identifier } })
+      // v4.123: Case-insensitive email lookup using rawDb
+      const { rawDb } = await import('@/lib/db-soft-delete')
+      const resetUserRows = await rawDb.$queryRaw`SELECT * FROM "User" WHERE LOWER(email) = LOWER(${identifier}) AND "isDeleted" = false LIMIT 1` as any[]
+      let userByEmail = resetUserRows[0] || null
 
       let userByPhone: typeof userByEmail = null
       if (!userByEmail) {
