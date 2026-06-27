@@ -36,12 +36,13 @@ import { Prisma, PrismaClient } from '@prisma/client'
 
 // ============================================================
 // v4.56: PostgreSQL connection (was SQLite)
-// No more file path resolution, no more PRAGMA optimizations.
+// v4.121: Optimized connection pool for better performance
+// connection_limit=15 per worker, 2 PM2 workers = 30 total
+// connect_timeout=10 for faster failure detection
 // ============================================================
 const databaseUrl = process.env.DATABASE_URL || ''
-// v4.57: PostgreSQL connection pool — 10 per worker, 2 workers = 20 total
 const connectionUrl = databaseUrl
-  ? databaseUrl + (databaseUrl.includes('?') ? '&' : '?') + 'connection_limit=10&pool_timeout=30'
+  ? databaseUrl + (databaseUrl.includes('?') ? '&' : '?') + 'connection_limit=15&pool_timeout=10&connect_timeout=10'
   : databaseUrl
 
 // ============================================================

@@ -1,15 +1,15 @@
-# ============================================================
-# BizBook Pro — PM2 Ecosystem Configuration (v4.56)
-# ============================================================
-# PM2 cluster mode: spawns multiple Node.js processes that share
-# the same port. Each process handles requests independently.
-#
-# With PostgreSQL, multiple writers are safe (unlike SQLite).
-# 2 instances = 2x request handling capacity.
-#
-# Memory: 2 × ~200MB = ~400MB (fits in Railway Hobby 512MB)
-# CPU: 2 instances use 2 CPU cores (Railway Hobby has shared CPU)
-# ============================================================
+// ============================================================
+// BizBook Pro — PM2 Ecosystem Configuration (v4.56)
+// ============================================================
+// PM2 cluster mode: spawns multiple Node.js processes that share
+// the same port. Each process handles requests independently.
+//
+// With PostgreSQL, multiple writers are safe (unlike SQLite).
+// 2 instances = 2x request handling capacity.
+//
+// Memory: 2 × ~200MB = ~400MB (fits in Railway Hobby 512MB)
+// CPU: 2 instances use 2 CPU cores (Railway Hobby has shared CPU)
+// ============================================================
 
 const path = require('path');
 const projectDir = __dirname;

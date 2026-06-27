@@ -36,7 +36,11 @@ interface TenantSubscription {
   tenantName: string
   tenantEmail: string
   tenantPhone: string
-  planName: string
+  tenantPlan?: string
+  isDeleted?: boolean
+  deletedAt?: string | null
+  tenantCreatedAt?: string
+  planName: string | null
   planHours: number
   remainingSeconds: number
   remainingHours: number
@@ -44,10 +48,18 @@ interface TenantSubscription {
   status: string
   isFreeTier: boolean
   freeTierHours: number
-  startDate: string
+  startDate: string | null
   endDate: string | null
   maxUsersAllowed: number | null
   customPlanType: string | null
+  recordCounts?: {
+    users: number
+    sales: number
+    purchases: number
+    expenses: number
+    inventory: number
+    parties: number
+  }
 }
 
 export function SuperAdminSubscriptionPanel() {
@@ -194,7 +206,7 @@ export function SuperAdminSubscriptionPanel() {
       s.tenantName.toLowerCase().includes(q) ||
       s.tenantEmail.toLowerCase().includes(q) ||
       s.tenantPhone.toLowerCase().includes(q) ||
-      s.planName.toLowerCase().includes(q)
+      (s.planName || '').toLowerCase().includes(q)
     )
   })
 
@@ -215,12 +227,26 @@ export function SuperAdminSubscriptionPanel() {
         </Button>
       </div>
 
+      {/* v4.119: Info banner explaining what tenants are shown */}
+      {subscriptions.length <= 1 && (
+        <div className="bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900 rounded-lg p-3 text-xs text-blue-800 dark:text-blue-300">
+          <p className="font-semibold mb-1">📋 About this report</p>
+          <p>
+            This panel shows all tenants currently registered in the database.
+            Only <strong>{subscriptions.length} tenant(s)</strong> exist in the database right now.
+            When new tenants register via the Register page, they will automatically appear here with their record counts.
+            If tenants are missing that you expected to see, they may have been lost during a database reset —
+            use the <strong>Restore from Backup</strong> option on the <a href="/emergency-backup.html" className="underline font-medium" target="_blank" rel="noopener noreferrer">Emergency Backup page</a> to restore them from a previously-downloaded backup file.
+          </p>
+        </div>
+      )}
+
       {/* Stats summary */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <StatCard label="Total Tenants" value={subscriptions.length} color="indigo" />
         <StatCard
           label="Active"
-          value={subscriptions.filter(s => s.status === 'ACTIVE').length}
+          value={subscriptions.filter(s => !s.isDeleted && s.status === 'ACTIVE').length}
           color="emerald"
         />
         <StatCard
@@ -229,11 +255,26 @@ export function SuperAdminSubscriptionPanel() {
           color="amber"
         />
         <StatCard
-          label="Expired"
-          value={subscriptions.filter(s => s.status === 'EXPIRED').length}
+          label="Soft-Deleted"
+          value={subscriptions.filter(s => s.isDeleted).length}
           color="rose"
         />
       </div>
+
+      {/* v4.118: Total records across all tenants */}
+      {subscriptions.some(s => s.recordCounts) && (
+        <div className="bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900 rounded-lg p-3">
+          <p className="text-xs font-semibold text-blue-800 dark:text-blue-300 mb-2">📊 Total Records Across All Tenants</p>
+          <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 text-xs">
+            <div className="text-center"><span className="text-blue-600 dark:text-blue-400 font-bold text-lg">{subscriptions.reduce((sum, s) => sum + (s.recordCounts?.sales || 0), 0)}</span><br/><span className="text-muted-foreground">Sales</span></div>
+            <div className="text-center"><span className="text-blue-600 dark:text-blue-400 font-bold text-lg">{subscriptions.reduce((sum, s) => sum + (s.recordCounts?.purchases || 0), 0)}</span><br/><span className="text-muted-foreground">Purchases</span></div>
+            <div className="text-center"><span className="text-blue-600 dark:text-blue-400 font-bold text-lg">{subscriptions.reduce((sum, s) => sum + (s.recordCounts?.expenses || 0), 0)}</span><br/><span className="text-muted-foreground">Expenses</span></div>
+            <div className="text-center"><span className="text-blue-600 dark:text-blue-400 font-bold text-lg">{subscriptions.reduce((sum, s) => sum + (s.recordCounts?.inventory || 0), 0)}</span><br/><span className="text-muted-foreground">Inventory</span></div>
+            <div className="text-center"><span className="text-blue-600 dark:text-blue-400 font-bold text-lg">{subscriptions.reduce((sum, s) => sum + (s.recordCounts?.parties || 0), 0)}</span><br/><span className="text-muted-foreground">Parties</span></div>
+            <div className="text-center"><span className="text-blue-600 dark:text-blue-400 font-bold text-lg">{subscriptions.reduce((sum, s) => sum + (s.recordCounts?.users || 0), 0)}</span><br/><span className="text-muted-foreground">Users</span></div>
+          </div>
+        </div>
+      )}
 
       {/* Search */}
       <div className="relative max-w-md">
@@ -261,7 +302,8 @@ export function SuperAdminSubscriptionPanel() {
               <th className="text-left p-3 font-semibold">Plan</th>
               <th className="text-left p-3 font-semibold">Hours Left</th>
               <th className="text-left p-3 font-semibold">Status</th>
-              <th className="text-left p-3 font-semibold hidden md:table-cell">End Date</th>
+              <th className="text-left p-3 font-semibold hidden md:table-cell">Records</th>
+              <th className="text-left p-3 font-semibold hidden lg:table-cell">End Date</th>
               <th className="text-left p-3 font-semibold hidden lg:table-cell">Max Users</th>
               <th className="text-right p-3 font-semibold">Actions</th>
             </tr>
@@ -269,22 +311,28 @@ export function SuperAdminSubscriptionPanel() {
           <tbody>
             {filtered.length === 0 && !loading ? (
               <tr>
-                <td colSpan={7} className="text-center p-8 text-muted-foreground">
-                  No subscriptions found.
+                <td colSpan={8} className="text-center p-8 text-muted-foreground">
+                  No tenants found.
                 </td>
               </tr>
             ) : (
               filtered.map((sub) => (
-                <tr key={sub.id} className="border-b hover:bg-muted/30">
+                <tr key={sub.id} className={`border-b hover:bg-muted/30 ${sub.isDeleted ? 'opacity-50' : ''}`}>
                   <td className="p-3">
-                    <div className="font-medium">{sub.tenantName || '—'}</div>
+                    <div className="font-medium flex items-center gap-1.5">
+                      {sub.tenantName || '—'}
+                      {sub.isDeleted && <span className="text-[10px] bg-rose-100 text-rose-700 px-1.5 py-0.5 rounded">DELETED</span>}
+                    </div>
                     <div className="text-xs text-muted-foreground">{sub.tenantEmail}</div>
                     {sub.tenantPhone && (
                       <div className="text-xs text-muted-foreground">📞 {sub.tenantPhone}</div>
                     )}
+                    {sub.tenantCreatedAt && (
+                      <div className="text-[10px] text-muted-foreground">Registered: {new Date(sub.tenantCreatedAt).toLocaleDateString('en-IN')}</div>
+                    )}
                   </td>
                   <td className="p-3">
-                    <div className="font-medium">{sub.planName}</div>
+                    <div className="font-medium">{sub.planName || <span className="text-muted-foreground text-xs">No plan</span>}</div>
                     {sub.isFreeTier && (
                       <span className="text-[10px] bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded">FREE</span>
                     )}
@@ -321,13 +369,29 @@ export function SuperAdminSubscriptionPanel() {
                       <span className={`text-xs px-2 py-0.5 rounded ${
                         sub.status === 'ACTIVE' ? 'bg-emerald-100 text-emerald-800' :
                         sub.status === 'EXPIRED' ? 'bg-rose-100 text-rose-800' :
+                        sub.status === 'NO_SUBSCRIPTION' ? 'bg-slate-100 text-slate-500' :
                         'bg-slate-100 text-slate-700'
                       }`}>
                         {sub.status}
                       </span>
                     )}
                   </td>
+                  {/* v4.118: Records column — shows sales/purchases/expenses/inventory/parties/users counts */}
                   <td className="p-3 hidden md:table-cell">
+                    {sub.recordCounts ? (
+                      <div className="text-xs space-y-0.5">
+                        <div className="flex justify-between gap-2"><span className="text-muted-foreground">Sales:</span><span className="font-medium">{sub.recordCounts.sales}</span></div>
+                        <div className="flex justify-between gap-2"><span className="text-muted-foreground">Purchases:</span><span className="font-medium">{sub.recordCounts.purchases}</span></div>
+                        <div className="flex justify-between gap-2"><span className="text-muted-foreground">Expenses:</span><span className="font-medium">{sub.recordCounts.expenses}</span></div>
+                        <div className="flex justify-between gap-2"><span className="text-muted-foreground">Inventory:</span><span className="font-medium">{sub.recordCounts.inventory}</span></div>
+                        <div className="flex justify-between gap-2"><span className="text-muted-foreground">Parties:</span><span className="font-medium">{sub.recordCounts.parties}</span></div>
+                        <div className="flex justify-between gap-2"><span className="text-muted-foreground">Users:</span><span className="font-medium">{sub.recordCounts.users}</span></div>
+                      </div>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">—</span>
+                    )}
+                  </td>
+                  <td className="p-3 hidden lg:table-cell">
                     {editingId === sub.id ? (
                       <Input
                         type="date"

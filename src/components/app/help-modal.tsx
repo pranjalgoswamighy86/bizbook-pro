@@ -327,8 +327,8 @@ export function HelpModal({ open, onClose }: HelpModalProps) {
         )}
 
         <div className="border-t pt-3 mt-3 sm:mt-4 flex items-center justify-between text-xs text-slate-500 gap-2">
-          <span className="hidden sm:inline">BizBook Pro v4.117 — A Product by Tahigo International</span>
-          <span className="sm:hidden text-[11px]">v4.117 — Tahigo International</span>
+          <span className="hidden sm:inline">BizBook Pro v4.119 — A Product by Tahigo International</span>
+          <span className="sm:hidden text-[11px]">v4.119 — Tahigo International</span>
           <Button variant="outline" size="sm" onClick={onClose} className="min-h-9">Close</Button>
         </div>
       </DialogContent>
