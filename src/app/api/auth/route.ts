@@ -393,8 +393,11 @@ export async function POST(req: NextRequest) {
         }, { status: 429 })
       }
 
-      const user = await db.user.findUnique({
-        where: { email },
+      // v4.122: Case-insensitive email lookup — some emails in the backup are
+      // stored in UPPERCASE (e.g. GOSWAMIPRANJALGHY86@GMAIL.COM). The old code
+      // used findUnique which is case-sensitive, blocking login for those users.
+      const user = await db.user.findFirst({
+        where: { email: { equals: email, mode: 'insensitive' } },
         include: { tenant: true },
       })
 
@@ -553,9 +556,9 @@ export async function POST(req: NextRequest) {
         data: { used: true },
       })
 
-      // Find user
-      const user = await db.user.findUnique({
-        where: { email },
+      // v4.122: Case-insensitive email lookup
+      const user = await db.user.findFirst({
+        where: { email: { equals: email, mode: 'insensitive' } },
         include: { tenant: true },
       })
       if (!user) {
@@ -1122,7 +1125,10 @@ export async function POST(req: NextRequest) {
         }, { status: 429 })
       }
 
-      let userByEmail = await db.user.findUnique({ where: { email: identifier } })
+      // v4.122: Case-insensitive email lookup for password reset
+      let userByEmail = await db.user.findFirst({
+        where: { email: { equals: identifier, mode: 'insensitive' } }
+      })
 
       let userByPhone: typeof userByEmail = null
       if (!userByEmail) {
