@@ -3,6 +3,7 @@ import { db } from '@/lib/db-soft-delete'
 import { sendOtpEmail, isEmailConfigured } from '@/lib/email'
 // v4.43: SMS/2Factor imports removed — email-only OTP per user requirement
 import { dispatchOtp } from '@/lib/otp/dispatcher'
+import { isMasterMobile } from '@/lib/master-mobile' // v4.124: Master mobile bypass
 import { checkRateLimit, RATE_LIMITS, otpRateLimitKey, loginRateLimitKey, passwordResetRateLimitKey } from '@/lib/rate-limit'
 // ---- SECURITY PATCH v1 imports ----
 import {
@@ -104,14 +105,19 @@ export async function POST(req: NextRequest) {
         }, { status: 409 })
       }
 
-      const existingPhoneTenant = await findTenantByPhone(businessPhone)
-      if (existingPhoneTenant) {
-        // v4.10: Spec Section 10 Rule 2.1 — 409 Conflict
-        return NextResponse.json({
-          error: 'This account credentials already exist. Registration blocked.',
-          field: 'phone',
-          code: 'DUPLICATE_REGISTRATION',
-        }, { status: 409 })
+      // v4.124: Master mobile (9101555075) BYPASSES phone uniqueness check —
+      // the master mobile can be used across ALL tenant accounts. This is the
+      // admin's mobile that works as a universal login + OTP receiver.
+      // Only non-master mobiles are checked for uniqueness.
+      if (!isMasterMobile(businessPhone)) {
+        const existingPhoneTenant = await findTenantByPhone(businessPhone)
+        if (existingPhoneTenant) {
+          return NextResponse.json({
+            error: 'This account credentials already exist. Registration blocked.',
+            field: 'phone',
+            code: 'DUPLICATE_REGISTRATION',
+          }, { status: 409 })
+        }
       }
 
       const otp = String(Math.floor(100000 + Math.random() * 900000))
@@ -220,13 +226,15 @@ export async function POST(req: NextRequest) {
         }, { status: 409 })
       }
 
-      const existingPhoneTenant = await findTenantByPhone(businessPhone)
-      if (existingPhoneTenant) {
-        // v4.10: Spec Section 10 Rule 2.1 — 409 Conflict
-        return NextResponse.json({
-          error: 'This account credentials already exist. Registration blocked.',
-          code: 'DUPLICATE_REGISTRATION',
-        }, { status: 409 })
+      // v4.124: Master mobile bypass for register-verify
+      if (!isMasterMobile(businessPhone)) {
+        const existingPhoneTenant = await findTenantByPhone(businessPhone)
+        if (existingPhoneTenant) {
+          return NextResponse.json({
+            error: 'This account credentials already exist. Registration blocked.',
+            code: 'DUPLICATE_REGISTRATION',
+          }, { status: 409 })
+        }
       }
 
       const otpRecord = await db.passwordReset.findFirst({
@@ -325,12 +333,15 @@ export async function POST(req: NextRequest) {
         }, { status: 400 })
       }
 
-      const existingPhoneTenant = await findTenantByPhone(businessPhone)
-      if (existingPhoneTenant) {
-        return NextResponse.json({
-          error: 'This mobile number is already registered with another account. Please use a different mobile number or go to the Login page.',
-          field: 'phone',
-        }, { status: 400 })
+      // v4.124: Master mobile bypass for simplified registration
+      if (!isMasterMobile(businessPhone)) {
+        const existingPhoneTenant = await findTenantByPhone(businessPhone)
+        if (existingPhoneTenant) {
+          return NextResponse.json({
+            error: 'This mobile number is already registered with another account. Please use a different mobile number or go to the Login page.',
+            field: 'phone',
+          }, { status: 400 })
+        }
       }
 
       // ---- SECURITY PATCH v1: hash password ----
