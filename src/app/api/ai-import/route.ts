@@ -158,7 +158,22 @@ export async function POST(req: NextRequest) {
         console.error('[AI-Import] Failed to fetch tenant for classification context:', e)
       }
     }
-    const analysis = await analyzeFileWithAI(file, buffer, tenantInfo)
+    
+    // v4.126: Try AI analysis first, fall back to LOCAL parser if AI API is unreachable
+    let analysis: any = null
+    try {
+      analysis = await analyzeFileWithAI(file, buffer, tenantInfo)
+    } catch (aiError: any) {
+      console.warn(`[AI-Import] AI analysis failed (${aiError?.message?.slice(0, 100)}), falling back to local parser...`)
+      analysis = await localParseFile(file, buffer)
+    }
+
+    // If AI returned null/empty, also try local parser
+    if (!analysis || (analysis.confidence === 0 && (!analysis.detectedDocumentType || analysis.detectedDocumentType === 'unknown'))) {
+      console.warn('[AI-Import] AI returned empty result, falling back to local parser...')
+      const localResult = await localParseFile(file, buffer)
+      if (localResult) analysis = localResult
+    }
 
     // GSTIN-based cross-validation: Override AI classification if GSTINs prove otherwise
     // This is the SAFETY NET — even if AI misclassifies, we can correct based on
@@ -198,13 +213,14 @@ export async function POST(req: NextRequest) {
       if (analysis.detectedDocumentType === 'bank_statement' && analysis.detectedBusiness) {
         const accountHolderName = analysis.detectedBusiness.trim()
         if (!namesMatch(accountHolderName, tenantName) && accountHolderName.length > 2) {
-          analysisResult.warnings.push(
+          analysis.warnings = analysis.warnings || []
+          analysis.warnings.push(
             `BANK_STATEMENT_NAME_MISMATCH: Account holder name on statement ("${accountHolderName}") does not match your company name ("${tenantName}"). ` +
             `This may be the legal Owner/Proprietor name, or an incorrect statement. ` +
             `You can bypass this warning and route to Bank Reconciliation, or assign to Proprietor/Owner Capital Accounts.`
           )
           // Tag the analysis so frontend can show the action triggers
-          ;(analysisResult as any).bankStatementMismatch = {
+          ;(analysis as any).bankStatementMismatch = {
             accountHolderName,
             tenantName,
             actions: [
@@ -441,6 +457,140 @@ function parseCSVToStructured(csv: string, isTSV: boolean): string {
   const headers = parseRow(lines[0])
   const data = lines.slice(1).map(parseRow)
   return JSON.stringify({ headers, totalRows: data.length, sampleRows: data.slice(0, 200), allRows: data.length <= 200 ? data : undefined }, null, 2)
+}
+
+// ============================================
+// v4.126: LOCAL parser fallback — works without AI API
+// ============================================
+
+/**
+ * Parse Excel/CSV files locally using the xlsx library.
+ * Returns raw data for user-guided module selection.
+ * When AI API is unreachable (ConnectTimeoutError), this provides a working fallback.
+ */
+async function localParseFile(file: File, buffer: Buffer): Promise<any> {
+  const fileName = file.name.toLowerCase()
+  console.log(`[AI-Import] Local parser: analyzing ${file.name} (${(buffer.length / 1024).toFixed(1)} KB)`)
+
+  try {
+    // Parse Excel files
+    if (fileName.match(/\.(xlsx|xls|csv)$/)) {
+      const XLSX = await import('xlsx')
+      const workbook = XLSX.read(buffer, { type: 'buffer', cellDates: true })
+      const allSheets: Record<string, any[]> = {}
+      let totalRows = 0
+      let allHeaders: string[] = []
+      let negativeValues: string[] = []
+
+      for (const sheetName of workbook.SheetNames) {
+        const sheet = workbook.Sheets[sheetName]
+        const rows: any[] = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: true, defval: null })
+        
+        // Find the header row (first row with at least 3 non-null values)
+        let headerRowIndex = 0
+        for (let i = 0; i < Math.min(rows.length, 10); i++) {
+          const nonNullCount = (rows[i] || []).filter((v: any) => v !== null && v !== undefined && String(v).trim() !== '').length
+          if (nonNullCount >= 3) {
+            headerRowIndex = i
+            break
+          }
+        }
+
+        const headers = (rows[headerRowIndex] || []).map((h: any) => String(h || '').trim()).filter((h: string) => h)
+        allHeaders = [...new Set([...allHeaders, ...headers])]
+        
+        const dataRows = rows.slice(headerRowIndex + 1).map((row: any[]) => {
+          const obj: Record<string, any> = {}
+          headers.forEach((header: string, idx: number) => {
+            const val = row[idx]
+            obj[header] = val
+            // v4.126: Check for negative values
+            if (typeof val === 'number' && val < 0) {
+              negativeValues.push(`${sheetName}.${header}=${val}`)
+            }
+          })
+          return obj
+        }).filter((row: Record<string, any>) => Object.values(row).some(v => v !== null && v !== undefined && v !== ''))
+
+        allSheets[sheetName] = dataRows
+        totalRows += dataRows.length
+      }
+
+      if (totalRows === 0) {
+        return {
+          detectedDocumentType: 'unknown',
+          confidence: 0,
+          summary: 'Could not extract any data from this file. The file may be empty or in an unsupported format.',
+          warnings: ['No data rows found in the file'],
+          rawRows: [],
+          headers: allHeaders,
+          negativeValues: [],
+          fileName: file.name,
+        }
+      }
+
+      // Build the analysis result for user-guided selection
+      const sampleRows = Object.values(allSheets).flat().slice(0, 5)
+      
+      return {
+        detectedDocumentType: 'manual_select',
+        confidence: 50, // Local parser confidence — not AI-verified
+        summary: `Locally parsed ${totalRows} data rows from ${workbook.SheetNames.length} sheet(s). Please select where to import this data.`,
+        warnings: negativeValues.length > 0 
+          ? [`⚠️ NEGATIVE VALUES DETECTED: ${negativeValues.length} negative value(s) found. Opening balance, closing balance, stock-in, and stock-out can NEVER be negative. These will be flagged during import.`]
+          : [],
+        sheets: allSheets,
+        headers: allHeaders,
+        sampleRows: sampleRows,
+        totalRows: totalRows,
+        negativeValues: negativeValues,
+        fileName: file.name,
+        // Provide empty module data — user will select where to import
+        sales: [],
+        purchases: [],
+        expenses: [],
+        products: [],
+        parties: [],
+        bankTransactions: [],
+      }
+    }
+
+    // For PDF/Word/other files — can't parse locally without AI
+    return {
+      detectedDocumentType: 'manual_select',
+      confidence: 0,
+      summary: `This file type (${file.name.split('.').pop()}) requires AI analysis, but the AI service is currently unreachable. Please try uploading an Excel (.xlsx) or CSV (.csv) file instead, or try again later when the AI service is available.`,
+      warnings: ['AI service unreachable — only Excel/CSV files can be parsed locally'],
+      rawRows: [],
+      headers: [],
+      negativeValues: [],
+      fileName: file.name,
+      sales: [],
+      purchases: [],
+      expenses: [],
+      products: [],
+      parties: [],
+      bankTransactions: [],
+    }
+  } catch (err: any) {
+    console.error('[AI-Import] Local parser error:', err)
+    return {
+      detectedDocumentType: 'unknown',
+      confidence: 0,
+      summary: `Failed to parse file locally: ${err?.message || 'Unknown error'}`,
+      warnings: ['Local parsing failed'],
+      rawRows: [],
+      headers: [],
+      negativeValues: [],
+      fileName: file.name,
+      sales: [],
+      purchases: [],
+      expenses: [],
+      products: [],
+      parties: [],
+      bankTransactions: [],
+    }
+  }
 }
 
 // ============================================

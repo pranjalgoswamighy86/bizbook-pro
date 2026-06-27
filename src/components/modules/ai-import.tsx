@@ -18,7 +18,7 @@ import {
 } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 
-type DetectedDocumentType = 'sale_invoice' | 'purchase_invoice' | 'bank_statement' | 'inventory_data' | 'expense_data' | 'staff_data' | 'party_data' | 'backup_data' | 'mixed_data' | 'unknown'
+type DetectedDocumentType = 'sale_invoice' | 'purchase_invoice' | 'bank_statement' | 'inventory_data' | 'expense_data' | 'staff_data' | 'party_data' | 'backup_data' | 'mixed_data' | 'manual_select' | 'unknown'
 
 interface AnalysisResult {
   fileName: string
@@ -180,6 +180,15 @@ const DETECTED_TYPE_CONFIG: Record<string, { label: string; icon: React.ReactNod
     bgColor: 'bg-gray-50 dark:bg-gray-950/30',
     borderColor: 'border-gray-200 dark:border-gray-800',
     targetModules: [],
+  },
+  // v4.126: Manual select — when AI fails, user chooses where to import
+  manual_select: {
+    label: 'Select Import Target',
+    icon: <Sparkles className="h-4 w-4" />,
+    color: 'text-amber-700',
+    bgColor: 'bg-amber-50 dark:bg-amber-950/30',
+    borderColor: 'border-amber-200 dark:border-amber-800',
+    targetModules: [], // user will select manually
   },
 }
 
