@@ -270,6 +270,14 @@ function startServer() {
 
   // v4.56: NO MORE DB FILE COPY — PostgreSQL is network-based, no files to copy
 
+  // v4.121: Copy ecosystem.config.js BEFORE chdir (fixes PM2 not starting)
+  const originalDir = process.cwd();
+  const pm2ConfigSrc = path.join(originalDir, 'ecosystem.config.js');
+  const pm2ConfigDst = path.join(standaloneDir, 'ecosystem.config.js');
+  if (fs.existsSync(pm2ConfigSrc) && !fs.existsSync(pm2ConfigDst)) {
+    try { fs.copyFileSync(pm2ConfigSrc, pm2ConfigDst); } catch {}
+  }
+
   // Change to standalone dir
   process.chdir(standaloneDir);
   console.log('→ Working directory:', process.cwd());
@@ -277,12 +285,6 @@ function startServer() {
   // v4.57: Fixed PM2 startup — use require('pm2') API directly instead of execSync
   // This avoids the "pm2 binary not found" issue in standalone mode
   const pm2ConfigPath = path.join(standaloneDir, 'ecosystem.config.js');
-
-  // Copy ecosystem.config.js to standalone dir if it exists
-  const pm2ConfigSrc = path.join(process.cwd(), 'ecosystem.config.js');
-  if (fs.existsSync(pm2ConfigSrc) && !fs.existsSync(pm2ConfigPath)) {
-    try { fs.copyFileSync(pm2ConfigSrc, pm2ConfigPath); } catch {}
-  }
 
   const usePM2 = process.env.USE_PM2 !== 'false';
   if (usePM2 && fs.existsSync(pm2ConfigPath)) {
@@ -313,6 +315,8 @@ function startServer() {
     } catch (e) {
       console.warn('PM2 module not available, starting direct server.js:', e.message);
     }
+  } else {
+    console.log('→ PM2 config not found at', pm2ConfigPath, '— using direct server.js');
   }
 
   // Direct server.js (fallback when PM2 is not available or disabled)
