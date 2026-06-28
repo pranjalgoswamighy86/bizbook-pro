@@ -879,6 +879,33 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'Email already exists' }, { status: 400 })
       }
 
+      // v4.130: User limit validation — only non-view-only users are counted
+      // View-only users are UNLIMITED and free
+      const targetRole = role || 'DATA_ENTRY'
+      if (targetRole !== 'VIEW_ONLY') {
+        // Get the tenant's max non-view-only users limit
+        const subscription = await db.subscription.findUnique({ where: { tenantId } })
+        const maxUsers = (subscription as any)?.maxUsersAllowed
+        if (maxUsers && maxUsers > 0) {
+          // Count current non-view-only users (MAIN_ADMIN, JUNIOR_ADMIN, DATA_ENTRY)
+          const { rawDb } = await import('@/lib/db-soft-delete')
+          const nonViewOnlyCount = await rawDb.userTenant.count({
+            where: {
+              tenantId,
+              role: { notIn: ['VIEW_ONLY'] },
+            },
+          })
+          if (nonViewOnlyCount >= maxUsers) {
+            return NextResponse.json({
+              error: `User limit reached. This company is allowed ${maxUsers} non-view-only user(s). View-only users are unlimited and free. To add more non-view-only users, the Super Admin must increase the limit in the Super Admin Panel.`,
+              code: 'USER_LIMIT_REACHED',
+              currentCount: nonViewOnlyCount,
+              maxAllowed: maxUsers,
+            }, { status: 403 })
+          }
+        }
+      }
+
       // ---- SECURITY PATCH v1: hash password ----
       const passwordHash = hashPassword(password)
       // -------------------------------------------

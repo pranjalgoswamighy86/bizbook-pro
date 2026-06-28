@@ -293,7 +293,7 @@ export function SuperAdminSubscriptionPanel() {
               <th className="text-left p-3 font-semibold">Status</th>
               <th className="text-left p-3 font-semibold hidden md:table-cell">Users</th>
               <th className="text-left p-3 font-semibold hidden lg:table-cell">End Date</th>
-              <th className="text-left p-3 font-semibold hidden lg:table-cell">Max Users</th>
+              <th className="text-left p-3 font-semibold hidden lg:table-cell">Max Non-View Users</th>
               <th className="text-right p-3 font-semibold">Actions</th>
             </tr>
           </thead>
@@ -450,7 +450,7 @@ export function SuperAdminSubscriptionPanel() {
               />
             </div>
             <div>
-              <Label className="text-xs">Max Users Allowed</Label>
+              <Label className="text-xs">Max Non-View-Only Users</Label>
               <Input
                 type="number"
                 value={editForm.maxUsersAllowed ?? 0}
@@ -458,6 +458,10 @@ export function SuperAdminSubscriptionPanel() {
                 placeholder="0 = unlimited"
                 className="h-8"
               />
+              <p className="text-[10px] text-muted-foreground mt-1">
+                View-only users are always unlimited & free. This limit applies only to Main Admin, Junior Admin, and Data Entry roles.
+                <br/>Default: 3 · Extra: ₹149 one-time + 15% surcharge on recharges
+              </p>
             </div>
           </div>
         </div>
