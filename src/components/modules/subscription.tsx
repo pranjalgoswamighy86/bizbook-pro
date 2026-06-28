@@ -543,7 +543,7 @@ export function SubscriptionPage() {
 
       {/* v4.140: UPI Checkout Modal removed — Razorpay only now */}
 
-      {/* v4.132: Extra ID Payment Dialog — single option, no role type */}
+      {/* v4.142: Extra ID Payment Dialog — Razorpay only */}
       <Dialog open={!!extraIdPurchase} onOpenChange={(open) => !open && setExtraIdPurchase(null)}>
         <DialogContent className="max-w-md">
           <DialogHeader>
@@ -552,128 +552,71 @@ export function SubscriptionPage() {
               Add Extra ID
             </DialogTitle>
           </DialogHeader>
-          {extraIdPurchase && (
-            <div className="space-y-4">
-              {/* Pricing summary */}
-              <div className="bg-violet-50 dark:bg-violet-950/20 border border-violet-200 dark:border-violet-900 rounded-lg p-4 space-y-2">
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Extra ID (Non-View-Only):</span>
-                  <span className="font-semibold">1 ID</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">One-time Cost:</span>
-                  <span className="font-semibold">₹{extraIdPurchase.cost}</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Recharge Surcharge:</span>
-                  <span className="font-semibold">+15% on all future recharges</span>
-                </div>
-                <div className="border-t border-violet-200 dark:border-violet-800 pt-2 flex justify-between">
-                  <span className="font-semibold">Pay Now:</span>
-                  <span className="font-bold text-violet-700 dark:text-violet-400 text-lg">₹{extraIdPurchase.cost}</span>
-                </div>
-              </div>
+          {extraIdPurchase && (() => {
+            const basePrice = extraIdPurchase.cost // ₹149
+            const rzpFee = Math.round(basePrice * 0.02 * 100) / 100
+            const rzpGst = Math.round(rzpFee * 0.18 * 100) / 100
+            const rzpTotal = Math.round((basePrice + rzpFee + rzpGst) * 100) / 100
 
-              {/* Payment instructions */}
-              <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900 rounded-lg p-3">
-                <p className="text-xs text-amber-800 dark:text-amber-300">
-                  <strong>How to pay:</strong>
-                  <br />1. Pay ₹{extraIdPurchase.cost} via UPI to the QR code below
-                  <br />2. Take a screenshot of the payment success
-                  <br />3. Upload the screenshot + enter UTR number
-                  <br />4. Your extra ID will be activated after verification
-                  <br />5. If UTR matches bank statement → auto-approved instantly
-                </p>
-              </div>
+            return (
+              <div className="space-y-4">
+                {/* Pricing summary */}
+                <div className="bg-violet-50 dark:bg-violet-950/20 border border-violet-200 dark:border-violet-900 rounded-lg p-4 space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Extra ID (Non-View-Only):</span>
+                    <span className="font-semibold">1 ID</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">One-time Cost:</span>
+                    <span className="font-semibold">₹{basePrice}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Recharge Surcharge:</span>
+                    <span className="font-semibold">+15% on all future recharges</span>
+                  </div>
+                </div>
 
-              {/* UPI Payment QR */}
-              <div className="text-center">
-                <div className="bg-white p-4 rounded-lg inline-block border-2 border-violet-300">
-                  <img
-                    src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=upi://pay?pa=pranjalgoswamighy86@okhdfcbank&pn=Tahigo%20International&am=${extraIdPurchase.cost}&cu=INR&tn=Extra%20ID`}
-                    alt="UPI QR Code"
-                    className="w-48 h-48 mx-auto"
-                  />
-                  <p className="text-xs text-muted-foreground mt-2">Scan to pay ₹{extraIdPurchase.cost}</p>
-                  <p className="text-xs font-mono text-muted-foreground">pranjalgoswamighy86@okhdfcbank</p>
+                {/* Razorpay fee breakdown */}
+                <div className="bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg p-3 text-xs space-y-1">
+                  <div className="flex justify-between text-blue-700 dark:text-blue-400">
+                    <span>Base Price:</span><span>₹{basePrice}</span>
+                  </div>
+                  <div className="flex justify-between text-blue-700 dark:text-blue-400">
+                    <span>Razorpay fee (2%):</span><span>+₹{rzpFee}</span>
+                  </div>
+                  <div className="flex justify-between text-blue-700 dark:text-blue-400">
+                    <span>GST on fee (18%):</span><span>+₹{rzpGst}</span>
+                  </div>
+                  <div className="flex justify-between font-bold text-blue-900 dark:text-blue-200 border-t border-blue-200 dark:border-blue-800 pt-1">
+                    <span>Total to Pay:</span><span>₹{rzpTotal}</span>
+                  </div>
                 </div>
-              </div>
 
-              {/* UTR Input + Screenshot Upload */}
-              <div className="space-y-3">
-                <div>
-                  <label className="text-sm font-medium">UTR / Transaction ID *</label>
-                  <input
-                    type="text"
-                    className="w-full mt-1 px-3 py-2 border rounded-md text-sm"
-                    placeholder="Enter 12-digit UTR number"
-                    id="extra-id-utr"
-                  />
-                </div>
-                <div>
-                  <label className="text-sm font-medium">Payment Screenshot *</label>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    className="w-full mt-1 text-sm"
-                    id="extra-id-screenshot"
-                  />
-                  <p className="text-xs text-muted-foreground mt-1">JPG/PNG. Max 1MB. Show UTR + amount + date.</p>
+                {/* Razorpay info */}
+                <div className="bg-blue-50 dark:bg-blue-950/30 p-3 rounded-lg text-xs text-blue-800 dark:text-blue-300">
+                  <ShieldCheck className="h-4 w-4 inline mr-1" />
+                  You'll be redirected to Razorpay's secure payment page. Cards, UPI, wallets, and net banking accepted. Payment is auto-verified instantly.
                 </div>
               </div>
-            </div>
-          )}
-          <DialogFooter className="flex gap-2">
+            )
+          })()}
+          <DialogFooter>
             <Button variant="outline" onClick={() => setExtraIdPurchase(null)}>Cancel</Button>
-            <Button
-              className="bg-violet-600 hover:bg-violet-700"
-              onClick={async () => {
-                const utr = (document.getElementById('extra-id-utr') as HTMLInputElement)?.value?.trim()
-                const fileInput = document.getElementById('extra-id-screenshot') as HTMLInputElement
-                const file = fileInput?.files?.[0]
-
-                if (!utr) {
-                  toast({ title: 'UTR Required', description: 'Please enter the UTR/Transaction ID from your payment.', variant: 'destructive' })
-                  return
-                }
-                if (!file) {
-                  toast({ title: 'Screenshot Required', description: 'Please upload the payment success screenshot.', variant: 'destructive' })
-                  return
-                }
-
-                // Convert file to base64
-                const reader = new FileReader()
-                reader.onload = async () => {
-                  const base64 = reader.result as string
-                  const res = await authFetch('/api/subscription', {
-                    method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                      action: 'add-extra-id',
-                      tenantId: tenant?.id,
-                      utr,
-                      screenshot: base64,
-                    }),
-                  })
-                  if (res.ok) {
-                    const data = await res.json()
-                    toast({
-                      title: data.autoApproved ? 'Extra ID Activated!' : 'Payment Proof Submitted!',
-                      description: data.autoApproved
-                        ? `UTR ${utr} matched bank statement — auto-approved. Extra ID added.`
-                        : `Extra ID payment proof submitted. UTR: ${utr}. Awaiting verification. Cost: ₹149.`,
-                      duration: 8000
-                    })
-                    setExtraIdPurchase(null)
-                    load()
-                  } else {
-                    const err = await res.json().catch(() => ({}))
-                    toast({ title: 'Error', description: err.error || 'Failed to add extra ID', variant: 'destructive' })
-                  }
-                }
-                reader.readAsDataURL(file)
-              }}
-            >
-              Submit Payment Proof (Screenshot + UTR)
+            <Button className="bg-blue-600 hover:bg-blue-700" onClick={async () => {
+              if (!tenant || !extraIdPurchase) return
+              const basePrice = extraIdPurchase.cost
+              const rzpFee = Math.round(basePrice * 0.02 * 100) / 100
+              const rzpGst = Math.round(rzpFee * 0.18 * 100) / 100
+              const rzpTotal = Math.round((basePrice + rzpFee + rzpGst) * 100) / 100
+              window.open(`https://razorpay.me/@TahigoInternational?amount=${rzpTotal * 100}`, '_blank')
+              toast({
+                title: 'Razorpay Payment Page Opened',
+                description: `Pay ₹${rzpTotal} via Razorpay for Extra ID. Instant activation after payment.`,
+                duration: 10000,
+              })
+              setExtraIdPurchase(null)
+            }}>
+              <ShieldCheck className="h-4 w-4 mr-1" /> Pay via Razorpay
             </Button>
           </DialogFooter>
         </DialogContent>
