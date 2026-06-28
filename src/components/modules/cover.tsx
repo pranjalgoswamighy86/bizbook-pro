@@ -100,9 +100,18 @@ export function CoverPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'login', email: loginEmail, password: loginPassword }),
       })
-      const data = await res.json()
+      const data = await res.json().catch(() => ({}))
       if (!res.ok) {
-        setError(data.error || 'Login failed')
+        // v4.131: Handle rate limiting (429) and other HTTP errors specifically
+        if (res.status === 429) {
+          setError(data.error || 'Too many login attempts. Please wait a few minutes and try again.')
+        } else if (res.status === 403) {
+          setError(data.error || 'Account access denied. Please contact your administrator.')
+        } else if (res.status >= 500) {
+          setError('Server error. Please try again in a moment.')
+        } else {
+          setError(data.error || 'Login failed')
+        }
         return
       }
 
@@ -127,8 +136,13 @@ export function CoverPage() {
 
       // Standard login success — pass sessionToken to the store
       login(data.user, data.tenant, data.companies || [], data.sessionToken)
-    } catch {
-      setError('Network error. Please try again.')
+    } catch (err: any) {
+      // v4.131: Specific error messages for network issues
+      if (err?.name === 'AbortError' || err?.name === 'TimeoutError') {
+        setError('Request timed out. Please check your internet connection and try again.')
+      } else {
+        setError('Network error. Please check your internet connection and try again.')
+      }
     } finally {
       setLoading(false)
     }
