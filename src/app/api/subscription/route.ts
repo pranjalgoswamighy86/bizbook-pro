@@ -163,7 +163,7 @@ export async function POST(req: NextRequest) {
           mrp: p.mrp,
           discountPercent: p.discountPercent,
           discountAmount: p.discountAmount,
-          finalPrice: p.mrp - p.discountAmount,
+          finalPrice: p.discountAmount, // v4.143: discountAmount IS the price customer pays (e.g., ₹150 for 50Hrs)
           totalSeconds: p.totalSeconds,
           roleAllocation: p.roleAllocation,
         })),

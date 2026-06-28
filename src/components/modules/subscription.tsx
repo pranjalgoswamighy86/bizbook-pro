@@ -478,7 +478,7 @@ export function SubscriptionPage() {
                   </div>
                   <div className="flex justify-between text-emerald-600">
                     <span>Discount ({rechargePlan.discountPercent}%)</span>
-                    <span>−₹{rechargePlan.discountAmount}</span>
+                    <span>−₹{rechargePlan.mrp - rechargePlan.finalPrice}</span>
                   </div>
                   <div className="flex justify-between font-bold border-t pt-2">
                     <span>Base Price</span>
