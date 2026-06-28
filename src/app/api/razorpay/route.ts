@@ -53,7 +53,19 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'Invalid plan' }, { status: 400 })
       }
 
-      const finalPrice = plan.mrp - plan.discountAmount
+      // v4.138: Add ₹30 Razorpay platform fee per transaction
+      const RAZORPAY_PLATFORM_FEE = 30
+      const basePrice = plan.mrp - plan.discountAmount
+
+      // v4.138: Add 15% surcharge if tenant has extra non-view-only users
+      const { rawDb } = await import('@/lib/db-soft-delete')
+      const nonViewOnlyCount = await rawDb.userTenant.count({
+        where: { tenantId, role: { notIn: ['VIEW_ONLY'] } },
+      })
+      const hasExtraUsers = nonViewOnlyCount > 3
+      const surchargeAmount = hasExtraUsers ? Math.round(basePrice * 0.15) : 0
+
+      const finalPrice = basePrice + surchargeAmount + RAZORPAY_PLATFORM_FEE
       const amountInPaise = Math.round(finalPrice * 100)
 
       const rzp = getRazorpayInstance()
@@ -62,8 +74,8 @@ export async function POST(req: NextRequest) {
       if (!rzp) {
         return NextResponse.json({
           mode: 'MANUAL',
-          message: 'Razorpay is not configured. Please contact admin to activate your plan manually.',
-          plan: { name: plan.name, hours: planHours, finalPrice },
+          message: 'Razorpay is not configured. Use UPI payment instead (no platform fee).',
+          plan: { name: plan.name, hours: planHours, finalPrice, basePrice, surchargeAmount, platformFee: RAZORPAY_PLATFORM_FEE },
         })
       }
 
@@ -77,6 +89,9 @@ export async function POST(req: NextRequest) {
           planHours: String(planHours),
           planName: plan.name,
           userEmail: access.email,
+          basePrice: String(basePrice),
+          surcharge: String(surchargeAmount),
+          platformFee: String(RAZORPAY_PLATFORM_FEE),
           userName: access.user.name,
         },
       })

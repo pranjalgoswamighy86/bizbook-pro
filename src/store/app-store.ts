@@ -23,6 +23,7 @@ export type ViewType =
   | 'batch-expiry'
   | 'price-lists'
   | 'gst-reports'
+  | 'credit-debit-notes'
   | 'backup'
   | 'chart-of-accounts'
   | 'general-ledger'

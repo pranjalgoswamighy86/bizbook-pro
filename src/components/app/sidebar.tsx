@@ -70,6 +70,7 @@ const navItems: NavItem[] = [
   { id: 'day-report', label: 'Day Report', icon: <CalendarDays className="h-4 w-4" /> },
   { id: 'balance-sheet', label: 'Balance Sheet', icon: <Scale className="h-4 w-4" /> },
   { id: 'gst-reports', label: 'GST Reports', icon: <FileSpreadsheet className="h-4 w-4" /> },
+  { id: 'credit-debit-notes', label: 'Credit / Debit Notes', icon: <ArrowRightLeft className="h-4 w-4" /> },
   { id: 'debtors', label: 'Debtors (Receivable)', icon: <UserCheck className="h-4 w-4" /> },
   { id: 'creditors', label: 'Creditors (Payable)', icon: <UserX className="h-4 w-4" /> },
   { id: 'payments', label: 'Payments', icon: <CreditCard className="h-4 w-4" /> },

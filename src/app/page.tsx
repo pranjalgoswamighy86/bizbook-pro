@@ -48,6 +48,7 @@ const AIValuationPage = lazy(() => import('@/components/modules/ai-valuation').t
 const SuperAdminSubscriptionPanel = lazy(() => import('@/components/modules/super-admin-subscriptions').then(m => ({ default: m.SuperAdminSubscriptionPanel })))
 const PaymentProofReview = lazy(() => import('@/components/modules/payment-proof-review').then(m => ({ default: m.PaymentProofReview })))
 const HelpSupportManagement = lazy(() => import('@/components/modules/help-support-management').then(m => ({ default: m.HelpSupportManagement })))
+const CreditDebitNotes = lazy(() => import('@/components/modules/credit-debit-notes').then(m => ({ default: m.CreditDebitNotes })))
 
 function ModuleRouter() {
   const { currentView } = useAppStore()
@@ -78,6 +79,7 @@ function ModuleRouter() {
       case 'batch-expiry': return <BatchExpiry />
       case 'price-lists': return <PriceLists />
       case 'gst-reports': return <GstReports />
+      case 'credit-debit-notes': return <CreditDebitNotes />
       case 'backup': return <BackupPage />
       case 'chart-of-accounts': return <ChartOfAccounts />
       case 'general-ledger': return <GeneralLedger />
