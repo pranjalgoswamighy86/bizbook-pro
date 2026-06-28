@@ -53,6 +53,15 @@ export const PLANS = [
   },
 ] as const
 
+// v4.130: Pricing model constants
+// - Default: 3 non-view-only users included with every plan
+// - Extra non-view-only user: ₹149 one-time fee
+// - Recharge surcharge: 15% added to plan price if tenant has extra non-view-only users
+// - View-only users: UNLIMITED (free, not counted toward any limit)
+export const DEFAULT_NON_VIEW_ONLY_USERS = 3
+export const EXTRA_USER_ONE_TIME_FEE = 149
+export const EXTRA_USER_RECHARGE_SURCHARGE_PERCENT = 15
+
 // Free tier hours based on user registration number
 // First 500 users: 100Hrs free
 // Users 501-10000: 50Hrs free
@@ -179,6 +188,21 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'No subscription found. Please refresh.' }, { status: 404 })
       }
 
+      // v4.130: Calculate 15% surcharge if tenant has extra non-view-only users
+      // The surcharge is FLAT 15% regardless of how many extra users (1, 10, 1000)
+      const { rawDb } = await import('@/lib/db-soft-delete')
+      const nonViewOnlyCount = await rawDb.userTenant.count({
+        where: { tenantId, role: { notIn: ['VIEW_ONLY'] } },
+      })
+      const hasExtraUsers = nonViewOnlyCount > DEFAULT_NON_VIEW_ONLY_USERS
+      const basePrice = plan.discountAmount // e.g., 150 for 50Hrs plan
+      const surchargeAmount = hasExtraUsers ? Math.round(basePrice * EXTRA_USER_RECHARGE_SURCHARGE_PERCENT / 100) : 0
+      const finalPrice = basePrice + surchargeAmount
+
+      if (hasExtraUsers) {
+        console.log(`[RECHARGE] Tenant ${tenantId} has ${nonViewOnlyCount} non-view-only users (> ${DEFAULT_NON_VIEW_ONLY_USERS} default). Applying 15% surcharge: ₹${basePrice} + ₹${surchargeAmount} = ₹${finalPrice}`)
+      }
+
       // Add recharge seconds to remaining
       const newRemaining = subscription.remainingSeconds + plan.totalSeconds
 
@@ -206,10 +230,10 @@ export async function POST(req: NextRequest) {
         data: {
           subscriptionId: subscription.id,
           planHours: plan.hours,
-          planName: plan.name,
+          planName: hasExtraUsers ? `${plan.name} (+15% extra user surcharge)` : plan.name,
           mrp: plan.mrp,
           discountPercent: plan.discountPercent,
-          discountAmount: plan.discountAmount,
+          discountAmount: finalPrice, // v4.130: includes surcharge if applicable
           totalSeconds: plan.totalSeconds,
           paymentMode: paymentMode || 'MANUAL',
           paymentRef: paymentRef || null,
