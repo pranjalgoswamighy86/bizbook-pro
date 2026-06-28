@@ -261,20 +261,9 @@ export function SuperAdminSubscriptionPanel() {
         />
       </div>
 
-      {/* v4.118: Total records across all tenants */}
-      {subscriptions.some(s => s.recordCounts) && (
-        <div className="bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900 rounded-lg p-3">
-          <p className="text-xs font-semibold text-blue-800 dark:text-blue-300 mb-2">📊 Total Records Across All Tenants</p>
-          <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 text-xs">
-            <div className="text-center"><span className="text-blue-600 dark:text-blue-400 font-bold text-lg">{subscriptions.reduce((sum, s) => sum + (s.recordCounts?.sales || 0), 0)}</span><br/><span className="text-muted-foreground">Sales</span></div>
-            <div className="text-center"><span className="text-blue-600 dark:text-blue-400 font-bold text-lg">{subscriptions.reduce((sum, s) => sum + (s.recordCounts?.purchases || 0), 0)}</span><br/><span className="text-muted-foreground">Purchases</span></div>
-            <div className="text-center"><span className="text-blue-600 dark:text-blue-400 font-bold text-lg">{subscriptions.reduce((sum, s) => sum + (s.recordCounts?.expenses || 0), 0)}</span><br/><span className="text-muted-foreground">Expenses</span></div>
-            <div className="text-center"><span className="text-blue-600 dark:text-blue-400 font-bold text-lg">{subscriptions.reduce((sum, s) => sum + (s.recordCounts?.inventory || 0), 0)}</span><br/><span className="text-muted-foreground">Inventory</span></div>
-            <div className="text-center"><span className="text-blue-600 dark:text-blue-400 font-bold text-lg">{subscriptions.reduce((sum, s) => sum + (s.recordCounts?.parties || 0), 0)}</span><br/><span className="text-muted-foreground">Parties</span></div>
-            <div className="text-center"><span className="text-blue-600 dark:text-blue-400 font-bold text-lg">{subscriptions.reduce((sum, s) => sum + (s.recordCounts?.users || 0), 0)}</span><br/><span className="text-muted-foreground">Users</span></div>
-          </div>
-        </div>
-      )}
+      {/* v4.129: Removed "Total Records Across All Tenants" box —
+          sales/purchases/expenses/inventory/parties counts are irrelevant
+          for subscription management. Only User count matters (shown in table). */}
 
       {/* Search */}
       <div className="relative max-w-md">
@@ -302,7 +291,7 @@ export function SuperAdminSubscriptionPanel() {
               <th className="text-left p-3 font-semibold">Plan</th>
               <th className="text-left p-3 font-semibold">Hours Left</th>
               <th className="text-left p-3 font-semibold">Status</th>
-              <th className="text-left p-3 font-semibold hidden md:table-cell">Records</th>
+              <th className="text-left p-3 font-semibold hidden md:table-cell">Users</th>
               <th className="text-left p-3 font-semibold hidden lg:table-cell">End Date</th>
               <th className="text-left p-3 font-semibold hidden lg:table-cell">Max Users</th>
               <th className="text-right p-3 font-semibold">Actions</th>
@@ -376,20 +365,9 @@ export function SuperAdminSubscriptionPanel() {
                       </span>
                     )}
                   </td>
-                  {/* v4.118: Records column — shows sales/purchases/expenses/inventory/parties/users counts */}
+                  {/* v4.129: Users count only — subscription management doesn't need sales/purchases/etc. */}
                   <td className="p-3 hidden md:table-cell">
-                    {sub.recordCounts ? (
-                      <div className="text-xs space-y-0.5">
-                        <div className="flex justify-between gap-2"><span className="text-muted-foreground">Sales:</span><span className="font-medium">{sub.recordCounts.sales}</span></div>
-                        <div className="flex justify-between gap-2"><span className="text-muted-foreground">Purchases:</span><span className="font-medium">{sub.recordCounts.purchases}</span></div>
-                        <div className="flex justify-between gap-2"><span className="text-muted-foreground">Expenses:</span><span className="font-medium">{sub.recordCounts.expenses}</span></div>
-                        <div className="flex justify-between gap-2"><span className="text-muted-foreground">Inventory:</span><span className="font-medium">{sub.recordCounts.inventory}</span></div>
-                        <div className="flex justify-between gap-2"><span className="text-muted-foreground">Parties:</span><span className="font-medium">{sub.recordCounts.parties}</span></div>
-                        <div className="flex justify-between gap-2"><span className="text-muted-foreground">Users:</span><span className="font-medium">{sub.recordCounts.users}</span></div>
-                      </div>
-                    ) : (
-                      <span className="text-xs text-muted-foreground">—</span>
-                    )}
+                    <span className="font-medium">{sub.recordCounts?.users ?? '—'}</span>
                   </td>
                   <td className="p-3 hidden lg:table-cell">
                     {editingId === sub.id ? (
