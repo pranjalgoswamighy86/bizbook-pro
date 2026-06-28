@@ -8,7 +8,6 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Progress } from '@/components/ui/progress'
-import { UPICheckoutModal } from '@/components/app/upi-checkout-modal'
 import { Clock, Zap, Crown, Check, AlertCircle, TrendingUp, Users, Sparkles, Loader2, Receipt, UserPlus, Shield, ShieldCheck } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 
@@ -62,7 +61,6 @@ export function SubscriptionPage() {
   const [loading, setLoading] = useState(true)
   const [rechargePlan, setRechargePlan] = useState<Plan | null>(null)
   const [recharging, setRecharging] = useState(false)
-  const [upiPlan, setUpiPlan] = useState<Plan | null>(null)
   const [extraIdPurchase, setExtraIdPurchase] = useState<{ cost: number } | null>(null)
   const [paymentMethod] = useState<'razorpay'>('razorpay') // v4.140: Razorpay only
 
@@ -309,9 +307,9 @@ export function SubscriptionPage() {
                   </div>
 
                   <Button
-                    className="w-full mt-4 bg-emerald-600 hover:bg-emerald-700"
+                    className="w-full mt-4 bg-blue-600 hover:bg-blue-700"
                     size="sm"
-                    onClick={(e) => { e.stopPropagation(); setUpiPlan(plan) }}
+                    onClick={(e) => { e.stopPropagation(); setRechargePlan(plan) }}
                   >
                     Choose Plan — ₹{finalPrice}
                   </Button>
@@ -543,17 +541,7 @@ export function SubscriptionPage() {
         </DialogContent>
       </Dialog>
 
-      {/* === UPI Checkout Modal (Zero-Cost Autonomous Payment) === */}
-      {upiPlan && tenant && (
-        <UPICheckoutModal
-          open={!!upiPlan}
-          onClose={() => setUpiPlan(null)}
-          onSuccess={() => { load() }}
-          tenantId={tenant.id}
-          planHours={upiPlan.hours}
-          planName={upiPlan.name}
-        />
-      )}
+      {/* v4.140: UPI Checkout Modal removed — Razorpay only now */}
 
       {/* v4.132: Extra ID Payment Dialog — single option, no role type */}
       <Dialog open={!!extraIdPurchase} onOpenChange={(open) => !open && setExtraIdPurchase(null)}>
