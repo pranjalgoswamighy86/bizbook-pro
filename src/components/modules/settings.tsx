@@ -908,7 +908,7 @@ export function SettingsPage() {
                   </div>
                   <div className="bg-muted/50 p-3 rounded-lg">
                     <p className="text-xs text-muted-foreground">Version</p>
-                    <p className="font-semibold">v4.127.0</p>
+                    <p className="font-semibold">v4.128.0</p>
                     <p className="text-xs text-muted-foreground">Built with Next.js 16 + Prisma + PostgreSQL</p>
                     <p className="text-[10px] text-muted-foreground mt-1">A Product by Tahigo International</p>
                   </div>

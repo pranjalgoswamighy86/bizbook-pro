@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import ZAI from 'z-ai-web-dev-sdk'
 import { getZaiClient } from '@/lib/zai-client' // v4.50: Fallback config for Railway
+import { analyzeWithAI, getAvailableProviders } from '@/lib/multi-ai' // v4.128: Multi-provider AI
 import { db } from '@/lib/db-soft-delete'
 import { writeFile, mkdir } from 'fs/promises'
 import { join } from 'path'
@@ -598,15 +599,18 @@ async function localParseFile(file: File, buffer: Buffer): Promise<any> {
 // ============================================
 
 async function analyzeFileWithAI(file: File, buffer: Buffer, tenantInfo: string = ''): Promise<any> {
-  // v4.50: Use getZaiClient() which has fallback config for Railway
-  // (was: const zai = await ZAI.create() — failed with "Configuration file not found")
-  const zai = await getZaiClient()
+  // v4.128: Multi-provider AI — tries ZAI, OpenAI, Gemini, Claude in sequence
+  // No longer locked into a single provider. If one fails, tries the next.
   const fileName = file.name.toLowerCase()
   const mimeType = file.type || 'application/octet-stream'
   const systemPrompt = tenantInfo
     ? ANALYSIS_SYSTEM_PROMPT + '\n\nUSER CONTEXT: ' + tenantInfo
     : ANALYSIS_SYSTEM_PROMPT
   let analysisResult: any
+
+  // Log which providers are available
+  const providers = getAvailableProviders()
+  console.log(`[AI-Import] Available AI providers: ${providers.join(', ')}`)
 
   // 1. IMAGES — vision API with base64
   if (mimeType.startsWith('image/') || fileName.match(/\.(png|jpg|jpeg|gif|bmp|webp)$/)) {
