@@ -151,6 +151,19 @@ if (fs.existsSync(envSrc)) {
 }
 
 // ------------------------------------------------------------
+// Step 4b: Copy .z-ai-config (v4.127 — AI Smart Import needs this!)
+// ------------------------------------------------------------
+console.log("[POSTBUILD] Syncing .z-ai-config...");
+const zaiConfigSrc = path.join(PROJECT_ROOT, ".z-ai-config");
+const zaiConfigDest = path.join(STANDALONE_DIR, ".z-ai-config");
+if (fs.existsSync(zaiConfigSrc)) {
+  fs.copyFileSync(zaiConfigSrc, zaiConfigDest);
+  console.log("[POSTBUILD] ✅ .z-ai-config copied");
+} else {
+  console.log("[POSTBUILD] ⚠️  .z-ai-config not found — AI Smart Import will use fallback config");
+}
+
+// ------------------------------------------------------------
 // Step 5: Copy database
 // ------------------------------------------------------------
 console.log("[POSTBUILD] Copying database...");
