@@ -629,10 +629,8 @@ export async function POST(req: NextRequest) {
       const access = await requireAuthAndRole(req, tenantId, ['MAIN_ADMIN'])
       if (access instanceof NextResponse) return access
 
-      const { roleType, utr, screenshot } = body // 'JUNIOR_ADMIN' or 'DATA_ENTRY'
-      if (roleType !== 'JUNIOR_ADMIN' && roleType !== 'DATA_ENTRY') {
-        return NextResponse.json({ error: 'roleType must be JUNIOR_ADMIN or DATA_ENTRY' }, { status: 400 })
-      }
+      // v4.132: Removed roleType requirement — single "Add Extra ID" option
+      const { utr, screenshot } = body
 
       // v4.99: Require UTR + screenshot for payment proof
       if (!utr || !utr.trim()) {
@@ -648,36 +646,51 @@ export async function POST(req: NextRequest) {
       }
 
       // Calculate cost: ₹149 per ID
-      const costPerId = 149
+      const costPerId = EXTRA_USER_ONE_TIME_FEE
 
-      // Calculate recharge increase: 15% of MRP of current plan
-      const rechargeIncrease = Math.round(subscription.mrp * 0.15)
+      // v4.132: Auto-verify — check if UTR matches any bank transaction
+      let autoApproved = false
+      try {
+        const { rawDb } = await import('@/lib/db-soft-delete')
+        // Check if this UTR already exists in bank transactions (any tenant's bank statement)
+        const matchingTxn = await rawDb.bankTransaction.findFirst({
+          where: {
+            reference: { contains: utr.trim(), mode: 'insensitive' as any },
+          },
+        })
+        if (matchingTxn && matchingTxn.deposit >= costPerId) {
+          autoApproved = true
+          console.log(`[EXTRA-ID] UTR ${utr} matched bank transaction ${matchingTxn.id} — auto-approving`)
+        }
+      } catch (e: any) {
+        console.warn('[EXTRA-ID] Bank UTR auto-check failed:', e?.message)
+      }
 
       // v4.99: Create a SubscriptionQueue entry for payment proof tracking
-      // This allows the Super Admin to review the payment in the Payment Proof Review panel
       const queueEntry = await db.subscriptionQueue.create({
         data: {
           tenantId: access.tenantId,
           baseAmount: costPerId,
           finalAmount: costPerId,
           paiseIncrement: 0,
-          planHours: 0, // Extra ID doesn't add hours
-          planName: `Extra ${roleType === 'JUNIOR_ADMIN' ? 'Junior Admin' : 'Data Entry'} ID`,
-          status: 'PROOF_SUBMITTED',
+          planHours: 0,
+          planName: 'Extra ID (Non-View-Only)',
+          status: autoApproved ? 'AUTO_APPROVED' : 'PROOF_SUBMITTED',
           utrNumber: utr.trim(),
-          screenshotPath: screenshot, // base64 data URL stored directly
+          screenshotPath: screenshot,
           proofSubmittedAt: new Date(),
+          ...(autoApproved ? { approvedAt: new Date() } : {}),
         },
       })
 
-      // Update subscription with extra slot
-      const fieldToUpdate = roleType === 'JUNIOR_ADMIN' ? 'extraJuniorAdminSlots' : 'extraDataEntrySlots'
-      const currentSlots = (subscription as any)[fieldToUpdate] || 0
+      // Update subscription with extra slot (use maxUsersAllowed field)
+      const currentMax = (subscription as any).maxUsersAllowed || 0
+      const newMax = currentMax === 0 ? DEFAULT_NON_VIEW_ONLY_USERS + 1 : currentMax + 1
 
       const updated = await db.subscription.update({
         where: { id: subscription.id },
         data: {
-          [fieldToUpdate]: currentSlots + 1,
+          maxUsersAllowed: newMax,
         },
       })
 
@@ -690,14 +703,13 @@ export async function POST(req: NextRequest) {
           action: 'UPDATE',
           entityType: 'Subscription',
           entityId: subscription.id,
-          entityName: `Extra ${roleType} ID purchased`,
+          entityName: `Extra ID purchased${autoApproved ? ' (Auto-approved via UTR match)' : ''}`,
           changes: JSON.stringify({
-            roleType,
             costPerId,
-            rechargeIncrease,
             utr: utr.trim(),
             queueId: queueEntry.id,
-            newTotalSlots: currentSlots + 1,
+            newMaxUsers: newMax,
+            autoApproved,
             timestamp: new Date().toISOString(),
           }),
         },
@@ -705,17 +717,13 @@ export async function POST(req: NextRequest) {
 
       return NextResponse.json({
         success: true,
-        message: `Extra ${roleType === 'JUNIOR_ADMIN' ? 'Junior Admin' : 'Data Entry'} ID added. Payment proof submitted for verification.`,
-        details: {
-          costPerId,
-          rechargeIncrease,
-          totalJuniorAdminSlots: (updated as any).extraJuniorAdminSlots || 0,
-          totalDataEntrySlots: (updated as any).extraDataEntrySlots || 0,
-          maxUsersAllowed: (updated as any).maxUsersAllowed || null,
-          queueId: queueEntry.id,
-          utr: utr.trim(),
-          status: 'PROOF_SUBMITTED',
-        },
+        autoApproved,
+        message: autoApproved
+          ? 'Extra ID activated! UTR matched bank statement — auto-approved.'
+          : 'Extra ID payment proof submitted. Awaiting Super Admin verification.',
+        newMaxUsers: newMax,
+        cost: costPerId,
+        utr: utr.trim(),
       })
     }
 

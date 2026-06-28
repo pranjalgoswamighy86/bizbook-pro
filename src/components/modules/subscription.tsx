@@ -63,7 +63,7 @@ export function SubscriptionPage() {
   const [rechargePlan, setRechargePlan] = useState<Plan | null>(null)
   const [recharging, setRecharging] = useState(false)
   const [upiPlan, setUpiPlan] = useState<Plan | null>(null)
-  const [extraIdPurchase, setExtraIdPurchase] = useState<{ roleType: 'JUNIOR_ADMIN' | 'DATA_ENTRY'; cost: number } | null>(null)
+  const [extraIdPurchase, setExtraIdPurchase] = useState<{ cost: number } | null>(null)
 
   const load = async () => {
     if (!tenant) return
@@ -428,28 +428,17 @@ export function SubscriptionPage() {
             </div>
           </div>
 
-          {/* Add Extra ID buttons */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {/* v4.132: Single "Add Extra ID" button — no separate Junior/Data Entry */}
+          <div className="flex justify-center">
             <Button
               variant="outline"
-              className="h-auto py-4 border-blue-300 hover:bg-blue-50 dark:hover:bg-blue-950"
-              onClick={() => setExtraIdPurchase({ roleType: 'JUNIOR_ADMIN', cost: 149 })}
+              className="h-auto py-4 px-8 border-violet-300 hover:bg-violet-50 dark:hover:bg-violet-950"
+              onClick={() => setExtraIdPurchase({ cost: 149 })}
             >
               <div className="flex flex-col items-center gap-1">
-                <UserPlus className="h-6 w-6 text-blue-600" />
-                <span className="font-semibold">Add Junior Admin ID</span>
-                <span className="text-xs text-muted-foreground">₹149 · +15% recharge</span>
-              </div>
-            </Button>
-            <Button
-              variant="outline"
-              className="h-auto py-4 border-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950"
-              onClick={() => setExtraIdPurchase({ roleType: 'DATA_ENTRY', cost: 149 })}
-            >
-              <div className="flex flex-col items-center gap-1">
-                <UserPlus className="h-6 w-6 text-amber-600" />
-                <span className="font-semibold">Add Data Entry ID</span>
-                <span className="text-xs text-muted-foreground">₹149 · +15% recharge</span>
+                <UserPlus className="h-6 w-6 text-violet-600" />
+                <span className="font-semibold">Add Extra ID</span>
+                <span className="text-xs text-muted-foreground">₹149 one-time · +15% on all recharges</span>
               </div>
             </Button>
           </div>
@@ -491,7 +480,40 @@ export function SubscriptionPage() {
 
               <div className="bg-amber-50 dark:bg-amber-950/30 p-3 rounded-lg text-xs text-amber-800 dark:text-amber-200">
                 <AlertCircle className="h-4 w-4 inline mr-1" />
-                Payment integration (Razorpay) will be available soon. For now, recharges are processed manually by the administrator.
+                Pay via UPI, upload screenshot + UTR number. If UTR matches bank statement → auto-approved.
+              </div>
+
+              {/* v4.132: Payment proof upload for recharge */}
+              <div className="space-y-3 border-t pt-3">
+                <div className="text-center">
+                  <div className="bg-white p-3 rounded-lg inline-block border-2 border-emerald-300">
+                    <img
+                      src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=upi://pay?pa=pranjalgoswamighy86@okhdfcbank&pn=Tahigo%20International&am=${rechargePlan.finalPrice}&cu=INR&tn=Recharge%20${rechargePlan.hours}Hrs`}
+                      alt="UPI QR Code"
+                      className="w-44 h-44 mx-auto"
+                    />
+                    <p className="text-xs text-muted-foreground mt-2">Scan to pay ₹{rechargePlan.finalPrice}</p>
+                  </div>
+                </div>
+                <div>
+                  <label className="text-sm font-medium">UTR / Transaction ID *</label>
+                  <input
+                    type="text"
+                    className="w-full mt-1 px-3 py-2 border rounded-md text-sm"
+                    placeholder="Enter 12-digit UTR number"
+                    id="recharge-utr"
+                  />
+                </div>
+                <div>
+                  <label className="text-sm font-medium">Payment Screenshot *</label>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="w-full mt-1 text-sm"
+                    id="recharge-screenshot"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">JPG/PNG. Max 1MB. Show UTR + amount + date.</p>
+                </div>
               </div>
             </div>
           )}
@@ -520,13 +542,13 @@ export function SubscriptionPage() {
         />
       )}
 
-      {/* v4.98: Extra ID Payment Dialog */}
+      {/* v4.132: Extra ID Payment Dialog — single option, no role type */}
       <Dialog open={!!extraIdPurchase} onOpenChange={(open) => !open && setExtraIdPurchase(null)}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <UserPlus className="h-5 w-5 text-violet-600" />
-              Add Extra {extraIdPurchase?.roleType === 'JUNIOR_ADMIN' ? 'Junior Admin' : 'Data Entry'} ID
+              Add Extra ID
             </DialogTitle>
           </DialogHeader>
           {extraIdPurchase && (
@@ -534,19 +556,19 @@ export function SubscriptionPage() {
               {/* Pricing summary */}
               <div className="bg-violet-50 dark:bg-violet-950/20 border border-violet-200 dark:border-violet-900 rounded-lg p-4 space-y-2">
                 <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Extra ID Type:</span>
-                  <span className="font-semibold">{extraIdPurchase.roleType === 'JUNIOR_ADMIN' ? 'Junior Admin' : 'Data Entry'}</span>
+                  <span className="text-muted-foreground">Extra ID (Non-View-Only):</span>
+                  <span className="font-semibold">1 ID</span>
                 </div>
                 <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Cost per ID:</span>
+                  <span className="text-muted-foreground">One-time Cost:</span>
                   <span className="font-semibold">₹{extraIdPurchase.cost}</span>
                 </div>
                 <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Recharge Increase:</span>
-                  <span className="font-semibold">15% of plan MRP</span>
+                  <span className="text-muted-foreground">Recharge Surcharge:</span>
+                  <span className="font-semibold">+15% on all future recharges</span>
                 </div>
                 <div className="border-t border-violet-200 dark:border-violet-800 pt-2 flex justify-between">
-                  <span className="font-semibold">Total to Pay:</span>
+                  <span className="font-semibold">Pay Now:</span>
                   <span className="font-bold text-violet-700 dark:text-violet-400 text-lg">₹{extraIdPurchase.cost}</span>
                 </div>
               </div>
@@ -559,6 +581,7 @@ export function SubscriptionPage() {
                   <br />2. Take a screenshot of the payment success
                   <br />3. Upload the screenshot + enter UTR number
                   <br />4. Your extra ID will be activated after verification
+                  <br />5. If UTR matches bank statement → auto-approved instantly
                 </p>
               </div>
 
@@ -566,7 +589,7 @@ export function SubscriptionPage() {
               <div className="text-center">
                 <div className="bg-white p-4 rounded-lg inline-block border-2 border-violet-300">
                   <img
-                    src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=upi://pay?pa=pranjalgoswamighy86@okhdfcbank&pn=Tahigo%20International&am=${extraIdPurchase.cost}&cu=INR&tn=Extra%20${extraIdPurchase.roleType}%20ID`}
+                    src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=upi://pay?pa=pranjalgoswamighy86@okhdfcbank&pn=Tahigo%20International&am=${extraIdPurchase.cost}&cu=INR&tn=Extra%20ID`}
                     alt="UPI QR Code"
                     className="w-48 h-48 mx-auto"
                   />
@@ -626,14 +649,19 @@ export function SubscriptionPage() {
                     body: JSON.stringify({
                       action: 'add-extra-id',
                       tenantId: tenant?.id,
-                      roleType: extraIdPurchase?.roleType,
                       utr,
                       screenshot: base64,
                     }),
                   })
                   if (res.ok) {
                     const data = await res.json()
-                    toast({ title: 'Payment Proof Submitted!', description: `${extraIdPurchase?.roleType === 'JUNIOR_ADMIN' ? 'Junior Admin' : 'Data Entry'} ID added. UTR: ${utr}. Payment proof submitted for verification. Cost: ₹149.`, duration: 8000 })
+                    toast({
+                      title: data.autoApproved ? 'Extra ID Activated!' : 'Payment Proof Submitted!',
+                      description: data.autoApproved
+                        ? `UTR ${utr} matched bank statement — auto-approved. Extra ID added.`
+                        : `Extra ID payment proof submitted. UTR: ${utr}. Awaiting verification. Cost: ₹149.`,
+                      duration: 8000
+                    })
                     setExtraIdPurchase(null)
                     load()
                   } else {
