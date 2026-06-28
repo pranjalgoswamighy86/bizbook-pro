@@ -24,6 +24,19 @@ export async function POST(req: NextRequest) {
       }
       const plan = PLANS[Number(planHours)]
 
+      // v4.135: Add 15% surcharge if tenant has extra non-view-only users
+      const { rawDb } = await import('@/lib/db-soft-delete')
+      const nonViewOnlyCount = await rawDb.userTenant.count({
+        where: { tenantId, role: { notIn: ['VIEW_ONLY'] } },
+      })
+      const hasExtraUsers = nonViewOnlyCount > 3 // 3 is the default free limit
+      const surchargeAmount = hasExtraUsers ? Math.round(plan.price * 0.15) : 0
+      const basePriceWithSurcharge = plan.price + surchargeAmount
+
+      if (hasExtraUsers) {
+        console.log(`[UPI-CHECKOUT] Tenant ${tenantId} has ${nonViewOnlyCount} non-view-only users (>3). Adding 15% surcharge: ₹${plan.price} + ₹${surchargeAmount} = ₹${basePriceWithSurcharge}`)
+      }
+
       // Expire old pending entries (cleanup — 30 min grace)
       const expiry = new Date(Date.now() - 30 * 60 * 1000)
       await db.subscriptionQueue.updateMany({ where: { status: 'PENDING', createdAt: { lt: expiry } }, data: { status: 'EXPIRED' } })
@@ -34,19 +47,20 @@ export async function POST(req: NextRequest) {
       let paise = 0.01
       while (usedAmounts.includes(Number(paise.toFixed(2)))) { paise += 0.01; if (paise >= 1) return NextResponse.json({ error: 'Checkout buffer full. Retry later.' }, { status: 503 }) }
 
-      const finalAmount = Number((plan.price + paise).toFixed(2))
+      const finalAmount = Number((basePriceWithSurcharge + paise).toFixed(2))
       const payeeVPA = process.env.NEXT_PUBLIC_SUPER_ADMIN_UPI_ID || process.env.MASTER_UPI_VPA || '9101555075@kotakbank'
       const payeeName = encodeURIComponent(process.env.MASTER_UPI_NAME || 'Tahigo International')
-      const txnNote = encodeURIComponent(`BIZBOOK_PRO_RECHARGE_${tenantId}_${planHours}HRS`)
+      const txnNote = encodeURIComponent(`BIZBOOK_PRO_RECHARGE_${tenantId}_${planHours}HRS${hasExtraUsers ? '_SURCHARGE15' : ''}`)
       const upiUri = `upi://pay?pa=${payeeVPA}&pn=${payeeName}&am=${finalAmount.toFixed(2)}&cu=INR&tn=${txnNote}`
 
       const entry = await db.subscriptionQueue.create({
-        data: { tenantId, baseAmount: plan.price, finalAmount, paiseIncrement: Number(paise.toFixed(2)), planHours: Number(planHours), planName: plan.name, status: 'PENDING', upiUri }
+        data: { tenantId, baseAmount: basePriceWithSurcharge, finalAmount, paiseIncrement: Number(paise.toFixed(2)), planHours: Number(planHours), planName: hasExtraUsers ? `${plan.name} (+15% surcharge)` : plan.name, status: 'PENDING', upiUri }
       })
 
       return NextResponse.json({
-        success: true, queueId: entry.id, planName: plan.name, planHours: Number(planHours),
-        baseAmount: plan.price, finalAmount, paiseIncrement: Number(paise.toFixed(2)),
+        success: true, queueId: entry.id, planName: hasExtraUsers ? `${plan.name} (+15% surcharge)` : plan.name, planHours: Number(planHours),
+        baseAmount: basePriceWithSurcharge, finalAmount, paiseIncrement: Number(paise.toFixed(2)),
+        surchargeApplied: hasExtraUsers, surchargeAmount,
         upiUri, payeeVPA, payeeName: process.env.MASTER_UPI_NAME || 'Tahigo International',
         expiresAt: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
       })
