@@ -189,18 +189,15 @@ export async function POST(req: NextRequest) {
       }
 
       // v4.130: Calculate 15% surcharge if tenant has extra non-view-only users
-      // The surcharge is FLAT 15% regardless of how many extra users (1, 10, 1000)
-      const { rawDb } = await import('@/lib/db-soft-delete')
-      const nonViewOnlyCount = await rawDb.userTenant.count({
-        where: { tenantId, role: { notIn: ['VIEW_ONLY'] } },
-      })
-      const hasExtraUsers = nonViewOnlyCount > DEFAULT_NON_VIEW_ONLY_USERS
+      // v4.136 FIX: Check maxUsersAllowed (the LIMIT), not actual user count
+      const maxUsersAllowed = (subscription as any)?.maxUsersAllowed || 0
+      const hasExtraUsers = maxUsersAllowed > DEFAULT_NON_VIEW_ONLY_USERS
       const basePrice = plan.discountAmount // e.g., 150 for 50Hrs plan
       const surchargeAmount = hasExtraUsers ? Math.round(basePrice * EXTRA_USER_RECHARGE_SURCHARGE_PERCENT / 100) : 0
       const finalPrice = basePrice + surchargeAmount
 
       if (hasExtraUsers) {
-        console.log(`[RECHARGE] Tenant ${tenantId} has ${nonViewOnlyCount} non-view-only users (> ${DEFAULT_NON_VIEW_ONLY_USERS} default). Applying 15% surcharge: ₹${basePrice} + ₹${surchargeAmount} = ₹${finalPrice}`)
+        console.log(`[RECHARGE] Tenant ${tenantId} maxUsersAllowed=${maxUsersAllowed} (> ${DEFAULT_NON_VIEW_ONLY_USERS}). Applying 15% surcharge: ₹${basePrice} + ₹${surchargeAmount} = ₹${finalPrice}`)
       }
 
       // Add recharge seconds to remaining

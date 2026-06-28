@@ -25,16 +25,17 @@ export async function POST(req: NextRequest) {
       const plan = PLANS[Number(planHours)]
 
       // v4.135: Add 15% surcharge if tenant has extra non-view-only users
-      const { rawDb } = await import('@/lib/db-soft-delete')
-      const nonViewOnlyCount = await rawDb.userTenant.count({
-        where: { tenantId, role: { notIn: ['VIEW_ONLY'] } },
-      })
-      const hasExtraUsers = nonViewOnlyCount > 3 // 3 is the default free limit
+      // v4.136 FIX: Check maxUsersAllowed (the LIMIT), not actual user count
+      // The surcharge applies when the tenant's PLAN allows extra IDs (maxUsersAllowed > 3),
+      // regardless of how many users they've actually created so far.
+      const subscription = await db.subscription.findUnique({ where: { tenantId } })
+      const maxUsersAllowed = (subscription as any)?.maxUsersAllowed || 0
+      const hasExtraUsers = maxUsersAllowed > 3 // 3 is the default free limit
       const surchargeAmount = hasExtraUsers ? Math.round(plan.price * 0.15) : 0
       const basePriceWithSurcharge = plan.price + surchargeAmount
 
       if (hasExtraUsers) {
-        console.log(`[UPI-CHECKOUT] Tenant ${tenantId} has ${nonViewOnlyCount} non-view-only users (>3). Adding 15% surcharge: ₹${plan.price} + ₹${surchargeAmount} = ₹${basePriceWithSurcharge}`)
+        console.log(`[UPI-CHECKOUT] Tenant ${tenantId} maxUsersAllowed=${maxUsersAllowed} (>3). Adding 15% surcharge: ₹${plan.price} + ₹${surchargeAmount} = ₹${basePriceWithSurcharge}`)
       }
 
       // Expire old pending entries (cleanup — 30 min grace)
