@@ -343,10 +343,10 @@ export function AIImportPage() {
     for (const entry of successful) {
       const a = entry.analysis!
       for (const mod of modules) {
-        if (a.importData[mod]?.length) (merged.importData[mod] as any[]).push(...a.importData[mod]!)
+        if (a.importData?.[mod]?.length) (merged.importData[mod] as any[]).push(...a.importData[mod]!)
       }
-      merged.warnings.push(...a.warnings.map(w => `[${a.fileName}] ${w}`))
-      merged.suggestions.push(...a.suggestions.map(s => `[${a.fileName}] ${s}`))
+      merged.warnings.push(...(a.warnings || []).map(w => `[${a.fileName}] ${w}`))
+      merged.suggestions.push(...(a.suggestions || []).map(s => `[${a.fileName}] ${s}`))
     }
 
     // Deduplicate parties by name
@@ -459,7 +459,7 @@ export function AIImportPage() {
     return Array.isArray(data) ? data.length : 0
   }
 
-  const totalRecords = mergedAnalysis ? Object.keys(mergedAnalysis.importData).reduce((sum, key) => sum + getModuleCount(key), 0) : 0
+  const totalRecords = mergedAnalysis ? Object.keys(mergedAnalysis.importData || {}).reduce((sum, key) => sum + getModuleCount(key), 0) : 0
   const selectedRecords = Array.from(selectedModules).reduce((sum, mod) => sum + getModuleCount(mod), 0)
 
   const confidenceColor = mergedAnalysis ? mergedAnalysis.confidence >= 0.8 ? 'text-emerald-600' : mergedAnalysis.confidence >= 0.5 ? 'text-amber-600' : 'text-red-600' : ''
@@ -604,7 +604,7 @@ export function AIImportPage() {
                               </>
                             )}
                             <span>•</span>
-                            <span>{Object.keys(entry.analysis.importData).filter(k => (entry.analysis!.importData[k as keyof typeof entry.analysis.importData] as any[])?.length > 0).length} categories</span>
+                            <span>{Object.keys(entry.analysis.importData || {}).filter(k => ((entry.analysis!.importData?.[k as keyof typeof entry.analysis.importData] as any[])?.length || 0) > 0).length} categories</span>
                             <span>•</span>
                             <span className="truncate max-w-[200px]">{entry.analysis.summary}</span>
                           </>
