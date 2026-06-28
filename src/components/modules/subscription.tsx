@@ -247,11 +247,10 @@ export function SubscriptionPage() {
             </div>
           )}
 
-          {/* Role-based allocation */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-6">
+          {/* v4.134: Merged Junior Admin + Data Entry into one "Non-View-Only Users" card */}
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mt-6">
             <RoleCard icon={<Crown className="h-4 w-4" />} label="Main Admin" hours={sub.mainAdminHours} color="text-yellow-300" />
-            <RoleCard icon={<Users className="h-4 w-4" />} label="Junior Admin" hours={sub.juniorAdminHours} color="text-blue-200" />
-            <RoleCard icon={<Zap className="h-4 w-4" />} label="Data Entry" hours={sub.dataEntryHours} color="text-emerald-200" />
+            <RoleCard icon={<Users className="h-4 w-4" />} label="Non-View Users" hours={(sub.juniorAdminHours || 0) + (sub.dataEntryHours || 0)} color="text-blue-200" />
             <RoleCard icon={<Check className="h-4 w-4" />} label="View Only" hours={0} color="text-gray-300" suffix="Free" />
           </div>
         </CardContent>
@@ -304,8 +303,7 @@ export function SubscriptionPage() {
 
                   <div className="space-y-1 text-xs">
                     <RoleLine label="Main Admin" hours={plan.roleAllocation.MAIN_ADMIN} />
-                    <RoleLine label="Junior Admin" hours={plan.roleAllocation.JUNIOR_ADMIN} />
-                    <RoleLine label="Data Entry" hours={plan.roleAllocation.DATA_ENTRY} />
+                    <RoleLine label="Non-View Users" hours={plan.roleAllocation.JUNIOR_ADMIN + plan.roleAllocation.DATA_ENTRY} />
                     <RoleLine label="View Only" hours={0} suffix="Free" />
                   </div>
 
@@ -473,9 +471,31 @@ export function SubscriptionPage() {
                   <span>−₹{rechargePlan.discountAmount}</span>
                 </div>
                 <div className="flex justify-between font-bold text-lg border-t pt-2">
-                  <span>You Pay</span>
+                  <span>Base Price</span>
                   <span className="text-emerald-600">₹{rechargePlan.finalPrice}</span>
                 </div>
+                {/* v4.134: Show 15% surcharge if tenant has extra IDs */}
+                {(() => {
+                  const maxUsers = (sub as any)?.maxUsersAllowed || 0
+                  const extraIds = maxUsers > 3 ? maxUsers - 3 : 0
+                  if (extraIds > 0) {
+                    const surcharge = Math.round(rechargePlan.finalPrice * 0.15)
+                    const finalTotal = rechargePlan.finalPrice + surcharge
+                    return (
+                      <>
+                        <div className="flex justify-between text-sm text-violet-600">
+                          <span>+15% surcharge ({extraIds} extra ID{extraIds > 1 ? 's' : ''})</span>
+                          <span>+₹{surcharge}</span>
+                        </div>
+                        <div className="flex justify-between font-bold text-lg border-t pt-2">
+                          <span>Total to Pay</span>
+                          <span className="text-violet-600">₹{finalTotal}</span>
+                        </div>
+                      </>
+                    )
+                  }
+                  return null
+                })()}
               </div>
 
               <div className="bg-amber-50 dark:bg-amber-950/30 p-3 rounded-lg text-xs text-amber-800 dark:text-amber-200">
