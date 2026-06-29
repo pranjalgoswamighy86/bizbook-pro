@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>BizBook Pro — Promo Video Slideshow (Screen Record to MP4)</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #0a0a0a;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    color: white;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 20px;
+  }
+  .controls {
+    background: #1a1a1a;
+    padding: 12px 20px;
+    border-radius: 12px;
+    margin-bottom: 20px;
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .controls button, .controls select {
+    background: #2563eb;
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 600;
+  }
+  .controls button:hover { background: #1d4ed8; }
+  .controls select { background: #374151; }
+  .controls .label { color: #9ca3af; font-size: 13px; }
+  .stage {
+    position: relative;
+    background: #000;
+    overflow: hidden;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+    transition: all 0.3s ease;
+  }
+  /* Aspect ratio presets */
+  .stage.ratio-9-16 { width: 405px; height: 720px; }       /* 9:16 */
+  .stage.ratio-1-1  { width: 600px; height: 600px; }        /* 1:1 */
+  .stage.ratio-16-9 { width: 800px; height: 450px; }        /* 16:9 */
+  .stage.ratio-4-5  { width: 480px; height: 600px; }        /* 4:5 */
+
+  .slide {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    transition: opacity 0.5s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .slide.active { opacity: 1; }
+  .slide img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    filter: brightness(0.7);
+  }
+  .slide .overlay {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(to bottom, rgba(0,0,0,0.3) 0%, rgba(0,0,0,0.1) 50%, rgba(0,0,0,0.8) 100%);
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    padding: 40px 30px;
+  }
+  .slide .text {
+    font-size: 32px;
+    font-weight: 800;
+    text-align: center;
+    text-shadow: 0 4px 20px rgba(0,0,0,0.8);
+    line-height: 1.2;
+    animation: textSlideUp 0.6s ease;
+  }
+  .slide .subtitle {
+    font-size: 18px;
+    font-weight: 500;
+    text-align: center;
+    color: #93c5fd;
+    margin-top: 8px;
+    text-shadow: 0 2px 10px rgba(0,0,0,0.8);
+  }
+  .slide.cta .text {
+    font-size: 36px;
+    color: #fbbf24;
+  }
+  .slide.cta .url {
+    font-size: 28px;
+    color: white;
+    margin-top: 12px;
+    font-family: 'Courier New', monospace;
+  }
+  .slide.cta .brand {
+    font-size: 16px;
+    color: #9ca3af;
+    margin-top: 16px;
+  }
+  @keyframes textSlideUp {
+    from { transform: translateY(20px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+  }
+  .progress {
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 4px;
+    background: rgba(255,255,255,0.2);
+    z-index: 10;
+  }
+  .progress-bar {
+    height: 100%;
+    background: linear-gradient(to right, #2563eb, #7c3aed);
+    width: 0%;
+    transition: width 0.1s linear;
+  }
+  .scene-counter {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    background: rgba(0,0,0,0.6);
+    color: white;
+    padding: 4px 10px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 600;
+    z-index: 10;
+  }
+  .instructions {
+    background: #1a1a1a;
+    padding: 20px;
+    border-radius: 12px;
+    margin-top: 20px;
+    max-width: 800px;
+    font-size: 14px;
+    line-height: 1.6;
+    color: #d1d5db;
+  }
+  .instructions h3 { color: #fbbf24; margin-bottom: 10px; }
+  .instructions ol { margin-left: 20px; }
+  .instructions code {
+    background: #374151;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 13px;
+    color: #93c5fd;
+  }
+</style>
+</head>
+<body>
+
+<div class="controls">
+  <span class="label">Aspect:</span>
+  <select id="ratioSelect" onchange="changeRatio()">
+    <option value="ratio-9-16">9:16 Vertical (Reels/Status)</option>
+    <option value="ratio-1-1">1:1 Square (FB/IG Feed)</option>
+    <option value="ratio-16-9">16:9 Landscape (YouTube)</option>
+    <option value="ratio-4-5">4:5 Portrait (FB Feed)</option>
+  </select>
+  <button onclick="play()">▶ Play</button>
+  <button onclick="pause()">⏸ Pause</button>
+  <button onclick="restart()">↺ Restart</button>
+  <span class="label" id="timeDisplay">0:00 / 0:40</span>
+</div>
+
+<div class="stage ratio-9-16" id="stage">
+  <div class="progress"><div class="progress-bar" id="progressBar"></div></div>
+  <div class="scene-counter" id="sceneCounter">1 / 8</div>
+
+  <div class="slide active" data-scene="1">
+    <img src="scene-01-hook.png" alt="Hook">
+    <div class="overlay">
+      <div class="text">Drowning in bills? 😰</div>
+    </div>
+  </div>
+
+  <div class="slide" data-scene="2">
+    <img src="scene-02-solution.png" alt="Solution">
+    <div class="overlay">
+      <div class="text">Meet BizBook Pro 💼</div>
+      <div class="subtitle">India's smartest business software</div>
+    </div>
+  </div>
+
+  <div class="slide" data-scene="3">
+    <img src="scene-03-gst-billing.png" alt="GST Billing">
+    <div class="overlay">
+      <div class="text">GST-Compliant Billing ✅</div>
+      <div class="subtitle">Auto CGST, SGST, IGST split</div>
+    </div>
+  </div>
+
+  <div class="slide" data-scene="4">
+    <img src="scene-04-inventory.png" alt="Inventory">
+    <div class="overlay">
+      <div class="text">Smart Inventory 📦</div>
+      <div class="subtitle">Barcode scanning • Never out of stock</div>
+    </div>
+  </div>
+
+  <div class="slide" data-scene="5">
+    <img src="scene-05-ai-import.png" alt="AI Import">
+    <div class="overlay">
+      <div class="text">AI Smart Import ✨</div>
+      <div class="subtitle">Scan invoice → 12 fields auto-filled</div>
+    </div>
+  </div>
+
+  <div class="slide" data-scene="6">
+    <img src="scene-06-reports.png" alt="Reports">
+    <div class="overlay">
+      <div class="text">GSTR-1, 3B, 9 Reports 📊</div>
+      <div class="subtitle">P&L • Balance Sheet • Trial Balance</div>
+    </div>
+  </div>
+
+  <div class="slide" data-scene="7">
+    <img src="scene-07-offline.png" alt="Offline">
+    <div class="overlay">
+      <div class="text">Works Offline 📴</div>
+      <div class="subtitle">💾 Your data stays on your device</div>
+    </div>
+  </div>
+
+  <div class="slide cta" data-scene="8">
+    <img src="scene-08-cta.png" alt="CTA">
+    <div class="overlay">
+      <div class="text">Start FREE Today →</div>
+      <div class="url">www.tahigo.in</div>
+      <div class="brand">Built by Tahigo International</div>
+    </div>
+  </div>
+</div>
+
+<audio id="voiceover" preload="auto">
+  <source src="voiceover-full.wav" type="audio/wav">
+</audio>
+
+<div class="instructions">
+  <h3>📋 How to record this as an MP4 video</h3>
+  <ol>
+    <li><strong>Pick aspect ratio</strong> from the dropdown above (9:16 for WhatsApp Status, 16:9 for YouTube, etc.)</li>
+    <li><strong>Open screen recorder</strong>:
+      <ul>
+        <li><strong>Windows:</strong> Press <code>Win + G</code> (Game Bar) → click Record. Or use <a href="https://obsproject.com" target="_blank">OBS Studio</a> (free, better quality).</li>
+        <li><strong>Mac:</strong> Press <code>Cmd + Shift + 5</code> → select the stage area → Record.</li>
+        <li><strong>Online:</strong> Use <a href="https://www.loom.com" target="_blank">Loom</a> or <a href="https://screencast-o-matic.com" target="_blank">Screencast-O-Matic</a>.</li>
+      </ul>
+    </li>
+    <li><strong>Click ▶ Play</strong> below the stage.</li>
+    <li><strong>Wait 40 seconds</strong> for the slideshow to complete.</li>
+    <li><strong>Stop recording</strong>. Save as <code>bizbook-pro-promo-9x16.mp4</code> (or whichever ratio).</li>
+    <li><strong>Optional:</strong> Add background music in CapCut/Premiere (keep voiceover audible).</li>
+    <li><strong>Repeat</strong> for each aspect ratio you need.</li>
+  </ol>
+  <p style="margin-top: 12px;"><strong>💡 Tip:</strong> For best quality, set browser zoom to 100% and hide bookmarks bar (<code>Ctrl/Cmd + Shift + B</code>).</p>
+</div>
+
+<script>
+const slides = document.querySelectorAll('.slide');
+const voiceover = document.getElementById('voiceover');
+const progressBar = document.getElementById('progressBar');
+const sceneCounter = document.getElementById('sceneCounter');
+const timeDisplay = document.getElementById('timeDisplay');
+const stage = document.getElementById('stage');
+
+// Scene durations (ms) — roughly matches TTS scene audio lengths
+const sceneDurations = [4000, 5000, 5500, 5000, 5000, 7000, 5500, 5000];
+const totalDuration = sceneDurations.reduce((a, b) => a + b, 0);
+
+let currentScene = 0;
+let isPlaying = false;
+let sceneTimeout = null;
+let progressInterval = null;
+let startTime = 0;
+
+function showScene(idx) {
+  slides.forEach((s, i) => s.classList.toggle('active', i === idx));
+  sceneCounter.textContent = `${idx + 1} / ${slides.length}`;
+}
+
+function play() {
+  if (isPlaying) return;
+  isPlaying = true;
+  voiceover.play().catch(e => console.log('Audio autoplay blocked:', e));
+  startTime = Date.now();
+
+  const playNext = () => {
+    if (currentScene >= slides.length) {
+      pause();
+      return;
+    }
+    showScene(currentScene);
+    const duration = sceneDurations[currentScene];
+    sceneTimeout = setTimeout(() => {
+      currentScene++;
+      playNext();
+    }, duration);
+  };
+
+  playNext();
+
+  // Progress bar
+  progressInterval = setInterval(() => {
+    const elapsed = Date.now() - startTime;
+    const pct = Math.min(100, (elapsed / totalDuration) * 100);
+    progressBar.style.width = pct + '%';
+    const sec = Math.floor(elapsed / 1000);
+    const totalSec = Math.floor(totalDuration / 1000);
+    timeDisplay.textContent = `${Math.floor(sec/60)}:${String(sec%60).padStart(2,'0')} / ${Math.floor(totalSec/60)}:${String(totalSec%60).padStart(2,'0')}`;
+  }, 100);
+}
+
+function pause() {
+  isPlaying = false;
+  voiceover.pause();
+  clearTimeout(sceneTimeout);
+  clearInterval(progressInterval);
+}
+
+function restart() {
+  pause();
+  currentScene = 0;
+  showScene(0);
+  progressBar.style.width = '0%';
+  voiceover.currentTime = 0;
+  timeDisplay.textContent = '0:00 / 0:40';
+}
+
+function changeRatio() {
+  const select = document.getElementById('ratioSelect');
+  stage.className = 'stage ' + select.value;
+}
+
+// Keyboard shortcuts
+document.addEventListener('keydown', (e) => {
+  if (e.key === ' ') { e.preventDefault(); isPlaying ? pause() : play(); }
+  if (e.key === 'r') restart();
+  if (e.key === 'ArrowRight') { currentScene = Math.min(slides.length - 1, currentScene + 1); showScene(currentScene); }
+  if (e.key === 'ArrowLeft') { currentScene = Math.max(0, currentScene - 1); showScene(currentScene); }
+});
+
+// Init
+showScene(0);
+console.log('BizBook Pro Promo Slideshow loaded');
+console.log('Total duration:', totalDuration / 1000, 'seconds');
+console.log('Keyboard: Space=Play/Pause, R=Restart, ←/→=Scene nav');
+</script>
+
+</body>
+</html>
