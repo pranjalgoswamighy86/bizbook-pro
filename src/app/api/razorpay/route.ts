@@ -47,14 +47,72 @@ export async function POST(req: NextRequest) {
       const access = await requireAuthAndRole(req, tenantId, ['MAIN_ADMIN'])
       if (access instanceof NextResponse) return access
 
-      const { planHours } = body
+      const { planHours, purpose } = body
+
+      // ============================================================
+      // v4.147: Unified pricing — 2% Razorpay fee + 18% GST on the fee
+      // (matches what the frontend dialog shows the user)
+      // ============================================================
+      const RZP_FEE_RATE = 0.02
+      const RZP_GST_ON_FEE_RATE = 0.18
+      function applyRzpFees(subtotal: number) {
+        const fee = Math.round(subtotal * RZP_FEE_RATE * 100) / 100
+        const gst = Math.round(fee * RZP_GST_ON_FEE_RATE * 100) / 100
+        const total = Math.round((subtotal + fee + gst) * 100) / 100
+        return { fee, gst, total }
+      }
+
+      // ============================================================
+      // EXTRA-ID purchase (one-time ₹149, no surcharge, no plan hours)
+      // ============================================================
+      if (purpose === 'extra-id') {
+        const EXTRA_ID_COST = 149
+        const { fee, gst, total } = applyRzpFees(EXTRA_ID_COST)
+        const amountInPaise = Math.round(total * 100)
+
+        const rzp = getRazorpayInstance()
+        if (!rzp) {
+          return NextResponse.json({ error: 'Razorpay is not configured. Contact support.' }, { status: 500 })
+        }
+
+        const order = await rzp.orders.create({
+          amount: amountInPaise,
+          currency: 'INR',
+          receipt: `bizbook_extra_${tenantId.slice(-8)}_${Date.now()}`,
+          notes: {
+            tenantId,
+            purpose: 'extra-id',
+            userEmail: access.email,
+            basePrice: String(EXTRA_ID_COST),
+            rzpFee: String(fee),
+            rzpGst: String(gst),
+            userName: access.user.name,
+          },
+        })
+
+        return NextResponse.json({
+          mode: 'RAZORPAY',
+          orderId: order.id,
+          amount: order.amount,
+          currency: order.currency,
+          keyId: process.env.RAZORPAY_KEY_ID,
+          purpose: 'extra-id',
+          basePrice: EXTRA_ID_COST,
+          rzpFee: fee,
+          rzpGst: gst,
+          finalPrice: total,
+          prefill: { name: access.user.name, email: access.email },
+        })
+      }
+
+      // ============================================================
+      // Default: RECHARGE plan purchase
+      // ============================================================
       const plan = PLANS[planHours]
       if (!plan) {
         return NextResponse.json({ error: 'Invalid plan' }, { status: 400 })
       }
 
-      // v4.138: Add ₹30 Razorpay platform fee per transaction
-      const RAZORPAY_PLATFORM_FEE = 30
       const basePrice = plan.mrp - plan.discountAmount
 
       // v4.138: Add 15% surcharge if tenant has extra non-view-only users
@@ -65,7 +123,9 @@ export async function POST(req: NextRequest) {
       const hasExtraUsers = nonViewOnlyCount > 3
       const surchargeAmount = hasExtraUsers ? Math.round(basePrice * 0.15) : 0
 
-      const finalPrice = basePrice + surchargeAmount + RAZORPAY_PLATFORM_FEE
+      // v4.147: Replace flat ₹30 fee with 2% + 18% GST (matches frontend)
+      const subtotal = basePrice + surchargeAmount
+      const { fee: rzpFee, gst: rzpGst, total: finalPrice } = applyRzpFees(subtotal)
       const amountInPaise = Math.round(finalPrice * 100)
 
       const rzp = getRazorpayInstance()
@@ -74,8 +134,8 @@ export async function POST(req: NextRequest) {
       if (!rzp) {
         return NextResponse.json({
           mode: 'MANUAL',
-          message: 'Razorpay is not configured. Use UPI payment instead (no platform fee).',
-          plan: { name: plan.name, hours: planHours, finalPrice, basePrice, surchargeAmount, platformFee: RAZORPAY_PLATFORM_FEE },
+          message: 'Razorpay is not configured. Contact support to activate manually.',
+          plan: { name: plan.name, hours: planHours, finalPrice, basePrice, surchargeAmount, rzpFee, rzpGst },
         })
       }
 
@@ -91,7 +151,8 @@ export async function POST(req: NextRequest) {
           userEmail: access.email,
           basePrice: String(basePrice),
           surcharge: String(surchargeAmount),
-          platformFee: String(RAZORPAY_PLATFORM_FEE),
+          rzpFee: String(rzpFee),
+          rzpGst: String(rzpGst),
           userName: access.user.name,
         },
       })
@@ -123,18 +184,13 @@ export async function POST(req: NextRequest) {
       const access = await requireAuthAndRole(req, tenantId, ['MAIN_ADMIN'])
       if (access instanceof NextResponse) return access
 
-      const { razorpayOrderId, razorpayPaymentId, razorpaySignature, planHours } = body
+      const { razorpayOrderId, razorpayPaymentId, razorpaySignature, planHours, purpose } = body
 
-      if (!razorpayOrderId || !razorpayPaymentId || !razorpaySignature || !planHours) {
+      if (!razorpayOrderId || !razorpayPaymentId || !razorpaySignature) {
         return NextResponse.json({ error: 'Missing payment details' }, { status: 400 })
       }
 
-      const plan = PLANS[planHours]
-      if (!plan) {
-        return NextResponse.json({ error: 'Invalid plan' }, { status: 400 })
-      }
-
-      // Verify the signature
+      // Verify the signature (same for all purposes)
       const keySecret = process.env.RAZORPAY_KEY_SECRET
       if (!keySecret) {
         return NextResponse.json({ error: 'Razorpay not configured' }, { status: 500 })
@@ -149,10 +205,69 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'Invalid payment signature. Payment verification failed.' }, { status: 400 })
       }
 
-      // Payment verified — activate the plan
+      // Payment verified — find subscription
       let subscription = await db.subscription.findUnique({ where: { tenantId } })
       if (!subscription) {
         return NextResponse.json({ error: 'No subscription found' }, { status: 404 })
+      }
+
+      // ============================================================
+      // EXTRA-ID purchase: increment maxUsersAllowed, no hours added
+      // ============================================================
+      if (purpose === 'extra-id') {
+        const currentMax = subscription.maxUsersAllowed ?? 3
+        subscription = await db.subscription.update({
+          where: { id: subscription.id },
+          data: { maxUsersAllowed: currentMax + 1 },
+        })
+
+        await db.recharge.create({
+          data: {
+            subscriptionId: subscription.id,
+            planHours: 0,
+            planName: 'Extra ID (One-time)',
+            mrp: 149,
+            discountPercent: 0,
+            discountAmount: 149,
+            totalSeconds: 0,
+            paymentMode: 'RAZORPAY',
+            paymentRef: razorpayPaymentId,
+            status: 'COMPLETED',
+          },
+        })
+
+        await writeAuditLog({
+          tenantId,
+          userId: access.userId,
+          userName: access.user.name,
+          action: 'CREATE',
+          entityType: 'ExtraId',
+          entityName: `Extra ID added (Razorpay: ${razorpayPaymentId})`,
+          changes: { newMaxUsers: currentMax + 1, paymentId: razorpayPaymentId, orderId: razorpayOrderId },
+        })
+
+        return NextResponse.json({
+          success: true,
+          message: `Extra ID activated! Max users now: ${currentMax + 1}. Payment ID: ${razorpayPaymentId}`,
+          subscription: {
+            planHours: subscription.planHours,
+            planName: subscription.planName,
+            remainingHours: Math.floor(subscription.remainingSeconds / 3600),
+            status: subscription.status,
+            maxUsersAllowed: subscription.maxUsersAllowed,
+          },
+        })
+      }
+
+      // ============================================================
+      // Default: RECHARGE plan purchase
+      // ============================================================
+      if (!planHours) {
+        return NextResponse.json({ error: 'Missing planHours' }, { status: 400 })
+      }
+      const plan = PLANS[planHours]
+      if (!plan) {
+        return NextResponse.json({ error: 'Invalid plan' }, { status: 400 })
       }
 
       const newRemaining = subscription.remainingSeconds + plan.totalSeconds
@@ -236,10 +351,14 @@ export async function POST(req: NextRequest) {
   } catch (error: any) {
     console.error('[Razorpay] Error:', error?.message || error)
     console.error('[Razorpay] Stack:', error?.stack?.slice(0, 300))
-    // Return the ACTUAL error message so the frontend can show it
-    const errMsg = error?.error?.description || error?.message || 'Internal server error'
+    // Surface Razorpay's actual error so the frontend can show it
+    const rawErr = error?.error?.description || error?.message || 'Internal server error'
+    // v4.147: Friendly hint for the most common cause — invalid API keys
+    const friendlyHint = /auth|unauthor|401/i.test(rawErr)
+      ? ' (Razorpay rejected the API keys — ask admin to verify RAZORPAY_KEY_ID / RAZORPAY_KEY_SECRET on Railway)'
+      : ''
     return NextResponse.json({
-      error: errMsg,
+      error: `${rawErr}${friendlyHint}`,
       details: error?.error || undefined,
     }, { status: 500 })
   }
