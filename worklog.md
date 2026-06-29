@@ -958,3 +958,34 @@ Stage Summary:
 - Awaiting user to add env vars on Railway → next payment attempt should succeed.
 - Deployment URL: https://carefree-success-production-7766.up.railway.app/
 - IMPORTANT: keys are LIVE — real money will be charged once env vars are set.
+
+---
+Task ID: v4.148
+Agent: Super Z (main)
+Task: Fix wrong amount shown in Razorpay modal (₹613.14 instead of ₹153.54)
+
+Work Log:
+- User uploaded two screenshots:
+    IMG_5425: BizBook dialog showing Total to Pay = ₹153.54 (correct)
+    IMG_5426: Razorpay Standard Checkout modal showing Total Amount = ₹613.14 (WRONG)
+- Investigation: backend (v4.147) was computing basePrice = plan.mrp - plan.discountAmount = 749 - 150 = ₹599
+- But per the v4.143 fix (from earlier session): `discountAmount` IS the final customer-facing base price (₹150 for 50Hrs).
+- So the v4.147 backend had a regression — used the old broken convention.
+- Frontend (subscription.tsx line 454) correctly uses rechargePlan.finalPrice = rechargePlan.discountAmount = ₹150.
+- Razorpay order was created for ₹613.14 (= ₹599 + 2% fee + 18% GST on fee), explaining the mismatch exactly.
+- Fix: changed line in /api/razorpay/route.ts from:
+      const basePrice = plan.mrp - plan.discountAmount
+    to:
+      const basePrice = plan.discountAmount
+- Verified calculation:
+    basePrice = 150, surcharge = 0, subtotal = 150
+    rzpFee = 150 * 0.02 = 3
+    rzpGst  = 3 * 0.18 = 0.54
+    finalPrice = ₹153.54 ✓ matches frontend
+- Committed as v4.148 and pushed. Railway auto-deploying.
+
+Stage Summary:
+- ROOT CAUSE of "Wrong amount": backend regression in v4.147 ignored the v4.143 discountAmount convention.
+- Fix shipped in v4.148. After Railway redeploy, the Razorpay modal will show ₹153.54 matching the dialog.
+- Affects ALL plan recharges (50/100/200/500/1000Hrs) — all were overcharged 4x.
+- Deployment URL: https://carefree-success-production-7766.up.railway.app/
