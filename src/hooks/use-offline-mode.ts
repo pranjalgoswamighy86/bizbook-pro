@@ -56,11 +56,23 @@ export function useOfflineMode(tenantId?: string) {
       console.log('[OfflineMode] Gone offline — using cached data')
       setState(s => ({ ...s, isOnline: false }))
     }
+
+    // v4.155: Listen for SW Background Sync messages
+    const handleSWMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'SYNC_PENDING_WRITES') {
+        console.log('[OfflineMode] SW requested sync')
+        if (tenantId) syncPendingWrites(tenantId)
+      }
+    }
+
     window.addEventListener('online', handleOnline)
     window.addEventListener('offline', handleOffline)
+    navigator.serviceWorker?.addEventListener('message', handleSWMessage)
+
     return () => {
       window.removeEventListener('online', handleOnline)
       window.removeEventListener('offline', handleOffline)
+      navigator.serviceWorker?.removeEventListener('message', handleSWMessage)
     }
   }, [tenantId])
 
