@@ -1076,3 +1076,82 @@ REMAINING (out of scope, requires hardware/credentials):
 - IRP: needs real GSP credentials to test live IRN generation
 - Desktop: needs `npm install` on a Windows machine to actually build the .exe
 - Fingerprint: needs SecuGen or DigitalPersona SDK + physical scanner to test
+
+---
+Task ID: v4.155-v4.155c (Critical marketing claims implementation)
+Agent: Super Z (main)
+Task: Implement 5 critical features claimed on tahigo.in but missing/broken in codebase
+
+Work Log:
+
+WAVE 1 — AUTO EXCEL BACKUP (#1):
+- Added triggerAutoBackup() calls to all create/update/delete actions in:
+  - /api/sales/route.ts (3 actions: create, update, delete)
+  - /api/purchases/route.ts (3 actions: create, update, delete)
+  - /api/expenses/route.ts (3 actions: create, update, delete)
+- Server-side backup is debounced (30s, max 10 per tenant)
+- Client-side auto-download uses FIXED filename per company (overwrites)
+- Every transaction now generates BOTH server backup AND local download
+
+WAVE 2 — OTP BYPASS SECURITY FIX (#3):
+- Gated devOtp plaintext fallback behind NODE_ENV !== 'production'
+- In production: if BREVO_API_KEY/RESEND_API_KEY not set, registration FAILS with 503
+- Override: set OTP_BYPASS_ALLOWED=true on Railway for emergency access
+- Applied to both registration AND password reset flows
+
+WAVE 3 — INDEXEDDB OFFLINE CACHE (#4):
+- New: src/lib/offline-db.ts (400 lines) — Dexie schema
+  - Tables: sales, purchases, expenses, inventory, parties, staff, dashboard, pendingWrites
+  - Cache writers: cacheSales, cachePurchases, cacheExpenses, cacheInventory, cacheParties, cacheDashboard
+  - Cache readers: getCachedSales, getCachedPurchases, etc.
+  - Maintenance: clearAllCachedData, getCacheStats
+- New: src/hooks/use-offline-mode.ts — React hook
+  - Tracks online/offline status via window events
+  - Auto-syncs pending writes when connection restores
+  - Listens for SW Background Sync messages
+- New: src/components/app/offline-banner.tsx
+  - Fixed bottom-right banner showing offline status
+  - Pending writes count + sync button
+  - Cache info popover with stats
+  - Clear cache button
+- Mounted in src/app/layout.tsx
+
+WAVE 4 — SERVICE WORKER API CACHING (#5):
+- Enhanced public/sw.js to cache API GET responses (5min TTL)
+- Cacheable: /api/sales, /api/purchases, /api/expenses, /api/inventory, /api/parties, /api/staff, /api/reports, /api/ledger, /api/dashboard
+- Never cached: /api/auth, /api/backup, /api/razorpay, /api/einvoice, /api/ai-*, /api/help-chat
+- Network-first with cache fallback
+- Stale cache indicator (X-Served-From header)
+- Background Sync API support (Chrome/Edge)
+- Cache version bumped to v4.155.0
+
+WAVE 5 — OFFLINE TRANSACTION QUEUE (#5):
+- New: src/lib/offline-api.ts (240 lines)
+  - offlineAwareFetch() — wraps authFetch with offline detection
+  - If offline: queues write in IndexedDB pendingWrites table
+  - Returns synthetic 202 'queued' response
+  - Convenience helpers: createSaleOffline, createPurchaseOffline, createExpenseOffline
+  - syncAllPendingWrites() — replays queue when online
+- use-offline-mode.ts updated to listen for SW SYNC_PENDING_WRITES messages
+
+WAVE 6 — AFK LOGOUT VERIFICATION (#2):
+- Confirmed AFK implementation at src/app/page.tsx lines 136-181
+- 5-minute timeout, dialog-aware extension, activity event tracking
+- Only env var needed: SESSION_SECRET on Railway
+
+WAVE 7 — DOCUMENTATION:
+- New: PRODUCTION_ENV_CHECKLIST.md — all env vars needed on Railway
+- New: MARKETING_COPY_AUDIT.md — claim-by-claim audit + recommended rewrites
+
+Stage Summary:
+- All 5 critical claims now technically true (with env var config)
+- 8 new files, 12 files modified, ~7000 lines of new code
+- Pushed to GitHub main branch, Railway auto-deploying
+- Deployment URL: https://carefree-success-production-7766.up.railway.app/
+
+CRITICAL: User must set these env vars on Railway:
+1. SESSION_SECRET (32+ char random) — for AFK logout to work consistently
+2. BREVO_API_KEY — for email OTP (production mode now refuses registration without it)
+3. TWOFACTOR_API_KEY — for SMS OTP
+4. (Optional) IRP_GSP_* — for direct e-invoice IRN generation
+5. (Optional) OTP_BYPASS_ALLOWED=true — only for staging, NOT production
