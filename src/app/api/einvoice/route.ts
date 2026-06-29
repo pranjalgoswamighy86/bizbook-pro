@@ -14,6 +14,8 @@ import {
   formatDateForEinvoice,
   roundTo2,
 } from '@/lib/gst-utils'
+// v4.152: IRP direct integration
+import { submitToIrp, cancelIrn, isIrpConfigured, getIrpBaseUrl } from '@/lib/irp-integration'
 
 // ============================================================
 // GST E-Invoice API
@@ -467,6 +469,228 @@ export async function POST(req: NextRequest) {
       }
 
       return NextResponse.json({ error: 'Invalid type. Use "sale" or "purchase"' }, { status: 400 })
+    }
+
+    // ============================================================
+    // v4.152: SUBMIT-TO-IRP — direct IRP API call for IRN generation
+    // ============================================================
+    if (action === 'submit-to-irp') {
+      const access = await requireAuthAndTenant(req, tenantId)
+      if (access instanceof NextResponse) return access
+
+      const { saleId } = body
+      if (!saleId) return NextResponse.json({ error: 'Sale ID required' }, { status: 400 })
+
+      const sale = await db.sale.findUnique({ where: { id: saleId } })
+      if (!sale || sale.tenantId !== tenantId) return NextResponse.json({ error: 'Sale not found' }, { status: 404 })
+
+      // Already submitted?
+      if (sale.einvoiceIrn && sale.einvoiceStatus === 'GENERATED') {
+        return NextResponse.json({
+          error: `E-invoice already generated. IRN: ${sale.einvoiceIrn}`,
+          existingIrn: sale.einvoiceIrn,
+          existingAckNo: sale.einvoiceAckNo,
+        }, { status: 400 })
+      }
+
+      const tenant = await db.tenant.findUnique({ where: { id: tenantId } })
+      if (!tenant?.gstNumber) {
+        return NextResponse.json({ error: 'Company GSTIN not configured. Update Settings first.' }, { status: 400 })
+      }
+
+      // Build the INV-01 payload (reuses existing logic from generate-payload)
+      // For brevity, we'll call the internal helper — in a refactor this would be extracted
+      const items = JSON.parse(sale.items || '[]')
+      const buyerGstin = sale.partyGst || ''
+      if (!buyerGstin || buyerGstin.length !== 15) {
+        return NextResponse.json({
+          error: 'Buyer GSTIN is required for e-invoice (B2B only). Add buyer GSTIN to the sale.',
+        }, { status: 400 })
+      }
+
+      const interState = isInterStateSupply(tenant.gstNumber, buyerGstin)
+      const itemDetails = items.map((item: any, i: number) => {
+        const gst = calculateItemGST(
+          Number(item.qty || 0),
+          Number(item.rate || 0),
+          Number(item.gstRate || 0),
+          Number(item.discount || 0),
+          interState
+        )
+        return {
+          SlNo: String(i + 1),
+          PrdDesc: item.name || 'Item',
+          IsServc: item.saleItemType === 'SERVICE' ? 'Y' : 'N',
+          HsnCd: item.hsn || '0000',
+          Unit: item.unit || 'OTH',
+          Qty: Number(item.qty || 0),
+          UnitPrice: roundTo2(Number(item.rate || 0)),
+          TotAmt: gst.totAmt,
+          Discount: roundTo2(Number(item.discount || 0)),
+          AssAmt: gst.assAmt,
+          GstRt: Number(item.gstRate || 0),
+          IgstAmt: gst.igstAmt,
+          CgstAmt: gst.cgstAmt,
+          SgstAmt: gst.sgstAmt,
+          CesRt: 0, CesAmt: 0, CesNonAdvlAmt: 0,
+          TotItemVal: gst.totItemVal,
+        }
+      })
+
+      const totals = calculateInvoiceTotals(
+        itemDetails.map(i => ({ assAmt: i.AssAmt, cgstAmt: i.CgstAmt, sgstAmt: i.SgstAmt, igstAmt: i.IgstAmt })),
+        roundTo2(sale.totalAmount)
+      )
+
+      const inv01Payload = {
+        Version: '1.1',
+        TranDtls: { TaxSch: 'GST', SupTyp: interState ? 'B2B' : 'B2B', RegRev: 'N' },
+        DocDtls: { Typ: 'INV', No: sale.invoiceNumber, Dt: formatDateForEinvoice(sale.date) },
+        SellerDtls: {
+          Gstin: tenant.gstNumber,
+          LglNm: tenant.name,
+          Addr1: tenant.address || '',
+          Pin: 0,  // TODO: add pinCode to Tenant
+          Stcd: getStateCode(tenant.gstNumber),
+        },
+        BuyerDtls: {
+          Gstin: buyerGstin,
+          LglNm: sale.partyName,
+          Addr1: sale.partyAddress || '',
+          Pin: 0,
+          Stcd: getStateCode(buyerGstin),
+          Pos: getStateCode(buyerGstin),
+        },
+        ItemList: itemDetails,
+        ValDtls: {
+          AssVal: totals.assVal,
+          CgstVal: totals.cgstVal,
+          SgstVal: totals.sgstVal,
+          IgstVal: totals.igstVal,
+          CesVal: 0,
+          RndOffAmt: 0,
+          TotInvVal: roundTo2(sale.totalAmount),
+        },
+        PayDtls: { CrDay: 0, PaidAmt: roundTo2(sale.amountReceived || 0), PaymtDue: roundTo2(sale.totalAmount - (sale.amountReceived || 0)) },
+      }
+
+      // Submit to IRP
+      const irpResult = await submitToIrp(inv01Payload)
+
+      if (irpResult.success && irpResult.irn) {
+        // Persist IRN + AckNo + AckDate + SignedQR
+        const updated = await db.sale.update({
+          where: { id: saleId },
+          data: {
+            einvoiceIrn: irpResult.irn,
+            einvoiceAckNo: irpResult.ackNo,
+            einvoiceAckDate: irpResult.ackDate,
+            einvoiceQrCodeText: irpResult.signedQrCode,
+            einvoiceStatus: 'GENERATED',
+          },
+        })
+
+        await writeAuditLog({
+          tenantId,
+          userId: access.userId,
+          userName: access.user?.name || 'Unknown',
+          action: 'CREATE',
+          entityType: 'E-Invoice',
+          entityName: `IRN generated: ${irpResult.irn.slice(0, 16)}... for ${sale.invoiceNumber}`,
+          changes: { saleId, irn: irpResult.irn, ackNo: irpResult.ackNo, mode: 'LIVE' },
+        })
+
+        return NextResponse.json({
+          success: true,
+          mode: 'LIVE',
+          irn: irpResult.irn,
+          ackNo: irpResult.ackNo,
+          ackDate: irpResult.ackDate,
+          signedQrCode: irpResult.signedQrCode,
+          sale: updated,
+        })
+      }
+
+      // Either MANUAL mode or LIVE error
+      return NextResponse.json({
+        success: false,
+        mode: irpResult.mode,
+        error: irpResult.errorMessage,
+        // For MANUAL mode, return the payload so frontend can show it for copy-paste
+        inv01Payload: irpResult.mode === 'MANUAL' ? inv01Payload : undefined,
+      }, { status: irpResult.mode === 'MANUAL' ? 200 : 400 })
+    }
+
+    // ============================================================
+    // v4.152: CANCEL-IRN — direct IRP cancellation (within 24h)
+    // ============================================================
+    if (action === 'cancel-irp') {
+      const access = await requireAuthAndTenant(req, tenantId)
+      if (access instanceof NextResponse) return access
+
+      const { saleId, reason } = body
+      if (!saleId) return NextResponse.json({ error: 'Sale ID required' }, { status: 400 })
+
+      const sale = await db.sale.findUnique({ where: { id: saleId } })
+      if (!sale || sale.tenantId !== tenantId) return NextResponse.json({ error: 'Sale not found' }, { status: 404 })
+
+      if (!sale.einvoiceIrn) {
+        return NextResponse.json({ error: 'No IRN exists for this sale' }, { status: 400 })
+      }
+
+      // Check 24-hour window
+      if (sale.einvoiceAckDate) {
+        const ackDate = new Date(sale.einvoiceAckDate)
+        const hoursDiff = (Date.now() - ackDate.getTime()) / (1000 * 60 * 60)
+        if (hoursDiff > 24) {
+          return NextResponse.json({
+            error: `24-hour cancellation window expired (${hoursDiff.toFixed(1)}h). Issue a Credit Note instead.`,
+          }, { status: 400 })
+        }
+      }
+
+      const cancelResult = await cancelIrn(sale.einvoiceIrn, reason || '1')
+
+      if (cancelResult.success) {
+        const updated = await db.sale.update({
+          where: { id: saleId },
+          data: { einvoiceStatus: 'CANCELLED' },
+        })
+
+        await writeAuditLog({
+          tenantId,
+          userId: access.userId,
+          userName: access.user?.name || 'Unknown',
+          action: 'DELETE',
+          entityType: 'E-Invoice',
+          entityName: `IRN cancelled: ${sale.einvoiceIrn?.slice(0, 16)}...`,
+          changes: { saleId, irn: sale.einvoiceIrn, reason },
+        })
+
+        return NextResponse.json({ success: true, sale: updated })
+      }
+
+      return NextResponse.json({
+        success: false,
+        mode: cancelResult.mode,
+        error: cancelResult.errorMessage,
+      }, { status: 400 })
+    }
+
+    // ============================================================
+    // v4.152: IRP-STATUS — check if IRP is configured
+    // ============================================================
+    if (action === 'irp-status') {
+      const access = await requireAuthAndTenant(req, tenantId)
+      if (access instanceof NextResponse) return access
+
+      return NextResponse.json({
+        configured: isIrpConfigured(),
+        mode: isIrpConfigured() ? 'LIVE' : 'MANUAL',
+        env: process.env.IRP_ENV || 'sandbox',
+        baseUrl: getIrpBaseUrl(),
+        gspCode: process.env.IRP_GSP_CODE || null,
+      })
     }
 
     return NextResponse.json({ error: 'Invalid action' }, { status: 400 })
