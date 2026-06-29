@@ -989,3 +989,90 @@ Stage Summary:
 - Fix shipped in v4.148. After Railway redeploy, the Razorpay modal will show ₹153.54 matching the dialog.
 - Affects ALL plan recharges (50/100/200/500/1000Hrs) — all were overcharged 4x.
 - Deployment URL: https://carefree-success-production-7766.up.railway.app/
+
+---
+Task ID: v4.149-v4.154 (5-feature roadmap)
+Agent: Super Z (main)
+Task: Implement 5 features claimed on tahigo.in marketing site but missing from codebase
+
+Work Log:
+
+WAVE 1 — SCHEMA FIX (v4.149):
+- Added missing StaffAttendance model (was referenced in 9 places but didn't exist in schema)
+- Added Staff.fingerprintId + Staff.biometricType fields for fingerprint scanner
+- Added geolocation fields (checkInLat/Lng, checkOutLat/Lng) for field staff
+- Unique constraint on (staffId, date) — one record per staff per day
+- Prisma client regenerated successfully
+
+WAVE 2 — GSTR-9 + GSTR-3B ENHANCEMENTS (v4.149):
+- Added GSTR-9 annual return tab to gst-reports.tsx
+- Full Part I (General Info), Part II (Outward/Inward), Part III (ITC), Part IV (Tax Liability)
+- B2B vs B2C classification (B2B = buyer has 15-char GSTIN)
+- Nil-rated/exempt supplies bucket
+- Financial year selector (1 Apr to 31 Mar)
+- Exports to JSON with metadata
+- GSTR-3B now includes HSN-wise summary (Section 4)
+- Parses line items JSON from each Sale to aggregate by HSN code
+
+WAVE 3 — AI BUSINESS VALUATION WITH DCF (v4.150):
+- Complete rewrite of /api/ai-valuation route
+- Server-side DCF calculation: 5-year FCF projection with decay-to-terminal-growth
+- WACC: 15% (7% risk-free + 8% equity premium + 4% SME size premium)
+- Terminal Value via Gordon Growth: FCF_n * (1+g) / (r - g)
+- 4 valuation methods: DCF, Revenue Multiple (1.2x), EBITDA Multiple (6x), Asset-Based
+- Multi-year financial history (3-5 years)
+- Balance sheet snapshot (inventory, receivables, payables, cash, working capital)
+- Wired to multi-ai.ts abstraction (ZAI → OpenAI → Gemini → Claude fallback)
+- Falls back to DCF-only mode if no AI providers configured
+- UI shows DCF breakdown, multi-year table, balance sheet snapshot, AI provider used
+
+WAVE 4 — AI SUPPORT CHAT MULTI-AI (v4.151):
+- Replaced direct ZAI call with analyzeWithAI() in /api/help-chat
+- Added comprehensive BizBook Pro knowledge base (plans, modules, registration, payments, security)
+- Detects category from message text (Registration/OTP/Payment/Inventory/Invoice/Account/Bug/Other)
+- Canned responses when no AI providers configured
+- UI shows which AI provider answered each message
+- Expanded quick suggestions from 4 to 8
+
+WAVE 5 — E-INVOICE IRP INTEGRATION (v4.152):
+- New library: src/lib/irp-integration.ts (GSP-agnostic)
+- Direct IRP API integration (sandbox + production URLs)
+- Auth token caching (60min validity, refreshes at 50min)
+- submitToIrp(payload) → IRN + AckNo + AckDate + SignedQR
+- cancelIrn(irn, reason) — within 24h window
+- New API actions: submit-to-irp, cancel-irp, irp-status
+- Falls back to MANUAL mode if IRP_GSP_* env vars not set
+
+WAVE 6 — DESKTOP APP (.EXE) (v4.153):
+- electron/main.ts (340 lines) — BrowserWindow, native menus, Next.js server spawn
+- electron/preload.ts — Secure contextBridge for window.electron API
+- electron-builder.yml — NSIS installer + portable + dmg + AppImage targets
+- New devDependencies: electron ^33, electron-builder ^25, concurrently ^9, wait-on ^8
+- Native menus: File (New Sale/Purchase, Export Backup), Edit, View, Navigate, Help
+- Keyboard shortcuts: Ctrl+N, Ctrl+E, Ctrl+1-5, F1
+- IPC bridge: getVersion(), saveFileDialog(), scanFingerprint(), onMenuAction()
+- Production mode spawns standalone Next.js server as child process
+
+WAVE 7 — FINGERPRINT SCANNER SDK (v4.154):
+- electron/fingerprint.ts (230 lines) — SecuGen + DigitalPersona native SDK loading
+- Supports SecuGen Hamster Pro 20 / Hamster Plus
+- Supports DigitalPersona U.are.U 4500 / 5160
+- Falls back to WebHID if no native addon detected
+- 3-sample enrollment with progress events
+- Template matching with adjustable threshold
+- IPC: fingerprint:scan, fingerprint:enroll, fingerprint:verify, fingerprint:available, fingerprint:sdk-type
+- UI: new "Enroll via USB Scanner" button in staff-salary.tsx (visible only in Electron)
+- Attendance API fix: check-in now stores denormalized staffName field
+- Excel-backup fix: restore path includes staffName field
+
+Stage Summary:
+- 5 features shipped across 6 versions (v4.149 → v4.154)
+- Total: 9 files added, 11 files modified, ~3000 lines of new code
+- All type-checks pass (only pre-existing errors remain in unrelated files)
+- Pushed to GitHub main branch, Railway auto-deploying
+- Deployment URL: https://carefree-success-production-7766.up.railway.app/
+
+REMAINING (out of scope, requires hardware/credentials):
+- IRP: needs real GSP credentials to test live IRN generation
+- Desktop: needs `npm install` on a Windows machine to actually build the .exe
+- Fingerprint: needs SecuGen or DigitalPersona SDK + physical scanner to test
