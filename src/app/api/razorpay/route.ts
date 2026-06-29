@@ -113,7 +113,9 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'Invalid plan' }, { status: 400 })
       }
 
-      const basePrice = plan.mrp - plan.discountAmount
+      // v4.143: `discountAmount` IS the final customer-facing base price (₹150 for 50Hrs).
+      // Do NOT compute it as (mrp - discountAmount) — that was the old broken convention.
+      const basePrice = plan.discountAmount
 
       // v4.138: Add 15% surcharge if tenant has extra non-view-only users
       const { rawDb } = await import('@/lib/db-soft-delete')
