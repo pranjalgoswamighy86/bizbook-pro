@@ -233,8 +233,14 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json({ error: 'Invalid action' }, { status: 400 })
-  } catch (error) {
-    console.error('Razorpay error:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+  } catch (error: any) {
+    console.error('[Razorpay] Error:', error?.message || error)
+    console.error('[Razorpay] Stack:', error?.stack?.slice(0, 300))
+    // Return the ACTUAL error message so the frontend can show it
+    const errMsg = error?.error?.description || error?.message || 'Internal server error'
+    return NextResponse.json({
+      error: errMsg,
+      details: error?.error || undefined,
+    }, { status: 500 })
   }
 }
