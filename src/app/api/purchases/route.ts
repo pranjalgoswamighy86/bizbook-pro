@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db-soft-delete'
 import { roundTo2, isInterStateSupply, splitGSTAmount } from '@/lib/gst-utils'
 import { requireAuthAndTenant, requireAuthAndRole, requireAuth, writeAuditLog } from '@/lib/api-helpers'
+// v4.155: Auto Excel backup after every purchase create/update/delete
+import { triggerAutoBackup } from '@/lib/auto-backup'
 
 export async function POST(req: NextRequest) {
   try {
@@ -316,6 +318,8 @@ export async function POST(req: NextRequest) {
         console.error('Auto journal entry error (purchase):', jeError)
       }
 
+      // v4.155: Auto Excel backup after purchase create
+      triggerAutoBackup(tenantId, 'purchase:create').catch(e => console.warn('[AutoBackup] purchase:create failed:', e?.message))
       return NextResponse.json({ purchase, inventoryUpdates })
     }
 
@@ -457,6 +461,8 @@ export async function POST(req: NextRequest) {
         console.error('Payables update error (purchase update):', payableError)
       }
 
+      // v4.155: Auto Excel backup after purchase update
+      triggerAutoBackup(tenantId, 'purchase:update').catch(e => console.warn('[AutoBackup] purchase:update failed:', e?.message))
       return NextResponse.json({ purchase, inventoryUpdates })
     }
 
@@ -513,6 +519,8 @@ export async function POST(req: NextRequest) {
       }
 
       await db.purchase.update({ where: { id }, data: { isDeleted: true, deletedAt: new Date() } })
+      // v4.155: Auto Excel backup after purchase delete
+      triggerAutoBackup(tenantId, 'purchase:delete').catch(e => console.warn('[AutoBackup] purchase:delete failed:', e?.message))
       return NextResponse.json({ success: true })
     }
 

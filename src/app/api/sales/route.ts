@@ -3,6 +3,8 @@ import { db } from '@/lib/db-soft-delete'
 import { roundTo2, isInterStateSupply, splitGSTAmount } from '@/lib/gst-utils'
 // ---- SECURITY PATCH v1 imports ----
 import { requireAuthAndTenant, requireAuthAndRole, writeAuditLog } from '@/lib/api-helpers'
+// v4.155: Auto Excel backup after every sale create/update/delete
+import { triggerAutoBackup } from '@/lib/auto-backup'
 // -----------------------------------
 
 /**
@@ -376,6 +378,8 @@ export async function POST(req: NextRequest) {
       })
 
       // ---- SECURITY PATCH v1: include warnings in response ----
+      // v4.155: Auto Excel backup after every sale create
+      triggerAutoBackup(tenantId, 'sale:create').catch(e => console.warn('[AutoBackup] sale:create failed:', e?.message))
       return NextResponse.json({ sale, warnings })
       // --------------------------------------------------------
     }
@@ -478,6 +482,8 @@ export async function POST(req: NextRequest) {
         return sale
       })
 
+      // v4.155: Auto Excel backup after every sale update
+      triggerAutoBackup(tenantId, 'sale:update').catch(e => console.warn('[AutoBackup] sale:update failed:', e?.message))
       return NextResponse.json({ sale })
     }
 
@@ -584,6 +590,8 @@ export async function POST(req: NextRequest) {
         })
       })
 
+      // v4.155: Auto Excel backup after sale delete
+      triggerAutoBackup(tenantId, 'sale:delete').catch(e => console.warn('[AutoBackup] sale:delete failed:', e?.message))
       return NextResponse.json({ success: true })
     }
 

@@ -4,6 +4,8 @@ import "./globals.css";
 import { Toaster as SonnerToaster } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { SWUpdateModal } from "@/components/app/sw-update-modal";
+// v4.155: Offline mode banner + IndexedDB cache indicator
+import { OfflineBanner } from "@/components/app/offline-banner";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -42,6 +44,8 @@ export default function RootLayout({
         <SonnerToaster />
         {/* v4.8: PWA Service Worker Update Interceptor (Spec Section 20) */}
         <SWUpdateModal />
+        {/* v4.155: Offline mode banner + IndexedDB cache indicator */}
+        <OfflineBanner />
       </body>
     </html>
   );

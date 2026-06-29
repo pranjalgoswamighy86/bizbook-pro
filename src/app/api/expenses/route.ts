@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db-soft-delete'
 import { requireAuthAndTenant, requireAuthAndRole, requireAuth, writeAuditLog } from '@/lib/api-helpers'
+// v4.155: Auto Excel backup after every expense create/update/delete
+import { triggerAutoBackup } from '@/lib/auto-backup'
 
 export async function POST(req: NextRequest) {
   try {
@@ -14,6 +16,8 @@ export async function POST(req: NextRequest) {
       // --------------------------------------------------
 
       const expense = await db.expense.create({ data: { ...body.data, tenantId } })
+      // v4.155: Auto Excel backup after expense create
+      triggerAutoBackup(tenantId, 'expense:create').catch(e => console.warn('[AutoBackup] expense:create failed:', e?.message))
       return NextResponse.json({ expense })
     }
 
@@ -25,6 +29,8 @@ export async function POST(req: NextRequest) {
 
       const { id, data } = body
       const expense = await db.expense.update({ where: { id }, data })
+      // v4.155: Auto Excel backup after expense update
+      triggerAutoBackup(tenantId, 'expense:update').catch(e => console.warn('[AutoBackup] expense:update failed:', e?.message))
       return NextResponse.json({ expense })
     }
 
@@ -36,6 +42,8 @@ export async function POST(req: NextRequest) {
 
       const { id } = body
       await db.expense.update({ where: { id }, data: { isDeleted: true, deletedAt: new Date() } })
+      // v4.155: Auto Excel backup after expense delete
+      triggerAutoBackup(tenantId, 'expense:delete').catch(e => console.warn('[AutoBackup] expense:delete failed:', e?.message))
       return NextResponse.json({ success: true })
     }
 

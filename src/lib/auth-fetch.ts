@@ -6,6 +6,7 @@
  *   2. Send it via `Authorization: Bearer <token>` header on every request
  *   3. Also send cookies via `credentials: 'include'` (belt-and-suspenders)
  *   4. On 401: clear the store + cookie + redirect to login
+ *   5. v4.155: On network error (offline): throw OfflineError so callers can fall back to cache
  *
  * Why Bearer header instead of relying on cookies?
  *   The platform's preview panel embeds the app in an iframe at
@@ -22,6 +23,14 @@
 import { useAppStore } from '@/store/app-store'
 
 const AUTH_STORAGE_KEY = 'bizbook-auth'
+
+/** v4.155: Custom error class for offline/network failures */
+export class OfflineError extends Error {
+  constructor(message: string = 'Network request failed — you appear to be offline') {
+    super(message)
+    this.name = 'OfflineError'
+  }
+}
 
 /** Read the current session token from the Zustand store */
 function getSessionToken(): string | null {
@@ -47,11 +56,21 @@ export async function authFetch(input: string | URL, init?: RequestInit): Promis
     }
   }
 
-  const res = await fetch(input, {
-    ...init,
-    headers,
-    credentials: 'include',  // also send cookies as a fallback
-  })
+  let res: Response
+  try {
+    res = await fetch(input, {
+      ...init,
+      headers,
+      credentials: 'include',  // also send cookies as a fallback
+    })
+  } catch (err: any) {
+    // v4.155: Network error — server is down OR user is offline
+    // Throw OfflineError so callers can fall back to IndexedDB cache
+    if (err?.name === 'TypeError' || err?.message?.includes('Failed to fetch') || err?.message?.includes('Network request failed')) {
+      throw new OfflineError(err?.message)
+    }
+    throw err
+  }
 
   if (res.status === 401) {
     // Check if this is an actual auth failure (not the login endpoint itself)

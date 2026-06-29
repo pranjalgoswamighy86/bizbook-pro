@@ -154,12 +154,21 @@ export async function POST(req: NextRequest) {
         const errorMsg = otpResult.fallbackReason || 'All OTP delivery channels failed'
         console.error(`[REG-OTP] All channels failed: ${errorMsg}`)
         if (errorMsg.includes('NOT_CONFIGURED') || errorMsg.includes('not configured')) {
-          // v4.116: OTP bypass fallback — when no email/SMS service is configured,
-          // return the OTP directly in the API response so the user can verify
-          // their account. This is an EMERGENCY fallback for situations like
-          // database resets where env vars are lost. The OTP is also logged
-          // server-side and shown in the frontend.
-          console.warn(`[REG-OTP] ⚠️ OTP delivery not configured — returning OTP directly for emergency registration`)
+          // v4.155: OTP bypass is now STRICTLY gated behind non-production environments.
+          // In production (Railway with NODE_ENV=production), if email/SMS is not configured,
+          // registration FAILS — the user must configure BREVO_API_KEY or RESEND_API_KEY.
+          // This prevents the security hole where OTP was returned in plaintext JSON.
+          if (process.env.NODE_ENV === 'production' && process.env.OTP_BYPASS_ALLOWED !== 'true') {
+            console.error(`[REG-OTP] 🔒 Production mode + no OTP provider — refusing to register ${email}`)
+            return NextResponse.json({
+              sent: false,
+              error: 'OTP delivery service is not configured. The admin must set BREVO_API_KEY or RESEND_API_KEY on Railway before users can register.',
+              hint: 'Contact your administrator to enable email/SMS OTP delivery.',
+            }, { status: 503 })
+          }
+
+          // Non-production (dev/staging) OR explicit OTP_BYPASS_ALLOWED=true: emergency fallback
+          console.warn(`[REG-OTP] ⚠️ OTP delivery not configured (NODE_ENV=${process.env.NODE_ENV}) — returning OTP directly for emergency registration`)
           console.warn(`[REG-OTP] ⚠️ OTP for ${email}: ${otp}`)
           return NextResponse.json({
             sent: true,
@@ -1253,8 +1262,17 @@ export async function POST(req: NextRequest) {
       } else {
         const reason = otpResult.fallbackReason || ''
         if (reason.includes('NOT_CONFIGURED') || reason.includes('not configured')) {
-          // v4.116: OTP bypass fallback for password reset too
-          console.warn(`[RESET-OTP] ⚠️ OTP delivery not configured — returning OTP directly for emergency reset`)
+          // v4.155: OTP bypass gated behind non-production environments (same as registration)
+          if (process.env.NODE_ENV === 'production' && process.env.OTP_BYPASS_ALLOWED !== 'true') {
+            console.error(`[RESET-OTP] 🔒 Production mode + no OTP provider — refusing reset for ${targetUser.email}`)
+            return NextResponse.json({
+              sent: false,
+              error: 'OTP delivery service is not configured. The admin must set BREVO_API_KEY or RESEND_API_KEY on Railway before users can reset passwords.',
+              hint: 'Contact your administrator to enable email/SMS OTP delivery.',
+            }, { status: 503 })
+          }
+          // Non-production OR explicit OTP_BYPASS_ALLOWED=true: emergency fallback
+          console.warn(`[RESET-OTP] ⚠️ OTP delivery not configured (NODE_ENV=${process.env.NODE_ENV}) — returning OTP directly for emergency reset`)
           console.warn(`[RESET-OTP] ⚠️ OTP for ${targetUser.email}: ${otp}`)
           message = 'OTP delivery service is not configured. Your verification code is shown below.'
           devOtp = otp
