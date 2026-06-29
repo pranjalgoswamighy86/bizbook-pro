@@ -498,11 +498,57 @@ export function SubscriptionPage() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setRechargePlan(null)}>Cancel</Button>
             <Button
-              className="bg-emerald-600 hover:bg-emerald-700"
-              onClick={handleRecharge}
+              className="bg-blue-600 hover:bg-blue-700"
               disabled={recharging}
+              onClick={async () => {
+                if (!tenant || !rechargePlan) return
+                setRecharging(true)
+                try {
+                  const maxUsers = (sub as any)?.maxUsersAllowed || 0
+                  const extraIds = maxUsers > 3 ? maxUsers - 3 : 0
+                  const surcharge = extraIds > 0 ? Math.round(rechargePlan.finalPrice * 0.15) : 0
+                  const baseTotal = rechargePlan.finalPrice + surcharge
+                  const rzpFee = Math.round(baseTotal * 0.02 * 100) / 100
+                  const rzpGst = Math.round(rzpFee * 0.18 * 100) / 100
+                  const rzpTotal = Math.round((baseTotal + rzpFee + rzpGst) * 100) / 100
+
+                  const orderRes = await authFetch('/api/razorpay', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'create-order', tenantId: tenant.id, planHours: rechargePlan.hours, purpose: 'recharge' }),
+                  })
+                  const orderData = await orderRes.json()
+                  if (!orderRes.ok) { toast({ title: 'Error', description: orderData.error, variant: 'destructive' }); return }
+
+                  const options: any = {
+                    key: orderData.keyId, amount: orderData.amount, currency: 'INR',
+                    name: 'BizBook Pro', description: orderData.planName, order_id: orderData.orderId,
+                    prefill: { name: orderData.prefill?.name || '', email: orderData.prefill?.email || '' },
+                    theme: { color: '#2563eb' },
+                    handler: async (response: any) => {
+                      try {
+                        const verifyRes = await authFetch('/api/razorpay', {
+                          method: 'POST', headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ action: 'verify-payment', tenantId: tenant.id, razorpayOrderId: response.razorpay_order_id, razorpayPaymentId: response.razorpay_payment_id, razorpaySignature: response.razorpay_signature, planHours: rechargePlan.hours, purpose: 'recharge' }),
+                        })
+                        const verifyData = await verifyRes.json()
+                        if (verifyRes.ok && verifyData.success) {
+                          toast({ title: 'Payment Successful!', description: verifyData.message, duration: 6000 })
+                          setRechargePlan(null); load()
+                        } else { toast({ title: 'Verification Failed', description: verifyData.error, variant: 'destructive', duration: 8000 }) }
+                      } catch { toast({ title: 'Error', description: 'Verification failed.', variant: 'destructive' }) }
+                    },
+                    modal: { ondismiss: () => { toast({ title: 'Payment Cancelled' }) } },
+                  }
+                  const rzp = new (window as any).Razorpay(options)
+                  rzp.on('payment.failed', (err: any) => { toast({ title: 'Payment Failed', description: err.error?.description, variant: 'destructive' }) })
+                  rzp.open()
+                } catch { toast({ title: 'Network error', variant: 'destructive' }) }
+                finally { setRecharging(false) }
+              }}
             >
-              {recharging ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Activate Plan'}
+              {recharging ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4 mr-1" />}
+              Pay via Razorpay
             </Button>
           </DialogFooter>
         </DialogContent>
