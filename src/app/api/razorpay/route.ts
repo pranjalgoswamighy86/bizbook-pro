@@ -8,8 +8,8 @@ import Razorpay from 'razorpay'
 // Razorpay Standard Web Checkout Integration (v4.144)
 // ============================================================
 // Credentials are set via environment variables:
-//   RAZORPAY_KEY_ID=rzp_test_T7KS0ZM14WrydY
-//   RAZORPAY_KEY_SECRET=ERbF7vwNbT5erPQjsnN6SomI
+//   RAZORPAY_KEY_ID=rzp_test_xxxxx
+//   RAZORPAY_KEY_SECRET=xxxxx
 //
 // Flow:
 //   1. Frontend calls create-order → backend creates Razorpay order
