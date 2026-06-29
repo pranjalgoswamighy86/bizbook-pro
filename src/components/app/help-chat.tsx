@@ -26,6 +26,7 @@ interface ChatMessage {
   role: 'user' | 'ai'
   content: string
   timestamp: string
+  provider?: string  // v4.151: which AI provider answered
 }
 
 export function HelpChatTab({ userEmail, tenantName }: { userEmail?: string; tenantName?: string }) {
@@ -33,7 +34,7 @@ export function HelpChatTab({ userEmail, tenantName }: { userEmail?: string; ten
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       role: 'ai',
-      content: 'Hi! I\'m your BizBook Pro AI assistant. How can I help you today? You can ask about registration, OTP, payments, inventory, invoices, or any other issue.',
+      content: 'Hi! I\'m your BizBook Pro AI assistant. I can help with registration, OTP, payments, plans, GST, inventory, invoices, and more. How can I help you today?',
       timestamp: new Date().toISOString(),
     },
   ])
@@ -78,6 +79,7 @@ export function HelpChatTab({ userEmail, tenantName }: { userEmail?: string; ten
         role: 'ai',
         content: data.response || 'I apologize, I couldn\'t process your request. Please try rephrasing your question.',
         timestamp: new Date().toISOString(),
+        provider: data.provider,  // v4.151
       }
       setMessages(prev => [...prev, aiMessage])
 
@@ -125,9 +127,16 @@ export function HelpChatTab({ userEmail, tenantName }: { userEmail?: string; ten
               }`}
             >
               {msg.role === 'ai' && (
-                <div className="flex items-center gap-1 mb-1 text-[10px] sm:text-xs text-emerald-600 font-semibold">
-                  <Sparkles className="h-3 w-3" />
-                  AI Assistant
+                <div className="flex items-center justify-between gap-1 mb-1 text-[10px] sm:text-xs text-emerald-600 font-semibold">
+                  <div className="flex items-center gap-1">
+                    <Sparkles className="h-3 w-3" />
+                    AI Assistant
+                  </div>
+                  {msg.provider && msg.provider !== 'none' && (
+                    <span className="text-[9px] px-1.5 py-0.5 bg-violet-100 dark:bg-violet-900 text-violet-700 dark:text-violet-300 rounded font-mono">
+                      {msg.provider}
+                    </span>
+                  )}
                 </div>
               )}
               <p className="whitespace-pre-wrap leading-relaxed">{msg.content}</p>
@@ -170,7 +179,16 @@ export function HelpChatTab({ userEmail, tenantName }: { userEmail?: string; ten
       {/* Quick suggestions */}
       {messages.length <= 1 && (
         <div className="flex flex-wrap gap-1.5 mt-2">
-          {['How to register?', 'OTP not received', 'How to buy a plan?', 'Payment not verified'].map(q => (
+          {[
+            'How to register?',
+            'OTP not received',
+            'How to buy a plan?',
+            'Payment not verified',
+            'What is GSTR-9?',
+            'How does AI Smart Import work?',
+            'Pricing plans',
+            'Forgot password',
+          ].map(q => (
             <button
               key={q}
               onClick={() => setInput(q)}
