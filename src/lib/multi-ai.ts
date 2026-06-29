@@ -88,7 +88,7 @@ export function getAvailableProviders(): string[] {
 
 async function analyzeWithZAI(
   messages: ChatMessage[],
-  options: { vision?: boolean; timeout?: number } = {}
+  options: { vision?: boolean; timeout?: number; jsonMode?: boolean } = {}
 ): Promise<AIResult> {
   const { getZaiClient } = await import('@/lib/zai-client')
   const zai = await getZaiClient()
@@ -128,7 +128,7 @@ async function analyzeWithZAI(
 
 async function analyzeWithOpenAI(
   messages: ChatMessage[],
-  options: { vision?: boolean; timeout?: number } = {}
+  options: { vision?: boolean; timeout?: number; jsonMode?: boolean } = {}
 ): Promise<AIResult> {
   const apiKey = process.env.OPENAI_API_KEY
   if (!apiKey) throw new Error('OPENAI_API_KEY not configured')
@@ -186,7 +186,7 @@ async function analyzeWithOpenAI(
 
 async function analyzeWithGemini(
   messages: ChatMessage[],
-  options: { vision?: boolean; timeout?: number } = {}
+  options: { vision?: boolean; timeout?: number; jsonMode?: boolean } = {}
 ): Promise<AIResult> {
   const apiKey = process.env.GEMINI_API_KEY
   if (!apiKey) throw new Error('GEMINI_API_KEY not configured')
@@ -267,7 +267,7 @@ async function analyzeWithGemini(
 
 async function analyzeWithClaude(
   messages: ChatMessage[],
-  options: { vision?: boolean; timeout?: number } = {}
+  options: { vision?: boolean; timeout?: number; jsonMode?: boolean } = {}
 ): Promise<AIResult> {
   const apiKey = process.env.ANTHROPIC_API_KEY
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY not configured')
@@ -353,13 +353,13 @@ const PROVIDERS = [
  */
 export async function analyzeWithAI(
   messages: ChatMessage[],
-  options: { vision?: boolean; timeout?: number } = {}
+  options: { vision?: boolean; timeout?: number; jsonMode?: boolean } = {}
 ): Promise<AIResult> {
   const errors: AIError[] = []
   const available = getAvailableProviders()
 
   console.log(`[Multi-AI] Available providers: ${available.join(', ') || 'none'}`)
-  console.log(`[Multi-AI] Vision: ${options.vision ? 'yes' : 'no'}`)
+  console.log(`[Multi-AI] Vision: ${options.vision ? 'yes' : 'no'} | JSON mode: ${options.jsonMode ? 'yes' : 'no'}`)
 
   for (const provider of PROVIDERS) {
     // Skip providers that aren't configured
