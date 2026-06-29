@@ -33,7 +33,7 @@ import {
   ArrowRightLeft,
   Sparkles,
   Crown,
-  ShieldCheck,
+  // v4.156: ShieldCheck removed — was only used for payment-proof-review (deleted)
   HelpCircle,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -81,7 +81,8 @@ const navItems: NavItem[] = [
   { id: 'subscription', label: 'Subscription', icon: <Crown className="h-4 w-4" />, minRole: 'MAIN_ADMIN' },
   { id: 'ai-valuation', label: 'Smart AI Company Valuation', icon: <Sparkles className="h-4 w-4" /> },
   { id: 'super-admin-subscriptions', label: 'Super Admin Panel', icon: <Crown className="h-4 w-4" />, minRole: 'SUPER_ADMIN' },
-  { id: 'payment-proof-review', label: 'Payment Proofs', icon: <ShieldCheck className="h-4 w-4" />, minRole: 'SUPER_ADMIN' },
+  // v4.156: Removed 'payment-proof-review' — Razorpay auto-verifies all payments now.
+  // Manual proof upload + review is no longer needed.
   // v4.110: Removed separate 'help-support-management' nav item — now unified into the
   // Help & Support button at the bottom of the sidebar. The HelpModal already has a
   // "Manage" tab for SUPER_ADMIN that shows the same ticket-management interface.
@@ -297,7 +298,6 @@ export function AppSidebar() {
                     'subscription': () => import('@/components/modules/subscription'),
                     'ai-valuation': () => import('@/components/modules/ai-valuation'),
                     'super-admin-subscriptions': () => import('@/components/modules/super-admin-subscriptions'),
-                    'payment-proof-review': () => import('@/components/modules/payment-proof-review'),
                     'help-support-management': () => import('@/components/modules/help-support-management'),
                   }
                   chunkMap[item.id]?.().catch(() => {})

@@ -70,16 +70,8 @@ export async function GET(req: NextRequest) {
       issues.push(`Subscription count failed: ${err?.message}`);
     }
 
-    // ---------- 4. Pending payment proofs ----------
-    try {
-      const pendingProofs = await db.subscriptionQueue.count({ where: { status: 'PROOF_SUBMITTED' } });
-      stats.pendingPaymentProofs = pendingProofs;
-      if (pendingProofs > 0) {
-        issues.push(`${pendingProofs} payment proof(s) awaiting admin review`);
-      }
-    } catch (err: any) {
-      console.warn('[HEALTH-MONITOR] Payment proof check skipped:', err?.message);
-    }
+    // ---------- 4. v4.156: Pending payment proofs check removed ----------
+    // Razorpay auto-verifies all payments now — no manual proof review needed.
 
     // ---------- 5. Stuck subscription queues ----------
     try {

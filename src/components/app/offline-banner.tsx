@@ -23,15 +23,9 @@ export function OfflineBanner() {
     if (!isOnline) setDismissed(false)
   }, [isOnline])
 
-  // Don't show anything if online and no pending writes and not dismissed
-  if (isOnline && pendingCount === 0 && !showDetails) {
-    return null
-  }
-
-  // Dismissed offline banner (only dismissible if online)
-  if (dismissed && isOnline && pendingCount === 0) {
-    return null
-  }
+  // v4.156: Always show the floating status button (online/offline indicator)
+  // Only the banners (offline/pending/syncing) are conditional
+  // The floating button is always rendered at the bottom of the component
 
   return (
     <div className="fixed bottom-4 right-4 z-50 max-w-sm">
@@ -101,13 +95,17 @@ export function OfflineBanner() {
         </div>
       )}
 
-      {/* Floating cache info button */}
+      {/* Floating cache info button — always visible */}
       <button
         onClick={() => setShowDetails(!showDetails)}
-        className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-full shadow-md p-2 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
-        title="Offline cache info"
+        className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-full shadow-md p-2 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors flex items-center gap-1.5 pr-3"
+        title="Offline cache info — click to view"
       >
         <Database className="h-4 w-4 text-slate-600 dark:text-slate-300" />
+        <span className={`h-2 w-2 rounded-full ${isOnline ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+        {cacheStats && cacheStats.pendingWrites > 0 && (
+          <span className="text-[10px] font-bold text-blue-600">{cacheStats.pendingWrites}</span>
+        )}
       </button>
 
       {/* Cache details popover */}

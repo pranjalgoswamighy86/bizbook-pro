@@ -68,11 +68,11 @@ const FAQS: FAQItem[] = [
   },
   {
     q: 'How is my payment verified?',
-    a: 'Three methods (in order of speed): 1) SMS webhook (instant, if configured) — bank SMS alert auto-matches your amount. 2) Email IMAP scraper (2-5 min, if configured) — bank email alert auto-matches. 3) Manual proof — upload screenshot + UTR number, admin reviews and approves within minutes.',
+    a: 'Razorpay auto-verifies all payments instantly using HMAC-SHA256 signature verification. No manual approval needed — your plan activates within seconds of successful payment.',
   },
   {
     q: 'I paid but my plan is not activated. What do I do?',
-    a: 'After paying, click "Submit Payment Proof" in the UPI modal. Upload a screenshot of your UPI success screen + enter the 12-digit UTR number. Admin will review and approve within minutes. The plan activates automatically once approved.',
+    a: 'Razorpay payments auto-verify instantly. If your plan is still not active after 30 seconds: 1) Check if payment was successful in your UPI/bank app. 2) Refresh the Subscription page. 3) If still not active, contact support via the AI Help Chat (F1) with your payment ID.',
   },
   {
     q: 'Why was I logged out automatically?',

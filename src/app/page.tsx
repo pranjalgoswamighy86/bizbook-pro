@@ -46,7 +46,7 @@ const AIImportPage = lazy(() => import('@/components/modules/ai-import').then(m 
 const SubscriptionPage = lazy(() => import('@/components/modules/subscription').then(m => ({ default: m.SubscriptionPage })))
 const AIValuationPage = lazy(() => import('@/components/modules/ai-valuation').then(m => ({ default: m.AIValuationPage })))
 const SuperAdminSubscriptionPanel = lazy(() => import('@/components/modules/super-admin-subscriptions').then(m => ({ default: m.SuperAdminSubscriptionPanel })))
-const PaymentProofReview = lazy(() => import('@/components/modules/payment-proof-review').then(m => ({ default: m.PaymentProofReview })))
+// v4.156: PaymentProofReview removed — Razorpay auto-verifies all payments
 const HelpSupportManagement = lazy(() => import('@/components/modules/help-support-management').then(m => ({ default: m.HelpSupportManagement })))
 const CreditDebitNotes = lazy(() => import('@/components/modules/credit-debit-notes').then(m => ({ default: m.CreditDebitNotes })))
 
@@ -88,7 +88,7 @@ function ModuleRouter() {
       case 'subscription': return <SubscriptionPage />
       case 'ai-valuation': return <AIValuationPage />
       case 'super-admin-subscriptions': return <SuperAdminSubscriptionPanel />
-      case 'payment-proof-review': return <PaymentProofReview />
+      // v4.156: 'payment-proof-review' case removed — Razorpay auto-verifies
       case 'help-support-management': return <HelpSupportManagement />
       default: return <Dashboard />
     }
