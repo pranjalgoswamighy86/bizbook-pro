@@ -1155,3 +1155,59 @@ CRITICAL: User must set these env vars on Railway:
 3. TWOFACTOR_API_KEY — for SMS OTP
 4. (Optional) IRP_GSP_* — for direct e-invoice IRN generation
 5. (Optional) OTP_BYPASS_ALLOWED=true — only for staging, NOT production
+
+---
+Task ID: v4.156 (Critical fixes — observable implementations)
+Agent: Super Z (main)
+Task: User said 'No implementations observable' — verify and make features actually visible
+
+Work Log:
+
+#5 PAYMENT PROOF REVIEW REMOVED:
+- Deleted 4 files: payment-proof-review.tsx, upi-checkout-modal.tsx, /api/payment-proof/review/route.ts, /api/payment-proof/route.ts
+- Removed from sidebar.tsx, app-store.ts, page.tsx, health-monitor cron
+- Updated help-modal.tsx FAQ to say 'Razorpay auto-verifies'
+- Total: -1444 lines of dead code removed
+
+#2+#3 AUTO EXCEL BACKUP + OFFLINE CACHE MADE VISIBLE:
+Enhanced src/components/modules/backup.tsx with two new prominent sections:
+
+A. 'Auto Excel Backup — Saved on Your Device' (green gradient card):
+   - Shows last auto-backup timestamp, record count, file size, trigger
+   - One-click 'Download Excel Backup' button
+   - Excel backup history list (max 10 per company)
+   - Fixed filename shown: {CompanyName}_BizBook_Backup.xlsx
+   - Info banner: 'Your data is always on your device'
+
+B. 'Data on Your Device (Offline Cache)' (blue gradient card):
+   - Online/Offline status indicator
+   - 6-cell grid: Sales, Purchases, Expenses, Inventory, Parties, Pending
+   - Last cached timestamp
+   - 'Refresh Stats' + 'Clear Offline Cache' buttons
+   - Privacy banner: 'Your data stays private on your device'
+
+#1 OFFLINE BANNER ALWAYS VISIBLE:
+- Removed early-return that hid the button when online
+- Floating button now always shows at bottom-right with:
+  * Database icon
+  * Green dot (online) or amber dot (offline)
+  * Pending write count badge (if > 0)
+- Click opens popover with full cache stats
+
+#4 ELECTRON BUILD GUIDE:
+New: ELECTRON_BUILD_GUIDE.md — 4 ways to build Windows .exe:
+  1. Build on Windows (recommended)
+  2. Cross-compile on macOS (with Wine)
+  3. Cross-compile on Linux (with wine64/wine32)
+  4. GitHub Actions (cloud build, no local machine)
+  + troubleshooting, file structure, command reference
+
+Build verified: npm run build succeeds, all type-checks pass.
+
+Stage Summary:
+- All 5 user complaints addressed
+- Payment Proof Review fully removed (-1444 lines dead code)
+- Auto Excel backup now VISIBLE in Backup module (was hidden in API only)
+- Offline cache now VISIBLE in Backup module + floating status button
+- Electron build guide covers 4 build methods
+- Pushed to GitHub, Railway auto-deploying
