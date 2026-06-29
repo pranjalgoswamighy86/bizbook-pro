@@ -1,0 +1,84 @@
+{
+  "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
+  "appId": "in.tahigo.bizbookpro",
+  "productName": "BizBook Pro",
+  "copyright": "Copyright © 2026 Tahigo International",
+  "author": "Tahigo International",
+  "description": "Premium Business Software — GST billing, inventory, accounting, payroll for Indian SMEs",
+  "directories": {
+    "output": "dist-electron",
+    "buildResources": "electron/build"
+  },
+  "files": [
+    ".next/standalone/**/*",
+    ".next/static/**/*",
+    "public/**/*",
+    "electron/main.js",
+    "electron/preload.js",
+    "package.json"
+  ],
+  "extraResources": [
+    {
+      "from": ".next/standalone",
+      "to": "app/.next/standalone"
+    },
+    {
+      "from": "public",
+      "to": "app/public"
+    },
+    {
+      "from": "package.json",
+      "to": "app/package.json"
+    }
+  ],
+  "win": {
+    "icon": "public/bizbook-pro-logo.png",
+    "target": [
+      {
+        "target": "nsis",
+        "arch": ["x64"]
+      },
+      {
+        "target": "portable",
+        "arch": ["x64"]
+      }
+    ],
+    "publisherName": "Tahigo International",
+    "verifyUpdateCodeSignature": false
+  },
+  "nsis": {
+    "oneClick": false,
+    "perMachine": false,
+    "allowToChangeInstallationDirectory": true,
+    "installerIcon": "public/bizbook-pro-logo.png",
+    "uninstallerIcon": "public/bizbook-pro-logo.png",
+    "installerHeaderIcon": "public/bizbook-pro-logo.png",
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "shortcutName": "BizBook Pro",
+    "license": "LICENSE",
+    "deleteAppDataOnUninstall": false,
+    "displayLanguageSelector": false,
+    "language": "1033"
+  },
+  "portable": {
+    "artifactName": "BizBookPro-Portable-${version}.exe"
+  },
+  "mac": {
+    "icon": "public/bizbook-pro-logo.png",
+    "category": "public.app-category.business",
+    "target": ["dmg", "zip"]
+  },
+  "linux": {
+    "icon": "public/bizbook-pro-logo.png",
+    "target": ["AppImage", "deb"],
+    "category": "Office",
+    "maintainer": "Tahigo International <support@tahigo.in>"
+  },
+  "publish": {
+    "provider": "github",
+    "owner": "pranjalgoswamighy86",
+    "repo": "bizbook-pro",
+    "releaseType": "release"
+  }
+}
