@@ -52,6 +52,7 @@ model Tenant {
   accounts        Account[]
   journalEntries  JournalEntry[]
   subscriptionQueue SubscriptionQueue[]
+  staffAttendance StaffAttendance[]
 }
 
 model User {
@@ -359,9 +360,16 @@ model Staff {
   aadhaar       String?
   pan           String?
   isActive      Boolean  @default(true)
+  // v4.149: Fingerprint scanner integration
+  // For USB scanners (SecuGen/DigitalPersona), stores the device-enrolled template ID
+  // For WebAuthn, stores the credential ID base64-encoded
+  fingerprintId String?
+  // Biometric enrollment status: NONE, WEBAUTHN, USB_SCANNER
+  biometricType String   @default("NONE")
   tenantId      String
   tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   salaryPayments SalaryPayment[]
+  attendance    StaffAttendance[]
   // Soft-delete: records are never truly deleted
   isDeleted     Boolean  @default(false)
   deletedAt     DateTime?
@@ -385,6 +393,42 @@ model SalaryPayment {
   deletedAt   DateTime?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+}
+
+// v4.149: StaffAttendance model — was referenced in 9 places but missing from schema
+// Tracks per-day check-in/check-out with biometric support
+model StaffAttendance {
+  id              String   @id @default(cuid())
+  staffId         String
+  staff           Staff    @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  staffName       String                              // denormalized for fast listing
+  date            DateTime                            // calendar date ( midnight )
+  checkIn         DateTime?
+  checkOut        DateTime?
+  // PRESENT, ABSENT, HALF_DAY, LEAVE, HOLIDAY, WEEK_OFF
+  status          String   @default("PRESENT")
+  // MANUAL, FINGERPRINT, WEBAUTHN, FACE, CARD, MOBILE
+  checkInMethod   String   @default("MANUAL")
+  checkOutMethod  String   @default("MANUAL")
+  workingHours    Float    @default(0)               // decimal hours (e.g. 8.5)
+  notes           String?
+  // v4.149: Geolocation capture for remote/field staff
+  checkInLat      Float?
+  checkInLng      Float?
+  checkOutLat     Float?
+  checkOutLng     Float?
+  tenantId        String
+  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  // Soft-delete: records are never truly deleted
+  isDeleted       Boolean  @default(false)
+  deletedAt       DateTime?
+  version         Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([staffId, date])                          // one record per staff per day
+  @@index([tenantId, date])
+  @@index([tenantId, status])
 }
 
 model Payment {
