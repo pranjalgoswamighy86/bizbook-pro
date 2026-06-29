@@ -14,8 +14,18 @@ contextBridge.exposeInMainWorld('electron', {
   saveFileDialog: (defaultName: string, filters: any[]) =>
     ipcRenderer.invoke('dialog:save-file', defaultName, filters),
 
-  // Fingerprint scanner (Wave 7)
+  // v4.154: Fingerprint scanner (full SDK integration)
   scanFingerprint: () => ipcRenderer.invoke('fingerprint:scan'),
+  enrollFingerprint: () => ipcRenderer.invoke('fingerprint:enroll'),
+  verifyFingerprint: (storedTemplates: any[]) =>
+    ipcRenderer.invoke('fingerprint:verify', storedTemplates),
+  isScannerAvailable: () => ipcRenderer.invoke('fingerprint:available'),
+  getFingerprintSdkType: () => ipcRenderer.invoke('fingerprint:sdk-type'),
+
+  // Enrollment progress (live updates during 3-sample enrollment)
+  onEnrollProgress: (callback: (progress: { sample: number; total: number }) => void) => {
+    ipcRenderer.on('fingerprint:enroll-progress', (_, progress) => callback(progress))
+  },
 
   // Menu action listener (for File/Edit/Navigate menu items)
   onMenuAction: (callback: (action: string) => void) => {

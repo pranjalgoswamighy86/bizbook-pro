@@ -13,7 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { formatCurrency, formatDate } from '@/lib/formulas'
-import { Plus, Pencil, Trash2, Users, DollarSign, CalendarDays } from 'lucide-react'
+import { Plus, Pencil, Trash2, Users, DollarSign, CalendarDays, Fingerprint } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import { authFetch } from '@/lib/auth-fetch'
 
@@ -21,6 +21,8 @@ interface StaffMember {
   id: string; name: string; phone: string | null; email: string | null; role: string | null
   department: string | null; salary: number; joinDate: string | null; isActive: boolean
   salaryPayments: Array<{ id: string; month: string; amount: number; paidDate: string; paymentMode: string }>
+  fingerprintId?: string | null
+  biometricType?: string
 }
 
 export function StaffSalary() {
@@ -33,9 +35,16 @@ export function StaffSalary() {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [selectedStaffId, setSelectedStaffId] = useState<string | null>(null)
   const [salaryForm, setSalaryForm] = useState({ month: '', amount: 0, paidDate: new Date().toISOString().split('T')[0], paymentMode: 'BANK', notes: '' })
-  const [form, setForm] = useState({
+  const [form, setForm] = useState<{
+    name: string; phone: string; email: string; role: string; department: string; salary: number
+    joinDate: string; address: string; aadhaar: string; pan: string
+    fingerprintId?: string
+    biometricType?: string
+  }>({
     name: '', phone: '', email: '', role: '', department: '', salary: 0,
     joinDate: new Date().toISOString().split('T')[0], address: '', aadhaar: '', pan: '',
+    fingerprintId: undefined,
+    biometricType: 'NONE',
   })
 
   const fetchStaff = useCallback(async () => {
@@ -146,10 +155,59 @@ export function StaffSalary() {
                 <div><Label>Aadhaar</Label><Input value={form.aadhaar} onChange={(e) => setForm({ ...form, aadhaar: e.target.value })} /></div>
               </div>
               <div><Label>Address</Label><Input value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} /></div>
-              {/* v4.67: Fingerprint Scanner */}
-              <div className="border-t pt-3">
+              {/* v4.67: Fingerprint Scanner (WebAuthn) + v4.154: USB Scanner (Electron) */}
+              <div className="border-t pt-3 space-y-2">
                 <Label className="text-xs text-muted-foreground">Biometric Authentication (Optional)</Label>
-                <div className="mt-1">
+
+                {/* v4.154: USB Scanner (only shown in Electron desktop app) */}
+                {typeof window !== 'undefined' && window.electron?.isElectron && (
+                  <div className="bg-violet-50 dark:bg-violet-950/30 border border-violet-200 dark:border-violet-800 rounded-lg p-3">
+                    <p className="text-xs font-semibold text-violet-700 dark:text-violet-300 mb-2">
+                      USB Fingerprint Scanner
+                    </p>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="text-xs border-violet-300 text-violet-700 hover:bg-violet-100"
+                      onClick={async () => {
+                        if (!window.electron) return
+                        const sdkInfo = await window.electron.getFingerprintSdkType()
+                        if (sdkInfo.sdkType === 'none' || sdkInfo.sdkType === 'webhid') {
+                          alert('No USB scanner SDK detected.\n\nTo enable:\n1. Install SecuGen or DigitalPersona SDK\n2. Set FINGERPRINT_SDK env var\n3. Place .node addon in electron/native-addons/')
+                          return
+                        }
+                        const available = await window.electron.isScannerAvailable()
+                        if (!available) {
+                          alert('No USB scanner detected. Connect a SecuGen Hamster or DigitalPersona U.are.U scanner.')
+                          return
+                        }
+                        // Subscribe to progress updates
+                        window.electron.onEnrollProgress(({ sample, total }) => {
+                          alert(`Place finger on scanner (${sample}/${total})`)
+                        })
+                        const result = await window.electron.enrollFingerprint()
+                        if (result.success && result.template) {
+                          setForm({ ...form, fingerprintId: result.template, biometricType: 'USB_SCANNER' })
+                          alert(`✓ Fingerprint enrolled! Quality: ${result.quality}/100. Click Save to store.`)
+                        } else {
+                          alert(`✗ Enrollment failed: ${result.error}`)
+                        }
+                      }}
+                    >
+                      <Fingerprint className="h-3.5 w-3.5 mr-1" /> Enroll via USB Scanner
+                    </Button>
+                    {form.fingerprintId && (
+                      <p className="text-[10px] text-emerald-600 mt-1">✓ Template captured ({form.biometricType === 'USB_SCANNER' ? 'USB Scanner' : 'WebAuthn'}). Click Save to store.</p>
+                    )}
+                  </div>
+                )}
+
+                {/* WebAuthn (works in browser + Electron) */}
+                <div className="bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg p-3">
+                  <p className="text-xs font-semibold text-blue-700 dark:text-blue-300 mb-2">
+                    WebAuthn (Touch ID / Windows Hello)
+                  </p>
                   <FingerprintScanner userId={editingId || undefined} userEmail={form.email} buttonText="Register Fingerprint" />
                 </div>
               </div>

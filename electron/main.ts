@@ -25,6 +25,8 @@
 import { app, BrowserWindow, Menu, shell, dialog, ipcMain } from 'electron'
 import * as path from 'path'
 import { spawn, ChildProcess } from 'child_process'
+// v4.154: USB fingerprint scanner SDK (SecuGen / DigitalPersona)
+import { initFingerprintSDK, registerFingerprintIpc, getSdkType } from './fingerprint'
 
 let mainWindow: BrowserWindow | null = null
 let nextServer: ChildProcess | null = null
@@ -279,16 +281,9 @@ function createWindow() {
 // IPC handlers (for fingerprint scanner, native dialogs, etc.)
 // ============================================================
 
-// v4.153: Fingerprint scanner IPC (placeholder — actual SDK integration in Wave 7)
-ipcMain.handle('fingerprint:scan', async () => {
-  // In Wave 7, this will:
-  // 1. Detect connected USB fingerprint scanner (SecuGen / DigitalPersona)
-  // 2. Capture fingerprint template
-  // 3. Return base64-encoded template for matching
-  //
-  // For now, returns a not-implemented message
-  return { success: false, error: 'Fingerprint scanner SDK not yet integrated. Use WebAuthn (Touch ID / Windows Hello) instead.' }
-})
+// v4.154: Fingerprint scanner IPC — full SDK integration (Wave 7)
+// All fingerprint IPC handlers (scan, enroll, verify, available, sdk-type) are
+// registered by registerFingerprintIpc() in fingerprint.ts
 
 // v4.153: Native file save dialog (for backups)
 ipcMain.handle('dialog:save-file', async (_, defaultName: string, filters: any[]) => {
@@ -316,6 +311,11 @@ ipcMain.handle('app:version', () => ({
 // App lifecycle
 // ============================================================
 app.whenReady().then(async () => {
+  // v4.154: Initialize fingerprint scanner SDK
+  await initFingerprintSDK()
+  registerFingerprintIpc()
+  console.log(`[Fingerprint] SDK initialized: ${getSdkType()}`)
+
   await startNextServer()
   createWindow()
 

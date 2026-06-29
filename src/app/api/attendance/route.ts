@@ -18,6 +18,12 @@ export async function POST(req: NextRequest) {
       const checkIn = new Date(checkInTime || new Date())
       const attendanceDate = new Date(date || new Date())
 
+      // v4.149: Lookup staff name for denormalized field
+      const staff = await db.staff.findUnique({ where: { id: staffId }, select: { name: true } })
+      if (!staff) {
+        return NextResponse.json({ error: 'Staff not found' }, { status: 404 })
+      }
+
       // Check if attendance record already exists for this staff+date
       const existing = await db.staffAttendance.findFirst({
         where: { staffId, date: attendanceDate, isDeleted: false },
@@ -39,6 +45,7 @@ export async function POST(req: NextRequest) {
       const attendance = await db.staffAttendance.create({
         data: {
           staffId,
+          staffName: staff.name,
           date: attendanceDate,
           checkIn,
           checkInMethod: method || 'MANUAL',

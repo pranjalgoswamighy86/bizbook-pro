@@ -16,8 +16,23 @@ interface ElectronAPI {
   /** Opens a native Save File dialog and returns the chosen path (or null if cancelled) */
   saveFileDialog(defaultName: string, filters?: Array<{ name: string; extensions: string[] }>): Promise<string | null>
 
-  /** Triggers a fingerprint scan (returns base64 template or error). Wave 7 will implement. */
-  scanFingerprint(): Promise<{ success: boolean; template?: string; error?: string }>
+  /** v4.154: Capture a single fingerprint template (base64 ISO 19794-2) */
+  scanFingerprint(): Promise<{ success: boolean; template?: string; quality?: number; image?: string; error?: string }>
+
+  /** v4.154: Enroll a new fingerprint (3 samples merged into one template) */
+  enrollFingerprint(): Promise<{ success: boolean; template?: string; quality?: number; samplesCaptured?: number; error?: string }>
+
+  /** v4.154: Verify a captured fingerprint against a list of stored staff templates */
+  verifyFingerprint(storedTemplates: Array<{ staffId: string; templateB64: string }>): Promise<{ success: boolean; matchedStaffId?: string; matchScore?: number; error?: string }>
+
+  /** v4.154: Check if a USB fingerprint scanner is connected */
+  isScannerAvailable(): Promise<boolean>
+
+  /** v4.154: Returns the active SDK type ('secugen', 'digitalpersona', 'webhid', 'none') */
+  getFingerprintSdkType(): Promise<{ sdkType: string; nativeLoaded: boolean }>
+
+  /** v4.154: Subscribe to enrollment progress updates (sample 1/3, 2/3, 3/3) */
+  onEnrollProgress(callback: (progress: { sample: number; total: number }) => void): void
 
   /** Subscribe to menu actions (File/New Sale, View/Reload, etc.) */
   onMenuAction(callback: (action: string) => void): void

@@ -1317,6 +1317,7 @@ export async function restoreFromExcelData(
                 where: { id: String(row.id || '') },
                 update: {
                   staffId: String(row.staffId || ''),
+                  staffName: String(row.staffName || row.staffId || 'Unknown'),
                   date: dateOrNow(row.date),
                   checkIn: dateOrNull(row.checkIn),
                   checkOut: dateOrNull(row.checkOut),
@@ -1331,6 +1332,7 @@ export async function restoreFromExcelData(
                 create: {
                   id: String(row.id),
                   staffId: String(row.staffId || ''),
+                  staffName: String(row.staffName || row.staffId || 'Unknown'),
                   date: dateOrNow(row.date),
                   checkIn: dateOrNull(row.checkIn),
                   checkOut: dateOrNull(row.checkOut),
