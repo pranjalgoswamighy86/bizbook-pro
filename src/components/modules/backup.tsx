@@ -438,6 +438,9 @@ export function BackupPage() {
                       <p className="text-xs text-muted-foreground">
                         {latestBackup.recordCount} records · {formatFileSize(latestBackup.fileSize)} · triggered by {latestBackup.trigger || 'manual'}
                       </p>
+                      <p className="text-xs text-emerald-700 dark:text-emerald-400 mt-1 font-medium">
+                        📄 Saved as: <code className="bg-emerald-100 dark:bg-emerald-900 px-1 rounded">BizBook_Backup_Latest.xlsx</code>
+                      </p>
                     </>
                   ) : (
                     <p className="text-sm text-muted-foreground">No auto-backup yet — create a sale to trigger one</p>
@@ -455,41 +458,26 @@ export function BackupPage() {
               </div>
             </div>
 
-            {/* Excel backup history */}
-            <div>
-              <p className="text-xs font-semibold text-muted-foreground mb-2">
-                Excel Backup History (server-side, max 10 per company)
-              </p>
-              {excelLoading ? (
-                <div className="flex items-center gap-2 text-xs text-muted-foreground py-3">
-                  <Loader2 className="h-3 w-3 animate-spin" /> Loading Excel backups...
+            {/* v4.157: Single file indicator (no more history list) */}
+            <div className="bg-emerald-50 dark:bg-emerald-950/50 rounded-lg p-3 border border-emerald-200 dark:border-emerald-800">
+              <div className="flex items-start gap-2">
+                <FileSpreadsheet className="h-4 w-4 text-emerald-600 mt-0.5 shrink-0" />
+                <div className="text-xs">
+                  <p className="font-semibold text-emerald-900 dark:text-emerald-100">
+                    Single File Auto-Overwrite Mode
+                  </p>
+                  <p className="text-emerald-800 dark:text-emerald-200 mt-1">
+                    Every sale, purchase, and expense updates the <strong>same Excel file</strong> on the server:
+                    <code className="bg-emerald-100 dark:bg-emerald-900 px-1 mx-1 rounded">BizBook_Backup_Latest.xlsx</code>
+                    No clutter — one file per company, always up-to-date.
+                  </p>
+                  <p className="text-emerald-700 dark:text-emerald-300 mt-1">
+                    When you click "Download Excel Backup" above, the file saves to your device as
+                    <code className="bg-emerald-100 dark:bg-emerald-900 px-1 mx-1 rounded">{tenant?.name?.replace(/[^a-zA-Z0-9]/g, '_')}_BizBook_Backup.xlsx</code>
+                    — also a single file that overwrites itself.
+                  </p>
                 </div>
-              ) : excelBackups.length === 0 ? (
-                <div className="text-xs text-muted-foreground py-3 text-center bg-white dark:bg-slate-900 rounded border border-dashed">
-                  No Excel backups yet. They auto-generate after every sale/purchase/expense.
-                </div>
-              ) : (
-                <div className="max-h-48 overflow-y-auto bg-white dark:bg-slate-900 rounded border">
-                  {excelBackups.map((file, i) => (
-                    <div key={i} className="flex items-center justify-between px-3 py-2 border-b last:border-0 text-xs">
-                      <div className="flex-1 min-w-0">
-                        <p className="font-mono truncate">{file.name}</p>
-                        <p className="text-muted-foreground text-[10px]">
-                          {formatDate(file.created)} · {formatFileSize(file.size)} · {file.reason}
-                        </p>
-                      </div>
-                      <div className="flex gap-1 ml-2">
-                        <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-emerald-600" onClick={() => handleDownloadSpecificExcel(file.name)}>
-                          <Download className="h-3 w-3" />
-                        </Button>
-                        <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-destructive" onClick={() => handleDeleteExcelBackup(file.name)}>
-                          <Trash2 className="h-3 w-3" />
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
+              </div>
             </div>
 
             {/* Info banner */}

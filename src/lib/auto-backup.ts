@@ -219,15 +219,16 @@ async function generateAndSaveBackup(tenantId: string, trigger: string): Promise
   // Generate the Excel backup
   const { buffer, meta } = await generateExcelBackup(tenantId)
 
-  // Create filename with timestamp
-  const timestamp = new Date().toISOString().replace(/[:.]/g, '-').replace('T', '_').slice(0, 19)
-  const filename = `backup_${timestamp}.xlsx`
+  // v4.157: SINGLE FIXED FILENAME per tenant — overwrites itself on every backup
+  // (was: backup_YYYY-MM-DD_HH-MM-SS.xlsx which created multiple files)
+  // User requirement: "Auto Excel backup should be in a single excel file after every entry"
+  const filename = 'BizBook_Backup_Latest.xlsx'
   const filePath = path.join(tenantDir, filename)
 
-  // Save the Excel file
+  // Save the Excel file (overwrites existing)
   await writeFile(filePath, buffer)
 
-  // Save metadata info file
+  // Save metadata info file (also overwrites)
   const info: BackupInfo = {
     tenantId,
     timestamp: meta.exportedAt,
@@ -239,14 +240,14 @@ async function generateAndSaveBackup(tenantId: string, trigger: string): Promise
   const infoPath = path.join(tenantDir, filename.replace('.xlsx', '.json'))
   await writeFile(infoPath, JSON.stringify(info, null, 2))
 
-  // Save as _latest.json for quick access
+  // Save as _latest.json for quick access (overwrites)
   const latestPath = path.join(tenantDir, '_latest.json')
   await writeFile(latestPath, JSON.stringify(info, null, 2))
 
-  // Clean up old backups (keep last N)
-  await cleanupOldBackups(tenantId)
+  // v4.157: No cleanup needed — single file overwrites itself
+  // (was: cleanupOldBackups(tenantId) which kept last 10)
 
-  console.log(`[AUTO-BACKUP] Saved: ${filename} (${meta.totalRecords} records, ${(buffer.length / 1024).toFixed(1)}KB)`)
+  console.log(`[AUTO-BACKUP] Updated: ${filename} (${meta.totalRecords} records, ${(buffer.length / 1024).toFixed(1)}KB, trigger: ${trigger})`)
 
   return info
 }

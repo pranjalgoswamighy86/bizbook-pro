@@ -64,7 +64,7 @@ const FAQS: FAQItem[] = [
   },
   {
     q: 'How do I buy a subscription plan?',
-    a: 'Sidebar → Subscription → click "Buy" on any plan (50/100/200/500/1000 Hrs). A UPI QR code appears. Pay the EXACT amount shown (including paise, e.g., ₹150.01 not ₹150) via any UPI app (GPay/PhonePe/Paytm).',
+    a: 'Sidebar → Subscription → click "Buy" on any plan (50/100/200/500/1000 Hrs). A Razorpay secure checkout modal opens. Pay via UPI, cards, wallets, or net banking. Payment is auto-verified instantly — your plan activates within seconds.',
   },
   {
     q: 'How is my payment verified?',
@@ -125,10 +125,10 @@ const GUIDES = [
     steps: [
       'Sidebar → Subscription',
       'Click "Buy" on your preferred plan (50/100/200/500/1000 Hrs)',
-      'UPI QR appears — pay EXACT amount (incl. paise) via UPI app',
-      'Click "I\'ve Paid — Check Status" to verify',
-      'If not auto-verified, click "Submit Payment Proof"',
-      'Upload screenshot + enter UTR → admin reviews → plan activates',
+      'Razorpay secure checkout modal opens',
+      'Pay via UPI, cards, wallets, or net banking',
+      'Payment auto-verified instantly via HMAC-SHA256 signature',
+      'Plan activates within seconds — no manual approval needed',
     ],
   },
   {
