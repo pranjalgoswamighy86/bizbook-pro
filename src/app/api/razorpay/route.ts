@@ -5,18 +5,18 @@ import crypto from 'crypto'
 import Razorpay from 'razorpay'
 
 // ============================================================
-// Razorpay Standard Web Checkout Integration (v4.144)
+// Razorpay Integration
 // ============================================================
-// Credentials are set via environment variables:
-//   RAZORPAY_KEY_ID=rzp_test_xxxxx
-//   RAZORPAY_KEY_SECRET=xxxxx
+// To enable live payments, set these in .env:
+//   RAZORPAY_KEY_ID="rzp_live_xxxxx"
+//   RAZORPAY_KEY_SECRET="xxxxx"
 //
-// Flow:
-//   1. Frontend calls create-order → backend creates Razorpay order
-//   2. Frontend opens Razorpay checkout.js modal with order_id
-//   3. User pays → Razorpay returns payment_id + signature
-//   4. Frontend calls verify-payment → backend verifies HMAC-SHA256
-//   5. If signature matches → activate plan/extra ID
+// For testing, use test keys from https://dashboard.razorpay.com/app/keys
+//   RAZORPAY_KEY_ID="rzp_test_xxxxx"
+//   RAZORPAY_KEY_SECRET="xxxxx"
+//
+// If keys are not set, the API falls back to MANUAL mode (admin activates
+// plans manually without payment).
 // ============================================================
 
 function getRazorpayInstance(): Razorpay | null {
@@ -35,84 +35,63 @@ const PLANS: Record<number, { name: string; mrp: number; discountAmount: number;
   1000: { name: '1000Hrs Plan', mrp: 14049, discountAmount: 562, totalSeconds: 2880000, roleAllocation: { MAIN_ADMIN: 40, JUNIOR_ADMIN: 60,  DATA_ENTRY: 100, VIEW_ONLY: 0 } },
 }
 
-// v4.144: Pricing constants
-const DEFAULT_NON_VIEW_ONLY_USERS = 3
-const RAZORPAY_FEE_PERCENT = 2
-const GST_ON_FEE_PERCENT = 18
-
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
     const { action, tenantId } = body
 
     // ============================================================
-    // CREATE-ORDER — create a Razorpay order
+    // CREATE-ORDER — create a Razorpay order for a recharge plan
     // ============================================================
     if (action === 'create-order') {
       const access = await requireAuthAndRole(req, tenantId, ['MAIN_ADMIN'])
       if (access instanceof NextResponse) return access
 
-      const { planHours, purpose } = body // purpose: 'recharge' | 'extra-id'
+      const { planHours } = body
+      const plan = PLANS[planHours]
+      if (!plan) {
+        return NextResponse.json({ error: 'Invalid plan' }, { status: 400 })
+      }
+
+      // v4.138: Add ₹30 Razorpay platform fee per transaction
+      const RAZORPAY_PLATFORM_FEE = 30
+      const basePrice = plan.mrp - plan.discountAmount
+
+      // v4.138: Add 15% surcharge if tenant has extra non-view-only users
+      const { rawDb } = await import('@/lib/db-soft-delete')
+      const nonViewOnlyCount = await rawDb.userTenant.count({
+        where: { tenantId, role: { notIn: ['VIEW_ONLY'] } },
+      })
+      const hasExtraUsers = nonViewOnlyCount > 3
+      const surchargeAmount = hasExtraUsers ? Math.round(basePrice * 0.15) : 0
+
+      const finalPrice = basePrice + surchargeAmount + RAZORPAY_PLATFORM_FEE
+      const amountInPaise = Math.round(finalPrice * 100)
 
       const rzp = getRazorpayInstance()
+
+      // If Razorpay is not configured, return MANUAL mode
       if (!rzp) {
         return NextResponse.json({
-          error: 'Razorpay is not configured. Set RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET on Railway.',
-        }, { status: 500 })
-      }
-
-      let basePrice = 0
-      let planName = ''
-
-      if (purpose === 'extra-id') {
-        basePrice = 149
-        planName = 'Extra ID'
-      } else {
-        // Recharge
-        const plan = PLANS[Number(planHours)]
-        if (!plan) {
-          return NextResponse.json({ error: 'Invalid plan' }, { status: 400 })
-        }
-        basePrice = plan.discountAmount // This IS the price customer pays
-        planName = plan.name
-
-        // Add 15% surcharge if tenant has extra non-view-only users
-        const { rawDb } = await import('@/lib/db-soft-delete')
-        const nonViewOnlyCount = await rawDb.userTenant.count({
-          where: { tenantId, role: { notIn: ['VIEW_ONLY'] } },
+          mode: 'MANUAL',
+          message: 'Razorpay is not configured. Use UPI payment instead (no platform fee).',
+          plan: { name: plan.name, hours: planHours, finalPrice, basePrice, surchargeAmount, platformFee: RAZORPAY_PLATFORM_FEE },
         })
-        if (nonViewOnlyCount > DEFAULT_NON_VIEW_ONLY_USERS) {
-          const surcharge = Math.round(basePrice * 0.15)
-          basePrice += surcharge
-          planName += ' (+15% surcharge)'
-        }
       }
 
-      // v4.144: Add Razorpay 2% fee + 18% GST on fee
-      const rzpFee = Math.round(basePrice * RAZORPAY_FEE_PERCENT * 100) / 100
-      const rzpGst = Math.round(rzpFee * GST_ON_FEE_PERCENT * 100) / 100
-      const totalAmount = Math.round((basePrice + rzpFee + rzpGst) * 100) / 100
-      const amountInPaise = Math.round(totalAmount * 100)
-
-      if (amountInPaise < 100) {
-        return NextResponse.json({ error: 'Amount must be at least ₹1 (100 paise)' }, { status: 400 })
-      }
-
-      // Create Razorpay order
+      // Create a Razorpay order
       const order = await rzp.orders.create({
         amount: amountInPaise,
         currency: 'INR',
-        receipt: `bizbook_${tenantId.slice(-8)}_${purpose || 'recharge'}_${Date.now()}`,
+        receipt: `bizbook_${tenantId.slice(-8)}_${planHours}h_${Date.now()}`,
         notes: {
           tenantId,
-          planHours: String(planHours || 0),
-          purpose: purpose || 'recharge',
-          planName,
-          basePrice: String(basePrice),
-          rzpFee: String(rzpFee),
-          rzpGst: String(rzpGst),
-          totalAmount: String(totalAmount),
+          planHours: String(planHours),
+          planName: plan.name,
           userEmail: access.email,
+          basePrice: String(basePrice),
+          surcharge: String(surchargeAmount),
+          platformFee: String(RAZORPAY_PLATFORM_FEE),
           userName: access.user.name,
         },
       })
@@ -122,12 +101,14 @@ export async function POST(req: NextRequest) {
         orderId: order.id,
         amount: order.amount,
         currency: order.currency,
-        keyId: process.env.RAZORPAY_KEY_ID, // Safe to expose KEY_ID to frontend
-        planName,
-        basePrice,
-        rzpFee,
-        rzpGst,
-        totalAmount,
+        keyId: process.env.RAZORPAY_KEY_ID,
+        plan: {
+          name: plan.name,
+          hours: planHours,
+          mrp: plan.mrp,
+          discountAmount: plan.discountAmount,
+          finalPrice,
+        },
         prefill: {
           name: access.user.name,
           email: access.email,
@@ -136,90 +117,39 @@ export async function POST(req: NextRequest) {
     }
 
     // ============================================================
-    // VERIFY-PAYMENT — verify HMAC-SHA256 signature
+    // VERIFY-PAYMENT — verify Razorpay signature and activate plan
     // ============================================================
     if (action === 'verify-payment') {
       const access = await requireAuthAndRole(req, tenantId, ['MAIN_ADMIN'])
       if (access instanceof NextResponse) return access
 
-      const { razorpayOrderId, razorpayPaymentId, razorpaySignature, planHours, purpose } = body
+      const { razorpayOrderId, razorpayPaymentId, razorpaySignature, planHours } = body
 
-      if (!razorpayOrderId || !razorpayPaymentId || !razorpaySignature) {
-        return NextResponse.json({ error: 'Missing payment details: razorpayOrderId, razorpayPaymentId, razorpaySignature are required' }, { status: 400 })
+      if (!razorpayOrderId || !razorpayPaymentId || !razorpaySignature || !planHours) {
+        return NextResponse.json({ error: 'Missing payment details' }, { status: 400 })
       }
 
+      const plan = PLANS[planHours]
+      if (!plan) {
+        return NextResponse.json({ error: 'Invalid plan' }, { status: 400 })
+      }
+
+      // Verify the signature
       const keySecret = process.env.RAZORPAY_KEY_SECRET
       if (!keySecret) {
-        return NextResponse.json({ error: 'Razorpay not configured (KEY_SECRET missing)' }, { status: 500 })
+        return NextResponse.json({ error: 'Razorpay not configured' }, { status: 500 })
       }
 
-      // HMAC-SHA256 signature verification
       const expectedSignature = crypto
         .createHmac('sha256', keySecret)
         .update(`${razorpayOrderId}|${razorpayPaymentId}`)
         .digest('hex')
 
       if (expectedSignature !== razorpaySignature) {
-        return NextResponse.json({
-          error: 'Signature mismatch. Payment verification failed. Do NOT mark as paid.',
-        }, { status: 400 })
+        return NextResponse.json({ error: 'Invalid payment signature. Payment verification failed.' }, { status: 400 })
       }
 
-      // === Signature verified — process the payment ===
-
-      if (purpose === 'extra-id') {
-        // Add extra ID slot
-        const subscription = await db.subscription.findUnique({ where: { tenantId } })
-        if (!subscription) {
-          return NextResponse.json({ error: 'No subscription found' }, { status: 404 })
-        }
-
-        const currentMax = (subscription as any).maxUsersAllowed || 0
-        const newMax = currentMax === 0 ? DEFAULT_NON_VIEW_ONLY_USERS + 1 : currentMax + 1
-
-        await db.subscription.update({
-          where: { id: subscription.id },
-          data: { maxUsersAllowed: newMax },
-        })
-
-        await db.subscriptionQueue.create({
-          data: {
-            tenantId,
-            baseAmount: 149,
-            finalAmount: 149,
-            paiseIncrement: 0,
-            planHours: 0,
-            planName: 'Extra ID (Razorpay)',
-            status: 'COMPLETED',
-            utrNumber: razorpayPaymentId,
-            proofSubmittedAt: new Date(),
-            approvedAt: new Date(),
-          },
-        })
-
-        await writeAuditLog({
-          tenantId,
-          userId: access.userId,
-          userName: access.user.name,
-          action: 'CREATE',
-          entityType: 'Subscription',
-          entityName: `Extra ID purchased (Razorpay: ${razorpayPaymentId})`,
-          changes: { newMaxUsers: newMax, paymentId: razorpayPaymentId },
-        })
-
-        return NextResponse.json({
-          success: true,
-          message: `Extra ID activated! Payment ID: ${razorpayPaymentId}`,
-          newMaxUsers: newMax,
-        })
-      }
-
-      // === Recharge — activate the plan ===
-      const plan = PLANS[Number(planHours)]
-      if (!plan) {
-        return NextResponse.json({ error: 'Invalid plan' }, { status: 400 })
-      }
-
+      // Payment verified — activate the plan
       let subscription = await db.subscription.findUnique({ where: { tenantId } })
       if (!subscription) {
         return NextResponse.json({ error: 'No subscription found' }, { status: 404 })
@@ -230,7 +160,7 @@ export async function POST(req: NextRequest) {
       subscription = await db.subscription.update({
         where: { id: subscription.id },
         data: {
-          planHours: Number(planHours),
+          planHours: planHours,
           planName: plan.name,
           mrp: plan.mrp,
           discountPercent: Math.round((plan.discountAmount / plan.mrp) * 100),
@@ -245,10 +175,11 @@ export async function POST(req: NextRequest) {
         },
       })
 
+      // Create recharge log with payment details
       await db.recharge.create({
         data: {
           subscriptionId: subscription.id,
-          planHours: Number(planHours),
+          planHours: planHours,
           planName: plan.name,
           mrp: plan.mrp,
           discountPercent: Math.round((plan.discountAmount / plan.mrp) * 100),
@@ -283,7 +214,7 @@ export async function POST(req: NextRequest) {
     }
 
     // ============================================================
-    // GET-KEY — return the Razorpay public key for frontend
+    // GET-KEY — return the Razorpay public key for frontend checkout
     // ============================================================
     if (action === 'get-key') {
       const access = await requireAuthAndRole(req, tenantId, ['MAIN_ADMIN'])
@@ -291,18 +222,19 @@ export async function POST(req: NextRequest) {
 
       const keyId = process.env.RAZORPAY_KEY_ID
       if (!keyId) {
-        return NextResponse.json({ configured: false })
+        return NextResponse.json({ configured: false, mode: 'MANUAL' })
       }
 
-      return NextResponse.json({ configured: true, keyId })
+      return NextResponse.json({
+        configured: true,
+        mode: 'RAZORPAY',
+        keyId,
+      })
     }
 
-    return NextResponse.json({ error: 'Invalid action. Use: create-order | verify-payment | get-key' }, { status: 400 })
-  } catch (error: any) {
-    console.error('[Razorpay] Error:', error)
-    return NextResponse.json({
-      error: 'Internal server error',
-      details: error?.message || 'Unknown error',
-    }, { status: 500 })
+    return NextResponse.json({ error: 'Invalid action' }, { status: 400 })
+  } catch (error) {
+    console.error('Razorpay error:', error)
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }

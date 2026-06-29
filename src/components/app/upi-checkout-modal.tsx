@@ -22,7 +22,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
-import { Loader2, CheckCircle2, AlertTriangle, Copy, ShieldCheck, Clock, InfoIcon, Upload, ImageIcon, X } from 'lucide-react'
+import { Loader2, CheckCircle2, AlertTriangle, Copy, ShieldCheck, Clock, InfoIcon, Upload, ImageIcon, X, Sparkles } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import { authFetch } from '@/lib/auth-fetch'
 
@@ -287,6 +287,36 @@ export function UPICheckoutModal({ open, onClose, onSuccess, tenantId, planHours
               <span className="text-xs text-slate-400 block">Pay Exactly</span>
               <span className="text-2xl font-black text-emerald-600">₹{checkout.finalAmount.toFixed(2)}</span>
             </div>
+
+            {/* v4.136: Show surcharge breakdown if applicable */}
+            {checkout.surchargeApplied && (
+              <div className="bg-violet-50 dark:bg-violet-950/30 border border-violet-200 dark:border-violet-800 rounded-lg p-3 text-xs space-y-1">
+                <p className="font-semibold text-violet-800 dark:text-violet-300 flex items-center gap-1">
+                  <Sparkles className="h-3.5 w-3.5" /> Extra ID Surcharge Breakdown
+                </p>
+                <div className="flex justify-between text-violet-700 dark:text-violet-400">
+                  <span>Base Plan Price:</span>
+                  <span>₹{(checkout.finalAmount - checkout.surchargeAmount - checkout.paiseIncrement).toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between text-violet-700 dark:text-violet-400">
+                  <span>+15% Extra ID Surcharge:</span>
+                  <span>+₹{checkout.surchargeAmount.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between text-violet-700 dark:text-violet-400">
+                  <span>+ Auto-verify Paise:</span>
+                  <span>+₹{checkout.paiseIncrement.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between font-bold text-violet-900 dark:text-violet-200 border-t border-violet-200 dark:border-violet-800 pt-1">
+                  <span>Total to Pay:</span>
+                  <span>₹{checkout.finalAmount.toFixed(2)}</span>
+                </div>
+                <p className="text-[10px] text-violet-600 dark:text-violet-500 mt-1">
+                  The 15% surcharge applies because this account has extra non-view-only user IDs.
+                  It is a flat 15% regardless of how many extra IDs you have.
+                  View-only users are free and do not affect this charge.
+                </p>
+              </div>
+            )}
 
             <div className="flex justify-center p-3 bg-white border rounded-2xl mx-auto w-fit">
               <img

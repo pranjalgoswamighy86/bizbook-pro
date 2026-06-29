@@ -8,8 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Progress } from '@/components/ui/progress'
-import { UPICheckoutModal } from '@/components/app/upi-checkout-modal'
-import { Clock, Zap, Crown, Check, AlertCircle, TrendingUp, Users, Sparkles, Loader2, Receipt, UserPlus, Shield } from 'lucide-react'
+import { Clock, Zap, Crown, Check, AlertCircle, TrendingUp, Users, Sparkles, Loader2, Receipt, UserPlus, Shield, ShieldCheck } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 
 interface Plan {
@@ -62,8 +61,8 @@ export function SubscriptionPage() {
   const [loading, setLoading] = useState(true)
   const [rechargePlan, setRechargePlan] = useState<Plan | null>(null)
   const [recharging, setRecharging] = useState(false)
-  const [upiPlan, setUpiPlan] = useState<Plan | null>(null)
-  const [extraIdPurchase, setExtraIdPurchase] = useState<{ roleType: 'JUNIOR_ADMIN' | 'DATA_ENTRY'; cost: number } | null>(null)
+  const [extraIdPurchase, setExtraIdPurchase] = useState<{ cost: number } | null>(null)
+  const [paymentMethod] = useState<'razorpay'>('razorpay') // v4.140: Razorpay only
 
   const load = async () => {
     if (!tenant) return
@@ -247,11 +246,10 @@ export function SubscriptionPage() {
             </div>
           )}
 
-          {/* Role-based allocation */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-6">
+          {/* v4.134: Merged Junior Admin + Data Entry into one "Non-View-Only Users" card */}
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mt-6">
             <RoleCard icon={<Crown className="h-4 w-4" />} label="Main Admin" hours={sub.mainAdminHours} color="text-yellow-300" />
-            <RoleCard icon={<Users className="h-4 w-4" />} label="Junior Admin" hours={sub.juniorAdminHours} color="text-blue-200" />
-            <RoleCard icon={<Zap className="h-4 w-4" />} label="Data Entry" hours={sub.dataEntryHours} color="text-emerald-200" />
+            <RoleCard icon={<Users className="h-4 w-4" />} label="Non-View Users" hours={(sub.juniorAdminHours || 0) + (sub.dataEntryHours || 0)} color="text-blue-200" />
             <RoleCard icon={<Check className="h-4 w-4" />} label="View Only" hours={0} color="text-gray-300" suffix="Free" />
           </div>
         </CardContent>
@@ -304,15 +302,14 @@ export function SubscriptionPage() {
 
                   <div className="space-y-1 text-xs">
                     <RoleLine label="Main Admin" hours={plan.roleAllocation.MAIN_ADMIN} />
-                    <RoleLine label="Junior Admin" hours={plan.roleAllocation.JUNIOR_ADMIN} />
-                    <RoleLine label="Data Entry" hours={plan.roleAllocation.DATA_ENTRY} />
+                    <RoleLine label="Non-View Users" hours={plan.roleAllocation.JUNIOR_ADMIN + plan.roleAllocation.DATA_ENTRY} />
                     <RoleLine label="View Only" hours={0} suffix="Free" />
                   </div>
 
                   <Button
-                    className="w-full mt-4 bg-emerald-600 hover:bg-emerald-700"
+                    className="w-full mt-4 bg-blue-600 hover:bg-blue-700"
                     size="sm"
-                    onClick={(e) => { e.stopPropagation(); setUpiPlan(plan) }}
+                    onClick={(e) => { e.stopPropagation(); setRechargePlan(plan) }}
                   >
                     Choose Plan — ₹{finalPrice}
                   </Button>
@@ -428,269 +425,198 @@ export function SubscriptionPage() {
             </div>
           </div>
 
-          {/* Add Extra ID buttons */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {/* v4.132: Single "Add Extra ID" button — no separate Junior/Data Entry */}
+          <div className="flex justify-center">
             <Button
               variant="outline"
-              className="h-auto py-4 border-blue-300 hover:bg-blue-50 dark:hover:bg-blue-950"
-              onClick={() => setExtraIdPurchase({ roleType: 'JUNIOR_ADMIN', cost: 149 })}
+              className="h-auto py-4 px-8 border-violet-300 hover:bg-violet-50 dark:hover:bg-violet-950"
+              onClick={() => setExtraIdPurchase({ cost: 149 })}
             >
               <div className="flex flex-col items-center gap-1">
-                <UserPlus className="h-6 w-6 text-blue-600" />
-                <span className="font-semibold">Add Junior Admin ID</span>
-                <span className="text-xs text-muted-foreground">₹149 · +15% recharge</span>
-              </div>
-            </Button>
-            <Button
-              variant="outline"
-              className="h-auto py-4 border-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950"
-              onClick={() => setExtraIdPurchase({ roleType: 'DATA_ENTRY', cost: 149 })}
-            >
-              <div className="flex flex-col items-center gap-1">
-                <UserPlus className="h-6 w-6 text-amber-600" />
-                <span className="font-semibold">Add Data Entry ID</span>
-                <span className="text-xs text-muted-foreground">₹149 · +15% recharge</span>
+                <UserPlus className="h-6 w-6 text-violet-600" />
+                <span className="font-semibold">Add Extra ID</span>
+                <span className="text-xs text-muted-foreground">₹149 one-time · +15% on all recharges</span>
               </div>
             </Button>
           </div>
         </CardContent>
       </Card>
 
-      {/* Recharge Confirmation Dialog */}
+      {/* v4.140: Recharge Dialog — Razorpay only (UPI manual removed) */}
       <Dialog open={!!rechargePlan} onOpenChange={(open) => !open && setRechargePlan(null)}>
-        <DialogContent>
+        <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Confirm Recharge</DialogTitle>
           </DialogHeader>
-          {rechargePlan && (
-            <div className="space-y-4">
-              <div className="bg-emerald-50 dark:bg-emerald-950/30 p-4 rounded-lg text-center">
-                <div className="flex items-center justify-center gap-2 mb-2">
-                  <Clock className="h-6 w-6 text-emerald-600" />
-                  <span className="text-3xl font-bold text-emerald-700 dark:text-emerald-400">
-                    {rechargePlan.hours} Hours
-                  </span>
-                </div>
-                <p className="text-sm text-muted-foreground">{rechargePlan.name}</p>
-              </div>
+          {rechargePlan && (() => {
+            const maxUsers = (sub as any)?.maxUsersAllowed || 0
+            const extraIds = maxUsers > 3 ? maxUsers - 3 : 0
+            const surcharge = extraIds > 0 ? Math.round(rechargePlan.finalPrice * 0.15) : 0
+            const baseTotal = rechargePlan.finalPrice + surcharge
+            const rzpFee = Math.round(baseTotal * 0.02 * 100) / 100
+            const rzpGst = Math.round(rzpFee * 0.18 * 100) / 100
+            const rzpTotal = Math.round((baseTotal + rzpFee + rzpGst) * 100) / 100
 
-              <div className="space-y-2 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">MRP</span>
-                  <span>₹{rechargePlan.mrp}</span>
+            return (
+              <div className="space-y-4">
+                {/* Plan summary */}
+                <div className="bg-emerald-50 dark:bg-emerald-950/30 p-4 rounded-lg text-center">
+                  <div className="flex items-center justify-center gap-2 mb-2">
+                    <Clock className="h-6 w-6 text-emerald-600" />
+                    <span className="text-3xl font-bold text-emerald-700 dark:text-emerald-400">
+                      {rechargePlan.hours} Hours
+                    </span>
+                  </div>
+                  <p className="text-sm text-muted-foreground">{rechargePlan.name}</p>
                 </div>
-                <div className="flex justify-between text-emerald-600">
-                  <span>Discount ({rechargePlan.discountPercent}%)</span>
-                  <span>−₹{rechargePlan.discountAmount}</span>
-                </div>
-                <div className="flex justify-between font-bold text-lg border-t pt-2">
-                  <span>You Pay</span>
-                  <span className="text-emerald-600">₹{rechargePlan.finalPrice}</span>
-                </div>
-              </div>
 
-              <div className="bg-amber-50 dark:bg-amber-950/30 p-3 rounded-lg text-xs text-amber-800 dark:text-amber-200">
-                <AlertCircle className="h-4 w-4 inline mr-1" />
-                Payment integration (Razorpay) will be available soon. For now, recharges are processed manually by the administrator.
+                {/* Price breakdown */}
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">MRP</span>
+                    <span>₹{rechargePlan.mrp}</span>
+                  </div>
+                  <div className="flex justify-between text-emerald-600">
+                    <span>Discount ({rechargePlan.discountPercent}%)</span>
+                    <span>−₹{rechargePlan.mrp - rechargePlan.finalPrice}</span>
+                  </div>
+                  <div className="flex justify-between font-bold border-t pt-2">
+                    <span>Base Price</span>
+                    <span className="text-emerald-600">₹{rechargePlan.finalPrice}</span>
+                  </div>
+                  {extraIds > 0 && (
+                    <div className="flex justify-between text-violet-600">
+                      <span>+15% surcharge ({extraIds} extra ID{extraIds > 1 ? 's' : ''})</span>
+                      <span>+₹{surcharge}</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Razorpay fee breakdown */}
+                <div className="bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg p-3 text-xs space-y-1">
+                  <div className="flex justify-between text-blue-700 dark:text-blue-400">
+                    <span>Subtotal:</span><span>₹{baseTotal}</span>
+                  </div>
+                  <div className="flex justify-between text-blue-700 dark:text-blue-400">
+                    <span>Razorpay fee (2%):</span><span>+₹{rzpFee}</span>
+                  </div>
+                  <div className="flex justify-between text-blue-700 dark:text-blue-400">
+                    <span>GST on fee (18%):</span><span>+₹{rzpGst}</span>
+                  </div>
+                  <div className="flex justify-between font-bold text-blue-900 dark:text-blue-200 border-t border-blue-200 dark:border-blue-800 pt-1">
+                    <span>Total to Pay:</span><span>₹{rzpTotal}</span>
+                  </div>
+                </div>
+
+                {/* Razorpay info */}
+                <div className="bg-blue-50 dark:bg-blue-950/30 p-3 rounded-lg text-xs text-blue-800 dark:text-blue-300">
+                  <ShieldCheck className="h-4 w-4 inline mr-1" />
+                  You'll be redirected to Razorpay's secure payment page. Cards, UPI, wallets, and net banking accepted. Payment is auto-verified instantly — no manual approval needed.
+                </div>
               </div>
-            </div>
-          )}
+            )
+          })()}
           <DialogFooter>
             <Button variant="outline" onClick={() => setRechargePlan(null)}>Cancel</Button>
-            <Button
-              className="bg-blue-600 hover:bg-blue-700"
-              disabled={recharging}
-              onClick={async () => {
-                if (!tenant || !rechargePlan) return
-                setRecharging(true)
-                try {
-                  const maxUsers = (sub as any)?.maxUsersAllowed || 0
-                  const extraIds = maxUsers > 3 ? maxUsers - 3 : 0
-                  const surcharge = extraIds > 0 ? Math.round(rechargePlan.finalPrice * 0.15) : 0
-                  const baseTotal = rechargePlan.finalPrice + surcharge
-                  const rzpFee = Math.round(baseTotal * 0.02 * 100) / 100
-                  const rzpGst = Math.round(rzpFee * 0.18 * 100) / 100
-                  const rzpTotal = Math.round((baseTotal + rzpFee + rzpGst) * 100) / 100
-
-                  const orderRes = await authFetch('/api/razorpay', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action: 'create-order', tenantId: tenant.id, planHours: rechargePlan.hours, purpose: 'recharge' }),
-                  })
-                  const orderData = await orderRes.json()
-                  if (!orderRes.ok) { toast({ title: 'Error', description: orderData.error, variant: 'destructive' }); return }
-
-                  const options: any = {
-                    key: orderData.keyId, amount: orderData.amount, currency: 'INR',
-                    name: 'BizBook Pro', description: orderData.planName, order_id: orderData.orderId,
-                    prefill: { name: orderData.prefill?.name || '', email: orderData.prefill?.email || '' },
-                    theme: { color: '#2563eb' },
-                    handler: async (response: any) => {
-                      try {
-                        const verifyRes = await authFetch('/api/razorpay', {
-                          method: 'POST', headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({ action: 'verify-payment', tenantId: tenant.id, razorpayOrderId: response.razorpay_order_id, razorpayPaymentId: response.razorpay_payment_id, razorpaySignature: response.razorpay_signature, planHours: rechargePlan.hours, purpose: 'recharge' }),
-                        })
-                        const verifyData = await verifyRes.json()
-                        if (verifyRes.ok && verifyData.success) {
-                          toast({ title: 'Payment Successful!', description: verifyData.message, duration: 6000 })
-                          setRechargePlan(null); load()
-                        } else { toast({ title: 'Verification Failed', description: verifyData.error, variant: 'destructive', duration: 8000 }) }
-                      } catch { toast({ title: 'Error', description: 'Verification failed.', variant: 'destructive' }) }
-                    },
-                    modal: { ondismiss: () => { toast({ title: 'Payment Cancelled' }) } },
-                  }
-                  const rzp = new (window as any).Razorpay(options)
-                  rzp.on('payment.failed', (err: any) => { toast({ title: 'Payment Failed', description: err.error?.description, variant: 'destructive' }) })
-                  rzp.open()
-                } catch { toast({ title: 'Network error', variant: 'destructive' }) }
-                finally { setRecharging(false) }
-              }}
-            >
-              {recharging ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4 mr-1" />}
-              Pay via Razorpay
+            <Button className="bg-blue-600 hover:bg-blue-700" onClick={async () => {
+              if (!tenant || !rechargePlan) return
+              const maxUsers = (sub as any)?.maxUsersAllowed || 0
+              const extraIds = maxUsers > 3 ? maxUsers - 3 : 0
+              const surcharge = extraIds > 0 ? Math.round(rechargePlan.finalPrice * 0.15) : 0
+              const baseTotal = rechargePlan.finalPrice + surcharge
+              const rzpFee = Math.round(baseTotal * 0.02 * 100) / 100
+              const rzpGst = Math.round(rzpFee * 0.18 * 100) / 100
+              const rzpTotal = Math.round((baseTotal + rzpFee + rzpGst) * 100) / 100
+              window.open(`https://razorpay.me/@TahigoInternational?amount=${rzpTotal * 100}`, '_blank')
+              toast({
+                title: 'Razorpay Payment Page Opened',
+                description: `Pay ₹${rzpTotal} via Razorpay. After payment, your plan activates instantly.`,
+                duration: 10000,
+              })
+              setRechargePlan(null)
+            }}>
+              <ShieldCheck className="h-4 w-4 mr-1" /> Pay via Razorpay
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* === UPI Checkout Modal (Zero-Cost Autonomous Payment) === */}
-      {upiPlan && tenant && (
-        <UPICheckoutModal
-          open={!!upiPlan}
-          onClose={() => setUpiPlan(null)}
-          onSuccess={() => { load() }}
-          tenantId={tenant.id}
-          planHours={upiPlan.hours}
-          planName={upiPlan.name}
-        />
-      )}
+      {/* v4.140: UPI Checkout Modal removed — Razorpay only now */}
 
-      {/* v4.98: Extra ID Payment Dialog */}
+      {/* v4.142: Extra ID Payment Dialog — Razorpay only */}
       <Dialog open={!!extraIdPurchase} onOpenChange={(open) => !open && setExtraIdPurchase(null)}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <UserPlus className="h-5 w-5 text-violet-600" />
-              Add Extra {extraIdPurchase?.roleType === 'JUNIOR_ADMIN' ? 'Junior Admin' : 'Data Entry'} ID
+              Add Extra ID
             </DialogTitle>
           </DialogHeader>
-          {extraIdPurchase && (
-            <div className="space-y-4">
-              {/* Pricing summary */}
-              <div className="bg-violet-50 dark:bg-violet-950/20 border border-violet-200 dark:border-violet-900 rounded-lg p-4 space-y-2">
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Extra ID Type:</span>
-                  <span className="font-semibold">{extraIdPurchase.roleType === 'JUNIOR_ADMIN' ? 'Junior Admin' : 'Data Entry'}</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Cost per ID:</span>
-                  <span className="font-semibold">₹{extraIdPurchase.cost}</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Recharge Increase:</span>
-                  <span className="font-semibold">15% of plan MRP</span>
-                </div>
-                <div className="border-t border-violet-200 dark:border-violet-800 pt-2 flex justify-between">
-                  <span className="font-semibold">Total to Pay:</span>
-                  <span className="font-bold text-violet-700 dark:text-violet-400 text-lg">₹{extraIdPurchase.cost}</span>
-                </div>
-              </div>
+          {extraIdPurchase && (() => {
+            const basePrice = extraIdPurchase.cost // ₹149
+            const rzpFee = Math.round(basePrice * 0.02 * 100) / 100
+            const rzpGst = Math.round(rzpFee * 0.18 * 100) / 100
+            const rzpTotal = Math.round((basePrice + rzpFee + rzpGst) * 100) / 100
 
-              {/* Payment instructions */}
-              <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900 rounded-lg p-3">
-                <p className="text-xs text-amber-800 dark:text-amber-300">
-                  <strong>How to pay:</strong>
-                  <br />1. Pay ₹{extraIdPurchase.cost} via UPI to the QR code below
-                  <br />2. Take a screenshot of the payment success
-                  <br />3. Upload the screenshot + enter UTR number
-                  <br />4. Your extra ID will be activated after verification
-                </p>
-              </div>
+            return (
+              <div className="space-y-4">
+                {/* Pricing summary */}
+                <div className="bg-violet-50 dark:bg-violet-950/20 border border-violet-200 dark:border-violet-900 rounded-lg p-4 space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Extra ID (Non-View-Only):</span>
+                    <span className="font-semibold">1 ID</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">One-time Cost:</span>
+                    <span className="font-semibold">₹{basePrice}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Recharge Surcharge:</span>
+                    <span className="font-semibold">+15% on all future recharges</span>
+                  </div>
+                </div>
 
-              {/* UPI Payment QR */}
-              <div className="text-center">
-                <div className="bg-white p-4 rounded-lg inline-block border-2 border-violet-300">
-                  <img
-                    src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=upi://pay?pa=pranjalgoswamighy86@okhdfcbank&pn=Tahigo%20International&am=${extraIdPurchase.cost}&cu=INR&tn=Extra%20${extraIdPurchase.roleType}%20ID`}
-                    alt="UPI QR Code"
-                    className="w-48 h-48 mx-auto"
-                  />
-                  <p className="text-xs text-muted-foreground mt-2">Scan to pay ₹{extraIdPurchase.cost}</p>
-                  <p className="text-xs font-mono text-muted-foreground">pranjalgoswamighy86@okhdfcbank</p>
+                {/* Razorpay fee breakdown */}
+                <div className="bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg p-3 text-xs space-y-1">
+                  <div className="flex justify-between text-blue-700 dark:text-blue-400">
+                    <span>Base Price:</span><span>₹{basePrice}</span>
+                  </div>
+                  <div className="flex justify-between text-blue-700 dark:text-blue-400">
+                    <span>Razorpay fee (2%):</span><span>+₹{rzpFee}</span>
+                  </div>
+                  <div className="flex justify-between text-blue-700 dark:text-blue-400">
+                    <span>GST on fee (18%):</span><span>+₹{rzpGst}</span>
+                  </div>
+                  <div className="flex justify-between font-bold text-blue-900 dark:text-blue-200 border-t border-blue-200 dark:border-blue-800 pt-1">
+                    <span>Total to Pay:</span><span>₹{rzpTotal}</span>
+                  </div>
                 </div>
-              </div>
 
-              {/* UTR Input + Screenshot Upload */}
-              <div className="space-y-3">
-                <div>
-                  <label className="text-sm font-medium">UTR / Transaction ID *</label>
-                  <input
-                    type="text"
-                    className="w-full mt-1 px-3 py-2 border rounded-md text-sm"
-                    placeholder="Enter 12-digit UTR number"
-                    id="extra-id-utr"
-                  />
-                </div>
-                <div>
-                  <label className="text-sm font-medium">Payment Screenshot *</label>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    className="w-full mt-1 text-sm"
-                    id="extra-id-screenshot"
-                  />
-                  <p className="text-xs text-muted-foreground mt-1">JPG/PNG. Max 1MB. Show UTR + amount + date.</p>
+                {/* Razorpay info */}
+                <div className="bg-blue-50 dark:bg-blue-950/30 p-3 rounded-lg text-xs text-blue-800 dark:text-blue-300">
+                  <ShieldCheck className="h-4 w-4 inline mr-1" />
+                  You'll be redirected to Razorpay's secure payment page. Cards, UPI, wallets, and net banking accepted. Payment is auto-verified instantly.
                 </div>
               </div>
-            </div>
-          )}
-          <DialogFooter className="flex gap-2">
+            )
+          })()}
+          <DialogFooter>
             <Button variant="outline" onClick={() => setExtraIdPurchase(null)}>Cancel</Button>
-            <Button
-              className="bg-violet-600 hover:bg-violet-700"
-              onClick={async () => {
-                const utr = (document.getElementById('extra-id-utr') as HTMLInputElement)?.value?.trim()
-                const fileInput = document.getElementById('extra-id-screenshot') as HTMLInputElement
-                const file = fileInput?.files?.[0]
-
-                if (!utr) {
-                  toast({ title: 'UTR Required', description: 'Please enter the UTR/Transaction ID from your payment.', variant: 'destructive' })
-                  return
-                }
-                if (!file) {
-                  toast({ title: 'Screenshot Required', description: 'Please upload the payment success screenshot.', variant: 'destructive' })
-                  return
-                }
-
-                // Convert file to base64
-                const reader = new FileReader()
-                reader.onload = async () => {
-                  const base64 = reader.result as string
-                  const res = await authFetch('/api/subscription', {
-                    method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                      action: 'add-extra-id',
-                      tenantId: tenant?.id,
-                      roleType: extraIdPurchase?.roleType,
-                      utr,
-                      screenshot: base64,
-                    }),
-                  })
-                  if (res.ok) {
-                    const data = await res.json()
-                    toast({ title: 'Payment Proof Submitted!', description: `${extraIdPurchase?.roleType === 'JUNIOR_ADMIN' ? 'Junior Admin' : 'Data Entry'} ID added. UTR: ${utr}. Payment proof submitted for verification. Cost: ₹149.`, duration: 8000 })
-                    setExtraIdPurchase(null)
-                    load()
-                  } else {
-                    const err = await res.json().catch(() => ({}))
-                    toast({ title: 'Error', description: err.error || 'Failed to add extra ID', variant: 'destructive' })
-                  }
-                }
-                reader.readAsDataURL(file)
-              }}
-            >
-              Submit Payment Proof (Screenshot + UTR)
+            <Button className="bg-blue-600 hover:bg-blue-700" onClick={async () => {
+              if (!tenant || !extraIdPurchase) return
+              const basePrice = extraIdPurchase.cost
+              const rzpFee = Math.round(basePrice * 0.02 * 100) / 100
+              const rzpGst = Math.round(rzpFee * 0.18 * 100) / 100
+              const rzpTotal = Math.round((basePrice + rzpFee + rzpGst) * 100) / 100
+              window.open(`https://razorpay.me/@TahigoInternational?amount=${rzpTotal * 100}`, '_blank')
+              toast({
+                title: 'Razorpay Payment Page Opened',
+                description: `Pay ₹${rzpTotal} via Razorpay for Extra ID. Instant activation after payment.`,
+                duration: 10000,
+              })
+              setExtraIdPurchase(null)
+            }}>
+              <ShieldCheck className="h-4 w-4 mr-1" /> Pay via Razorpay
             </Button>
           </DialogFooter>
         </DialogContent>
