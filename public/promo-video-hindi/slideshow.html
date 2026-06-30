@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+<meta charset="UTF-8">
+<title>BizBook Pro — Hindi Promo Video (30 sec)</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #0a0a0a;
+    font-family: 'Noto Sans Devanagari', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    color: white;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 20px;
+  }
+  .controls {
+    background: #1a1a1a;
+    padding: 12px 20px;
+    border-radius: 12px;
+    margin-bottom: 20px;
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .controls button, .controls select {
+    background: #2563eb;
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 600;
+  }
+  .controls button:hover { background: #1d4ed8; }
+  .controls select { background: #374151; }
+  .controls .label { color: #9ca3af; font-size: 13px; }
+  .stage {
+    position: relative;
+    background: #000;
+    overflow: hidden;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+    transition: all 0.3s ease;
+  }
+  .stage.ratio-9-16 { width: 405px; height: 720px; }
+  .stage.ratio-1-1  { width: 600px; height: 600px; }
+  .stage.ratio-16-9 { width: 800px; height: 450px; }
+  .stage.ratio-4-5  { width: 480px; height: 600px; }
+
+  .slide {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    transition: opacity 0.4s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .slide.active { opacity: 1; }
+  .slide img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    filter: brightness(0.65);
+  }
+  .slide .overlay {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(to bottom, rgba(0,0,0,0.4) 0%, rgba(0,0,0,0.1) 40%, rgba(0,0,0,0.85) 100%);
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    padding: 40px 30px;
+  }
+  .slide .text {
+    font-size: 34px;
+    font-weight: 800;
+    text-align: center;
+    text-shadow: 0 4px 20px rgba(0,0,0,0.9);
+    line-height: 1.25;
+    animation: textSlideUp 0.5s ease;
+  }
+  .slide .subtitle {
+    font-size: 20px;
+    font-weight: 500;
+    text-align: center;
+    color: #93c5fd;
+    margin-top: 10px;
+    text-shadow: 0 2px 10px rgba(0,0,0,0.9);
+  }
+  .slide.pain .text { color: #fca5a5; }
+  .slide.solution .text { color: #86efac; }
+  .slide.features .text { color: #93c5fd; }
+  .slide.cta .text { font-size: 40px; color: #fbbf24; }
+  .slide.cta .subtitle { font-size: 22px; color: white; }
+  .slide.cta .download-btn {
+    display: inline-block;
+    margin: 20px auto 0;
+    background: linear-gradient(to right, #2563eb, #7c3aed);
+    color: white;
+    padding: 14px 32px;
+    border-radius: 50px;
+    font-size: 22px;
+    font-weight: 700;
+    text-decoration: none;
+    box-shadow: 0 8px 30px rgba(37, 99, 235, 0.5);
+    animation: pulse 2s ease infinite;
+  }
+  .slide.cta .brand {
+    font-size: 16px;
+    color: #9ca3af;
+    margin-top: 16px;
+    text-align: center;
+  }
+  @keyframes textSlideUp {
+    from { transform: translateY(20px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+  }
+  @keyframes pulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.05); }
+  }
+  .progress {
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 4px;
+    background: rgba(255,255,255,0.2);
+    z-index: 10;
+  }
+  .progress-bar {
+    height: 100%;
+    background: linear-gradient(to right, #ef4444, #f59e0b, #10b981);
+    width: 0%;
+    transition: width 0.1s linear;
+  }
+  .scene-counter {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    background: rgba(0,0,0,0.7);
+    color: white;
+    padding: 4px 10px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 600;
+    z-index: 10;
+  }
+  .instructions {
+    background: #1a1a1a;
+    padding: 20px;
+    border-radius: 12px;
+    margin-top: 20px;
+    max-width: 800px;
+    font-size: 14px;
+    line-height: 1.6;
+    color: #d1d5db;
+  }
+  .instructions h3 { color: #fbbf24; margin-bottom: 10px; }
+  .instructions ol { margin-left: 20px; }
+  .instructions code {
+    background: #374151;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 13px;
+    color: #93c5fd;
+  }
+</style>
+</head>
+<body>
+
+<div class="controls">
+  <span class="label">Aspect Ratio:</span>
+  <select id="ratioSelect" onchange="changeRatio()">
+    <option value="ratio-9-16">9:16 Vertical (WhatsApp Status / Reels)</option>
+    <option value="ratio-1-1">1:1 Square (FB / IG Feed)</option>
+    <option value="ratio-16-9">16:9 Landscape (YouTube)</option>
+    <option value="ratio-4-5">4:5 Portrait (FB Feed)</option>
+  </select>
+  <button onclick="play()">▶ Play</button>
+  <button onclick="pause()">⏸ Pause</button>
+  <button onclick="restart()">↺ Restart</button>
+  <span class="label" id="timeDisplay">0:00 / 0:30</span>
+</div>
+
+<div class="stage ratio-9-16" id="stage">
+  <div class="progress"><div class="progress-bar" id="progressBar"></div></div>
+  <div class="scene-counter" id="sceneCounter">1 / 4</div>
+
+  <div class="slide pain active" data-scene="1">
+    <img src="scene-01-pain.png" alt="Pain point">
+    <div class="overlay">
+      <div class="text">अभी भी कागज के बिल बना रहे हैं? 😰</div>
+      <div class="subtitle">और कैलकुलेशन में गलतियाँ?</div>
+    </div>
+  </div>
+
+  <div class="slide solution" data-scene="2">
+    <img src="scene-02-solution.png" alt="Solution">
+    <div class="overlay">
+      <div class="text">अपग्रेड करें BizBook Pro 💼</div>
+      <div class="subtitle">तहिगो इंटरनेशनल द्वारा — सुपर-फास्ट डिजिटल बिलिंग</div>
+    </div>
+  </div>
+
+  <div class="slide features" data-scene="3">
+    <img src="scene-03-features.png" alt="Features">
+    <div class="overlay">
+      <div class="text">GST बिल • इन्वेंट्री • व्हाट्सएप 📲</div>
+      <div class="subtitle">सब कुछ एक ऐप में</div>
+    </div>
+  </div>
+
+  <div class="slide cta" data-scene="4">
+    <img src="scene-04-download.png" alt="Download">
+    <div class="overlay">
+      <div class="text">फ्री ट्रायल शुरू करें! 🚀</div>
+      <div class="subtitle">नीचे क्लिक करें</div>
+      <a href="https://www.tahigo.in" target="_blank" class="download-btn">⬇ ऐप डाउनलोड करें</a>
+      <div class="brand">तहिगो इंटरनेशनल</div>
+    </div>
+  </div>
+</div>
+
+<audio id="voiceover" preload="auto">
+  <source src="voiceover-full.wav" type="audio/wav">
+</audio>
+
+<div class="instructions">
+  <h3>📋 वीडियो को MP4 कैसे रिकॉर्ड करें</h3>
+  <ol>
+    <li><strong>Aspect ratio चुनें</strong> (ऊपर dropdown से) — WhatsApp Status के लिए 9:16, YouTube के लिए 16:9</li>
+    <li><strong>Screen recorder खोलें</strong>:
+      <ul>
+        <li><strong>Windows:</strong> <code>Win + G</code> दबाएं (Game Bar) → Record क्लिक करें। या <a href="https://obsproject.com" target="_blank">OBS Studio</a> इस्तेमाल करें।</li>
+        <li><strong>Mac:</strong> <code>Cmd + Shift + 5</code> दबाएं → stage area select करें → Record।</li>
+        <li><strong>Mobile:</strong> इस page को फोन में खोलें, screen record on करें।</li>
+      </ul>
+    </li>
+    <li><strong>▶ Play क्लिक करें</strong>।</li>
+    <li><strong>30 सेकंड रुकें</strong> — slideshow पूरा हो जाएगा।</li>
+    <li><strong>Recording बंद करें</strong>। File save करें: <code>bizbook-pro-hindi-9x16.mp4</code></li>
+    <li><strong>Optional:</strong> CapCut में background music जोड़ें (voiceover से ज्यादा loud नहीं)।</li>
+  </ol>
+  <p style="margin-top: 12px;"><strong>💡 टिप:</strong> Browser zoom 100% रखें। Bookmarks bar छिपाएं (<code>Ctrl/Cmd + Shift + B</code>)।</p>
+  <p style="margin-top: 10px;"><strong>Keyboard:</strong> Space = Play/Pause, R = Restart, ←/→ = Scene navigation</p>
+</div>
+
+<script>
+const slides = document.querySelectorAll('.slide');
+const voiceover = document.getElementById('voiceover');
+const progressBar = document.getElementById('progressBar');
+const sceneCounter = document.getElementById('sceneCounter');
+const timeDisplay = document.getElementById('timeDisplay');
+const stage = document.getElementById('stage');
+
+// Scene durations (ms) — 5s + 10s + 10s + 5s = 30s total
+const sceneDurations = [5000, 10000, 10000, 5000];
+const totalDuration = sceneDurations.reduce((a, b) => a + b, 0);
+
+let currentScene = 0;
+let isPlaying = false;
+let sceneTimeout = null;
+let progressInterval = null;
+let startTime = 0;
+
+function showScene(idx) {
+  slides.forEach((s, i) => s.classList.toggle('active', i === idx));
+  sceneCounter.textContent = `${idx + 1} / ${slides.length}`;
+}
+
+function play() {
+  if (isPlaying) return;
+  isPlaying = true;
+  voiceover.play().catch(e => console.log('Audio autoplay blocked:', e));
+  startTime = Date.now();
+
+  const playNext = () => {
+    if (currentScene >= slides.length) {
+      pause();
+      return;
+    }
+    showScene(currentScene);
+    const duration = sceneDurations[currentScene];
+    sceneTimeout = setTimeout(() => {
+      currentScene++;
+      playNext();
+    }, duration);
+  };
+
+  playNext();
+
+  progressInterval = setInterval(() => {
+    const elapsed = Date.now() - startTime;
+    const pct = Math.min(100, (elapsed / totalDuration) * 100);
+    progressBar.style.width = pct + '%';
+    const sec = Math.floor(elapsed / 1000);
+    const totalSec = Math.floor(totalDuration / 1000);
+    timeDisplay.textContent = `${Math.floor(sec/60)}:${String(sec%60).padStart(2,'0')} / ${Math.floor(totalSec/60)}:${String(totalSec%60).padStart(2,'0')}`;
+  }, 100);
+}
+
+function pause() {
+  isPlaying = false;
+  voiceover.pause();
+  clearTimeout(sceneTimeout);
+  clearInterval(progressInterval);
+}
+
+function restart() {
+  pause();
+  currentScene = 0;
+  showScene(0);
+  progressBar.style.width = '0%';
+  voiceover.currentTime = 0;
+  timeDisplay.textContent = '0:00 / 0:30';
+}
+
+function changeRatio() {
+  const select = document.getElementById('ratioSelect');
+  stage.className = 'stage ' + select.value;
+}
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === ' ') { e.preventDefault(); isPlaying ? pause() : play(); }
+  if (e.key === 'r') restart();
+  if (e.key === 'ArrowRight') { currentScene = Math.min(slides.length - 1, currentScene + 1); showScene(currentScene); }
+  if (e.key === 'ArrowLeft') { currentScene = Math.max(0, currentScene - 1); showScene(currentScene); }
+});
+
+showScene(0);
+console.log('BizBook Pro Hindi Promo loaded — 30s, 4 scenes');
+</script>
+
+</body>
+</html>
