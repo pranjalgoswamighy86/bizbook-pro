@@ -308,12 +308,28 @@ export async function POST(req: NextRequest) {
           if (!gstPayableAccount) gstPayableAccount = await tx.account.create({ data: { accountCode: '20200', name: 'GST Payable', type: 'Liability', tenantId: access.tenantId } })
 
           const jeLines: Array<{ accountId: string; debit: number; credit: number; description: string }> = []
-          jeLines.push({
-            accountId: isCashSale ? cashAccount!.id : debtorsAccount!.id,
-            debit: sale.totalAmount,
-            credit: 0,
-            description: isCashSale ? 'Cash received' : `Receivable from ${sale.partyName}`,
-          })
+          // v4.159: Split Dr Cash (for amountReceived) + Dr Debtors (for remainder) on partial payments
+          // Was: single Dr line for full totalAmount to either Cash or Debtors
+          const amountReceived = roundTo2(sale.amountReceived || 0)
+          const amountDue = roundTo2(sale.totalAmount - amountReceived)
+          if (isCashSale || amountReceived > 0) {
+            // Dr Cash for the received portion
+            jeLines.push({
+              accountId: cashAccount!.id,
+              debit: amountReceived,
+              credit: 0,
+              description: `Cash received for ${sale.invoiceNumber}`,
+            })
+          }
+          if (!isCashSale && amountDue > 0) {
+            // Dr Debtors for the unpaid portion
+            jeLines.push({
+              accountId: debtorsAccount!.id,
+              debit: amountDue,
+              credit: 0,
+              description: `Receivable from ${sale.partyName} for ${sale.invoiceNumber}`,
+            })
+          }
           jeLines.push({
             accountId: salesAccount!.id,
             debit: 0,
@@ -355,6 +371,21 @@ export async function POST(req: NextRequest) {
           })
         }
 
+        // v4.159: Create Receipt record if payment was received (was missing — broke cash flow tracking)
+        if (sale.amountReceived && sale.amountReceived > 0) {
+          await tx.receipt.create({
+            data: {
+              date: sale.date,
+              partyName: sale.partyName,
+              amount: roundTo2(sale.amountReceived),
+              paymentMode: sale.paymentMode || 'CASH',
+              reference: sale.invoiceNumber,
+              notes: `Payment received for sale ${sale.invoiceNumber}`,
+              tenantId: access.tenantId,
+            },
+          })
+        }
+
         // 6. Audit log (inside transaction — commits or rolls back with the sale)
         await tx.auditLog.create({
           data: {
@@ -379,7 +410,7 @@ export async function POST(req: NextRequest) {
 
       // ---- SECURITY PATCH v1: include warnings in response ----
       // v4.155: Auto Excel backup after every sale create
-      triggerAutoBackup(tenantId, 'sale:create').catch(e => console.warn('[AutoBackup] sale:create failed:', e?.message))
+      triggerAutoBackup(tenantId, 'sale:create')
       return NextResponse.json({ sale, warnings })
       // --------------------------------------------------------
     }
@@ -428,7 +459,7 @@ export async function POST(req: NextRequest) {
       const sale = await db.$transaction(async (tx) => {
         const sale = await tx.sale.update({ where: { id }, data })
 
-        // Reverse old inventory, apply new (simplified — same logic as create)
+        // v4.159: Reverse old inventory with BOM awareness (was name-only — silently corrupted raw material stock)
         const oldItems = JSON.parse(oldSale.items || '[]')
         for (const item of oldItems) {
           // v4.66: Skip SERVICE items — they were never deducted from inventory at create time
@@ -438,6 +469,27 @@ export async function POST(req: NextRequest) {
             where: { name: { equals: item.name }, tenantId: access.tenantId, isDeleted: false },
           })
           if (existingItem) {
+            // v4.159: If this was a FINISHED_PRODUCT, also restore the raw materials that were consumed via BOM
+            if (existingItem.itemType === 'FINISHED_PRODUCT') {
+              const product = await tx.product.findFirst({
+                where: { name: { equals: item.name }, tenantId: access.tenantId },
+                include: { ingredients: true },
+              })
+              if (product && product.ingredients.length > 0) {
+                for (const ingredient of product.ingredients) {
+                  const rawItem = await tx.inventoryItem.findUnique({ where: { id: ingredient.inventoryItemId } })
+                  if (rawItem) {
+                    const restoreQty = ingredient.quantity * (item.qty || 0)
+                    const newRawStock = rawItem.currentStock + restoreQty
+                    await tx.inventoryItem.update({
+                      where: { id: rawItem.id },
+                      data: { currentStock: newRawStock, value: roundTo2(newRawStock * rawItem.purchasePrice) },
+                    })
+                  }
+                }
+              }
+            }
+            // Restore the finished product / raw material itself
             const newStock = existingItem.currentStock + (item.qty || 0)
             await tx.inventoryItem.update({
               where: { id: existingItem.id },
@@ -445,6 +497,7 @@ export async function POST(req: NextRequest) {
             })
           }
         }
+        // v4.159: Apply new inventory with BOM awareness + anti-negative guard
         const newItems = JSON.parse(data.items || '[]')
         for (const item of newItems) {
           // v4.66: Skip SERVICE items — do not deduct stock for services
@@ -454,7 +507,34 @@ export async function POST(req: NextRequest) {
             where: { name: { equals: item.name }, tenantId: access.tenantId, isDeleted: false },
           })
           if (existingItem) {
-            const newStock = Math.max(0, existingItem.currentStock - (item.qty || 0))
+            // v4.159: If this is a FINISHED_PRODUCT, deduct raw materials via BOM
+            if (existingItem.itemType === 'FINISHED_PRODUCT') {
+              const product = await tx.product.findFirst({
+                where: { name: { equals: item.name }, tenantId: access.tenantId },
+                include: { ingredients: true },
+              })
+              if (product && product.ingredients.length > 0) {
+                for (const ingredient of product.ingredients) {
+                  const rawItem = await tx.inventoryItem.findUnique({ where: { id: ingredient.inventoryItemId } })
+                  if (rawItem) {
+                    const consumeQty = ingredient.quantity * (item.qty || 0)
+                    const newRawStock = rawItem.currentStock - consumeQty
+                    if (newRawStock < 0) {
+                      throw new Error(`CRITICAL_BLOCK_422: Insufficient raw material "${rawItem.name}" for BOM. Need ${consumeQty}, have ${rawItem.currentStock}`)
+                    }
+                    await tx.inventoryItem.update({
+                      where: { id: rawItem.id },
+                      data: { currentStock: newRawStock, value: roundTo2(newRawStock * rawItem.purchasePrice) },
+                    })
+                  }
+                }
+              }
+            }
+            // Deduct the finished product / raw material itself
+            const newStock = existingItem.currentStock - (item.qty || 0)
+            if (newStock < 0) {
+              throw new Error(`CRITICAL_BLOCK_422: Insufficient stock for "${item.name}". Need ${item.qty}, have ${existingItem.currentStock}`)
+            }
             await tx.inventoryItem.update({
               where: { id: existingItem.id },
               data: {
@@ -483,7 +563,7 @@ export async function POST(req: NextRequest) {
       })
 
       // v4.155: Auto Excel backup after every sale update
-      triggerAutoBackup(tenantId, 'sale:update').catch(e => console.warn('[AutoBackup] sale:update failed:', e?.message))
+      triggerAutoBackup(tenantId, 'sale:update')
       return NextResponse.json({ sale })
     }
 
@@ -507,7 +587,7 @@ export async function POST(req: NextRequest) {
 
       // ---- SECURITY PATCH v1: transaction-wrapped reversal ----
       await db.$transaction(async (tx) => {
-        // Reverse inventory
+        // v4.159: Reverse inventory with BOM awareness (was name-only — raw materials stayed consumed forever)
         const items = JSON.parse(sale.items || '[]')
         for (const item of items) {
           // v4.66: Skip SERVICE items — they were never deducted from inventory at create time
@@ -517,6 +597,27 @@ export async function POST(req: NextRequest) {
             where: { name: { equals: item.name }, tenantId: access.tenantId, isDeleted: false },
           })
           if (existingItem) {
+            // v4.159: If this was a FINISHED_PRODUCT, restore the raw materials that were consumed via BOM
+            if (existingItem.itemType === 'FINISHED_PRODUCT') {
+              const product = await tx.product.findFirst({
+                where: { name: { equals: item.name }, tenantId: access.tenantId },
+                include: { ingredients: true },
+              })
+              if (product && product.ingredients.length > 0) {
+                for (const ingredient of product.ingredients) {
+                  const rawItem = await tx.inventoryItem.findUnique({ where: { id: ingredient.inventoryItemId } })
+                  if (rawItem) {
+                    const restoreQty = ingredient.quantity * (item.qty || 0)
+                    const newRawStock = rawItem.currentStock + restoreQty
+                    await tx.inventoryItem.update({
+                      where: { id: rawItem.id },
+                      data: { currentStock: newRawStock, value: roundTo2(newRawStock * rawItem.purchasePrice) },
+                    })
+                  }
+                }
+              }
+            }
+            // Restore the finished product / raw material itself
             const newStock = existingItem.currentStock + (item.qty || 0)
             await tx.inventoryItem.update({
               where: { id: existingItem.id },
@@ -591,7 +692,7 @@ export async function POST(req: NextRequest) {
       })
 
       // v4.155: Auto Excel backup after sale delete
-      triggerAutoBackup(tenantId, 'sale:delete').catch(e => console.warn('[AutoBackup] sale:delete failed:', e?.message))
+      triggerAutoBackup(tenantId, 'sale:delete')
       return NextResponse.json({ success: true })
     }
 

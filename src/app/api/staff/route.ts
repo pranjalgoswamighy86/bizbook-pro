@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db-soft-delete'
 import { requireAuthAndTenant, requireAuthAndRole, requireAuth, writeAuditLog } from '@/lib/api-helpers'
+// v4.159: triggerAutoBackup after salary payment
+import { triggerAutoBackup } from '@/lib/auto-backup'
 
 export async function POST(req: NextRequest) {
   try {
@@ -65,18 +67,141 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ staff: staffList })
     }
 
+    // ============================================================
+    // v4.159: PAY-SALARY — completely rewritten with:
+    //   1. Auth check (was missing — security hole)
+    //   2. db.$transaction wrapper (atomic)
+    //   3. Journal entry: Dr Salary Expense / Cr Cash (if paid) or Cr Creditors (if due)
+    //   4. Creditor creation if salary is DUE (unpaid)
+    //   5. Audit log
+    //   6. triggerAutoBackup
+    // ============================================================
     if (action === 'pay-salary') {
-      const { staffId, month, amount, paidDate, paymentMode, notes } = body
-      const staff = await db.staff.findUnique({ where: { id: staffId } })
+      const access = await requireAuthAndRole(req, tenantId, ['JUNIOR_ADMIN', 'MAIN_ADMIN'])
+      if (access instanceof NextResponse) return access
+
+      const { staffId, month, amount, paidDate, paymentMode, notes, isDue } = body
+      const numAmount = Number(amount) || 0
+      if (numAmount <= 0) {
+        return NextResponse.json({ error: 'Amount must be greater than 0' }, { status: 400 })
+      }
+
+      const staff = await db.staff.findFirst({
+        where: { id: staffId, tenantId: access.tenantId, isDeleted: false },
+      })
       if (!staff) return NextResponse.json({ error: 'Staff not found' }, { status: 404 })
 
-      const payment = await db.salaryPayment.create({
-        data: { staffId, month, amount, paidDate: new Date(paidDate), paymentMode, notes, tenantId },
+      // Use transaction for atomicity — salary payment + journal entry + creditor must all succeed or all fail
+      const payment = await db.$transaction(async (tx) => {
+        // 1. Create salary payment record
+        const salaryPayment = await tx.salaryPayment.create({
+          data: {
+            staffId,
+            month,
+            amount: numAmount,
+            paidDate: new Date(paidDate || new Date()),
+            paymentMode: paymentMode || (isDue ? 'UNPAID' : 'CASH'),
+            notes: notes || null,
+            tenantId: access.tenantId,
+          },
+        })
+
+        // 2. Journal entry: Dr Salary Expense (50400) / Cr Cash (10100) or Cr Creditors (20100)
+        const accounts = await tx.account.findMany({ where: { tenantId: access.tenantId } })
+        if (accounts.length > 0) {
+          const findAccount = (code: string) => accounts.find(a => a.accountCode === code)
+          let salaryAccount = findAccount('50400')
+          let cashAccount = findAccount('10100')
+          let creditorsAccount = findAccount('20100')
+
+          if (!salaryAccount) salaryAccount = await tx.account.create({ data: { accountCode: '50400', name: 'Salary Expense', type: 'Expense', tenantId: access.tenantId } })
+          if (!cashAccount) cashAccount = await tx.account.create({ data: { accountCode: '10100', name: 'Cash', type: 'Asset', tenantId: access.tenantId } })
+          if (!creditorsAccount) creditorsAccount = await tx.account.create({ data: { accountCode: '20100', name: 'Accounts Payable', type: 'Liability', tenantId: access.tenantId } })
+
+          const isUnpaid = isDue || paymentMode === 'UNPAID' || paymentMode === 'DUE'
+          const jeLines = [
+            {
+              accountId: salaryAccount!.id,
+              debit: numAmount,
+              credit: 0,
+              description: `Salary for ${staff.name} - ${month}`,
+            },
+            {
+              accountId: isUnpaid ? creditorsAccount!.id : cashAccount!.id,
+              debit: 0,
+              credit: numAmount,
+              description: isUnpaid
+                ? `Salary due to ${staff.name} for ${month}`
+                : `Cash paid to ${staff.name} for ${month}`,
+            },
+          ]
+
+          await tx.journalEntry.create({
+            data: {
+              entryDate: new Date(paidDate || new Date()),
+              reference: `SAL/${month}/${staff.name.slice(0, 10)}`,
+              description: `Salary payment - ${staff.name} - ${month}`,
+              sourceType: 'SALARY',
+              sourceId: salaryPayment.id,
+              isPosted: true,
+              tenantId: access.tenantId,
+              createdBy: access.userId,
+              lines: { create: jeLines },
+            },
+          })
+        }
+
+        // 3. If salary is DUE (unpaid), create/update Creditor entry
+        if (isDue || paymentMode === 'UNPAID' || paymentMode === 'DUE') {
+          const existingCreditor = await tx.creditor.findFirst({
+            where: { name: staff.name, tenantId: access.tenantId, isDeleted: false },
+          })
+          if (existingCreditor) {
+            await tx.creditor.update({
+              where: { id: existingCreditor.id },
+              data: { currentBalance: existingCreditor.currentBalance + numAmount },
+            })
+          } else {
+            await tx.creditor.create({
+              data: {
+                name: staff.name,
+                phone: staff.phone || null,
+                currentBalance: numAmount,
+                tenantId: access.tenantId,
+              },
+            })
+          }
+        }
+
+        // 4. Audit log
+        await tx.auditLog.create({
+          data: {
+            tenantId: access.tenantId,
+            userId: access.userId,
+            userName: access.user.name,
+            action: 'CREATE',
+            entityType: 'SalaryPayment',
+            entityId: salaryPayment.id,
+            entityName: `Salary - ${staff.name} - ${month}`,
+            changes: JSON.stringify({ amount: numAmount, month, paymentMode, isDue: !!isDue }),
+          },
+        })
+
+        return salaryPayment
       })
-      return NextResponse.json({ payment })
+
+      // 5. Auto-backup (fire-and-forget, outside transaction)
+      triggerAutoBackup(tenantId, 'salary:pay')
+
+      return NextResponse.json({ payment, success: true })
     }
 
     if (action === 'salary-history') {
+      // ---- SECURITY PATCH v1: auth + tenant access ----
+      const access = await requireAuthAndTenant(req, tenantId)
+      if (access instanceof NextResponse) return access
+      // --------------------------------------------------
+
       const { staffId } = body
       const payments = await db.salaryPayment.findMany({
         where: { staffId },

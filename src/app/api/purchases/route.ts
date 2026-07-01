@@ -297,8 +297,17 @@ export async function POST(req: NextRequest) {
             }
           }
 
-          // Credit: Cash or Creditors (total including GST)
-          jeLines.push({ accountId: isCashPurchase ? cashAccount!.id : creditorsAccount!.id, debit: 0, credit: purchase.totalAmount, description: isCashPurchase ? 'Cash paid' : `Payable to ${purchase.partyName}` })
+          // Credit: Cash (for amountPaid) + Creditors (for remainder) — v4.159 partial payment split
+          const amountPaid = roundTo2(data.amountPaid || 0)
+          const amountDue = roundTo2(purchase.totalAmount - amountPaid)
+          if (isCashPurchase || amountPaid > 0) {
+            // Cr Cash for the paid portion
+            jeLines.push({ accountId: cashAccount!.id, debit: 0, credit: amountPaid, description: `Cash paid for ${purchase.invoiceNumber}` })
+          }
+          if (!isCashPurchase && amountDue > 0) {
+            // Cr Creditors for the unpaid portion
+            jeLines.push({ accountId: creditorsAccount!.id, debit: 0, credit: amountDue, description: `Payable to ${purchase.partyName} for ${purchase.invoiceNumber}` })
+          }
 
           await db.journalEntry.create({
             data: {
@@ -318,8 +327,52 @@ export async function POST(req: NextRequest) {
         console.error('Auto journal entry error (purchase):', jeError)
       }
 
+      // v4.159: Create Payment record if amountPaid > 0 (was missing — broke cash flow tracking)
+      if (data.amountPaid && data.amountPaid > 0) {
+        try {
+          await db.payment.create({
+            data: {
+              date: purchase.date,
+              partyName: purchase.partyName,
+              amount: roundTo2(data.amountPaid),
+              paymentMode: data.paymentMode || 'BANK',
+              reference: purchase.invoiceNumber,
+              notes: `Payment for purchase ${purchase.invoiceNumber}`,
+              tenantId,
+            },
+          })
+        } catch (payErr) {
+          console.error('Payment record creation error (purchase):', payErr)
+        }
+      }
+
+      // v4.159: Audit log (was missing — no trail for purchase creation)
+      try {
+        const access = await requireAuthAndTenant(req, tenantId)
+        if (!(access instanceof NextResponse)) {
+          await db.auditLog.create({
+            data: {
+              tenantId,
+              userId: access.userId,
+              userName: access.user.name,
+              action: 'CREATE',
+              entityType: 'Purchase',
+              entityId: purchase.id,
+              entityName: purchase.invoiceNumber,
+              changes: JSON.stringify({
+                partyName: purchase.partyName,
+                totalAmount: purchase.totalAmount,
+                paymentStatus: purchase.paymentStatus,
+              }),
+            },
+          })
+        }
+      } catch (auditErr) {
+        console.error('Audit log error (purchase):', auditErr)
+      }
+
       // v4.155: Auto Excel backup after purchase create
-      triggerAutoBackup(tenantId, 'purchase:create').catch(e => console.warn('[AutoBackup] purchase:create failed:', e?.message))
+      triggerAutoBackup(tenantId, 'purchase:create')
       return NextResponse.json({ purchase, inventoryUpdates })
     }
 
@@ -462,7 +515,7 @@ export async function POST(req: NextRequest) {
       }
 
       // v4.155: Auto Excel backup after purchase update
-      triggerAutoBackup(tenantId, 'purchase:update').catch(e => console.warn('[AutoBackup] purchase:update failed:', e?.message))
+      triggerAutoBackup(tenantId, 'purchase:update')
       return NextResponse.json({ purchase, inventoryUpdates })
     }
 
@@ -520,7 +573,7 @@ export async function POST(req: NextRequest) {
 
       await db.purchase.update({ where: { id }, data: { isDeleted: true, deletedAt: new Date() } })
       // v4.155: Auto Excel backup after purchase delete
-      triggerAutoBackup(tenantId, 'purchase:delete').catch(e => console.warn('[AutoBackup] purchase:delete failed:', e?.message))
+      triggerAutoBackup(tenantId, 'purchase:delete')
       return NextResponse.json({ success: true })
     }
 

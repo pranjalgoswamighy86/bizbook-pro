@@ -19,24 +19,32 @@ export async function POST(req: NextRequest) {
         dateFilter.date = { gte: new Date(startDate), lt: new Date(endDate) }
       }
 
+      // v4.159: SalaryPayment has 'paidDate' not 'date' — separate filter
+      const salaryDateFilter: Record<string, unknown> = { tenantId, isDeleted: false }
+      if (startDate && endDate) {
+        salaryDateFilter.paidDate = { gte: new Date(startDate), lt: new Date(endDate) }
+      }
+
       // v4.59: Use select to only fetch needed fields (was loading entire records)
       // This reduces DB response size by 80-90% for large tables
       const [sales, purchases, expenses, receipts, payments] = await Promise.all([
         db.sale.findMany({ where: dateFilter, select: { totalAmount: true, subtotal: true, gstAmount: true, date: true, partyName: true } }),
         db.purchase.findMany({ where: dateFilter, select: { subtotal: true, gstAmount: true, date: true, partyName: true } }),
         db.expense.findMany({ where: dateFilter, select: { amount: true, category: true, date: true, description: true, paymentMode: true } }),
-        db.receipt.findMany({ where: dateFilter, select: { amount: true, date: true, partyName: true, mode: true } }),
-        db.payment.findMany({ where: dateFilter, select: { amount: true, date: true, partyName: true, mode: true } }),
+        db.receipt.findMany({ where: dateFilter, select: { amount: true, date: true, partyName: true, paymentMode: true } }),
+        db.payment.findMany({ where: dateFilter, select: { amount: true, date: true, partyName: true, paymentMode: true } }),
       ])
 
       // v4.59: Use aggregate for totals (DB-side computation, no data transfer)
       // Was: findMany → load all records → reduce in JS → much slower for large datasets
-      const [salesAgg, purchasesAgg, expensesAgg, receiptsAgg, paymentsAgg] = await Promise.all([
+      const [salesAgg, purchasesAgg, expensesAgg, receiptsAgg, paymentsAgg, salaryAgg] = await Promise.all([
         db.sale.aggregate({ where: dateFilter, _sum: { totalAmount: true, subtotal: true, gstAmount: true }, _count: true }),
         db.purchase.aggregate({ where: dateFilter, _sum: { subtotal: true, gstAmount: true }, _count: true }),
         db.expense.aggregate({ where: dateFilter, _sum: { amount: true }, _count: true }),
         db.receipt.aggregate({ where: dateFilter, _sum: { amount: true }, _count: true }),
         db.payment.aggregate({ where: dateFilter, _sum: { amount: true }, _count: true }),
+        // v4.159: Include salary payments in P&L (was missing — net profit was overstated)
+        db.salaryPayment.aggregate({ where: salaryDateFilter, _sum: { amount: true }, _count: true }),
       ])
 
       const totalRevenue = salesAgg._sum.totalAmount || 0
@@ -44,13 +52,15 @@ export async function POST(req: NextRequest) {
       const totalGstPaid = purchasesAgg._sum.gstAmount || 0
       const totalGstCollected = salesAgg._sum.gstAmount || 0
       const totalExpenses = expensesAgg._sum.amount || 0
+      const totalSalaries = salaryAgg._sum.amount || 0  // v4.159
       const grossProfit = totalRevenue - totalCostOfGoods
-      const netProfit = grossProfit - totalExpenses
+      const netProfit = grossProfit - totalExpenses - totalSalaries  // v4.159: subtract salaries
       const totalReceipts = receiptsAgg._sum.amount || 0
       const totalPayments = paymentsAgg._sum.amount || 0
       const salesCount = salesAgg._count || 0
       const purchaseCount = purchasesAgg._count || 0
       const expenseCount = expensesAgg._count || 0
+      const salaryCount = salaryAgg._count || 0  // v4.159
 
       // v4.59: For category breakdown, still use findMany with select (need individual records)
       const expensesForCategory = await db.expense.findMany({
@@ -67,6 +77,7 @@ export async function POST(req: NextRequest) {
         totalCostOfGoods,
         grossProfit,
         totalExpenses,
+        totalSalaries,  // v4.159: new field
         netProfit,
         totalGstCollected,
         totalGstPaid,
@@ -78,6 +89,7 @@ export async function POST(req: NextRequest) {
         salesCount: sales.length,
         purchaseCount: purchases.length,
         expenseCount: expenses.length,
+        salaryCount,  // v4.159: new field
       })
     }
 
@@ -198,7 +210,7 @@ export async function POST(req: NextRequest) {
 
       // v4.59: Use aggregate for monthly trend (was findMany + reduce — 6x slower)
       const now = new Date()
-      const monthlyTrend = []
+      const monthlyTrend: Array<{ month: string; sales: number; purchases: number; expenses: number }> = []
       for (let i = 5; i >= 0; i--) {
         const monthStart = new Date(now.getFullYear(), now.getMonth() - i, 1)
         const monthEnd = new Date(now.getFullYear(), now.getMonth() - i + 1, 1)

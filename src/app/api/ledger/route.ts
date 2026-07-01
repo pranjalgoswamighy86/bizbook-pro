@@ -12,6 +12,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'No business selected' }, { status: 400 })
     }
 
+    // v4.159: Add auth check for all ledger actions (was missing — security regression)
+    const access = await requireAuthAndTenant(req, tenantId)
+    if (access instanceof NextResponse) return access
+
     if (action === 'account-ledger') {
       const { accountId, startDate, endDate } = body
       if (!accountId) {
