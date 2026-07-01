@@ -419,8 +419,28 @@ export function SubscriptionPage() {
               <div className="text-sm text-violet-900 dark:text-violet-200">
                 <p className="font-semibold mb-1">Extra ID Pricing</p>
                 <p>• Cost: <strong>₹149 per ID</strong> (Junior Admin or Data Entry)</p>
-                <p>• Recharge increase: <strong>15% of current plan MRP</strong> ({(sub as any).mrp ? `₹${Math.round((sub as any).mrp * 0.15)}` : '₹0 for Free Tier'}) per extra ID</p>
+                <p>• Recharge increase: <strong>15% of plan base price</strong> per extra ID</p>
                 <p className="text-xs text-violet-700 dark:text-violet-400 mt-1">Extra IDs are permanent for your subscription. Recharge increase applies to all future recharges.</p>
+                {/* v4.160: Show actual user count + surcharge status */}
+                {(sub as any)?.actualNonViewOnlyCount > 0 && (
+                  <div className="mt-2 pt-2 border-t border-violet-200 dark:border-violet-800">
+                    <p className="text-xs font-semibold text-violet-900 dark:text-violet-100">
+                      Your current non-view-only users: {(sub as any).actualNonViewOnlyCount}
+                    </p>
+                    <p className="text-xs text-violet-700 dark:text-violet-400">
+                      Free tier includes 3 non-view-only users (1 Main Admin + 1 Junior Admin + 1 Data Entry).
+                      {(sub as any).actualNonViewOnlyCount > 3 ? (
+                        <span className="text-amber-700 dark:text-amber-400 font-semibold">
+                          {' '}→ {(sub as any).actualNonViewOnlyCount - 3} extra ID(s) detected. 15% surcharge will apply on all recharges.
+                        </span>
+                      ) : (
+                        <span className="text-emerald-700 dark:text-emerald-400">
+                          {' '}→ No extra IDs. Standard pricing applies.
+                        </span>
+                      )}
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -449,8 +469,13 @@ export function SubscriptionPage() {
             <DialogTitle>Confirm Recharge</DialogTitle>
           </DialogHeader>
           {rechargePlan && (() => {
+            // v4.160: Use actualNonViewOnlyCount from API (counts real users, not just purchased slots)
+            // Falls back to maxUsersAllowed for backward compat
+            const actualNonViewOnly = (sub as any)?.actualNonViewOnlyCount || 0
             const maxUsers = (sub as any)?.maxUsersAllowed || 0
-            const extraIds = maxUsers > 3 ? maxUsers - 3 : 0
+            // Use whichever is higher — actual users OR purchased slots
+            const effectiveCount = Math.max(actualNonViewOnly, maxUsers)
+            const extraIds = effectiveCount > 3 ? effectiveCount - 3 : 0
             const surcharge = extraIds > 0 ? Math.round(rechargePlan.finalPrice * 0.15) : 0
             const baseTotal = rechargePlan.finalPrice + surcharge
             const rzpFee = Math.round(baseTotal * 0.02 * 100) / 100

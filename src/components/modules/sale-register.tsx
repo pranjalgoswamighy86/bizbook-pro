@@ -799,13 +799,33 @@ export function SaleRegister() {
                           <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setViewItem(s)}><Eye className="h-4 w-4" /></Button>
                           {/* v4.106: Show Confirm button for Quotation sales */}
                           {s.invoiceStatus === 'QUOTATION' && canEdit(user?.role || 'VIEW_ONLY') && (
-                            <Button variant="ghost" size="icon" className="h-8 w-8" title="Confirm Sale" onClick={async () => {
-                              const res = await authFetch('/api/sales', {
-                                method: 'POST', headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ action: 'confirm-sale', id: s.id, tenantId: tenant?.id }),
-                              })
-                              if (res.ok) { toast({ title: 'Sale Confirmed', description: 'Tax Invoice locked.' }); fetchSales() }
-                            }}>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8"
+                              title={(s.partyName || '').trim().toLowerCase() === 'cash' ? 'Cannot confirm Cash sale — edit customer name first' : 'Confirm Sale'}
+                              disabled={(s.partyName || '').trim().toLowerCase() === 'cash'}
+                              onClick={async () => {
+                                // v4.160: Cash customer rule — block confirmation in UI
+                                if ((s.partyName || '').trim().toLowerCase() === 'cash') {
+                                  toast({
+                                    title: 'Cannot Confirm',
+                                    description: 'Edit the sale and enter the customer\'s real name before confirming.',
+                                    variant: 'destructive',
+                                  })
+                                  return
+                                }
+                                const res = await authFetch('/api/sales', {
+                                  method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({ action: 'confirm-sale', id: s.id, tenantId: tenant?.id }),
+                                })
+                                if (res.ok) { toast({ title: 'Sale Confirmed', description: 'Tax Invoice locked.' }); fetchSales() }
+                                else {
+                                  const errData = await res.json().catch(() => ({}))
+                                  toast({ title: 'Confirm Failed', description: errData.error || 'Failed', variant: 'destructive' })
+                                }
+                              }}
+                            >
                               <CheckCircle2 className="h-4 w-4 text-emerald-600" />
                             </Button>
                           )}
@@ -1428,6 +1448,17 @@ export function SaleRegister() {
               </Button>
               <Button className="bg-emerald-600 hover:bg-emerald-700" onClick={async () => {
                 if (!justSavedSale || !tenant) return
+                // v4.160: Cash customer rule — block confirmation
+                const isCashCustomer = (justSavedSale.partyName || '').trim().toLowerCase() === 'cash'
+                if (isCashCustomer) {
+                  toast({
+                    title: 'Cannot Confirm Sale',
+                    description: 'A sale with customer name "Cash" cannot be confirmed. Edit the sale and enter the customer\'s real name to process a credit sale.',
+                    variant: 'destructive',
+                    duration: 8000,
+                  })
+                  return
+                }
                 const res = await authFetch('/api/sales', {
                   method: 'POST', headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({ action: 'confirm-sale', id: justSavedSale.id, tenantId: tenant.id }),
@@ -1436,6 +1467,9 @@ export function SaleRegister() {
                   toast({ title: 'Sale Confirmed', description: 'Tax Invoice is now locked for Data Entry users.' })
                   setJustSavedSale(null)
                   fetchSales()
+                } else {
+                  const errData = await res.json().catch(() => ({}))
+                  toast({ title: 'Confirm Failed', description: errData.error || 'Failed to confirm sale', variant: 'destructive' })
                 }
               }}>
                 <CheckCircle2 className="h-4 w-4 mr-2" /> Confirm Sale (Tax Invoice)

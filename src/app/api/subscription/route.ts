@@ -119,6 +119,16 @@ export async function POST(req: NextRequest) {
         console.log(`[SUBSCRIPTION] Created free tier (${freeHours}Hrs) for tenant ${tenantId}`)
       }
 
+      // v4.160: Count ACTUAL non-view-only users for surcharge calculation
+      // Was: only checked maxUsersAllowed (purchased extra IDs) — missed users added directly
+      const { rawDb } = await import('@/lib/db-soft-delete')
+      const actualNonViewOnlyCount = await rawDb.userTenant.count({
+        where: { tenantId, role: { notIn: ['VIEW_ONLY'] } },
+      })
+      const DEFAULT_NON_VIEW_ONLY_USERS = 3
+      const actualExtraIds = Math.max(0, actualNonViewOnlyCount - DEFAULT_NON_VIEW_ONLY_USERS)
+      const hasExtraUsers = actualNonViewOnlyCount > DEFAULT_NON_VIEW_ONLY_USERS
+
       return NextResponse.json({
         subscription: {
           id: subscription.id,
@@ -140,6 +150,10 @@ export async function POST(req: NextRequest) {
           extraJuniorAdminSlots: (subscription as any).extraJuniorAdminSlots || 0,
           extraDataEntrySlots: (subscription as any).extraDataEntrySlots || 0,
           maxUsersAllowed: (subscription as any).maxUsersAllowed || null,
+          // v4.160: Actual user counts for surcharge calculation
+          actualNonViewOnlyCount,
+          actualExtraIds,
+          hasExtraUsers,
           mrp: subscription.mrp,
           includedSlots: {
             mainAdmin: 1,
@@ -189,15 +203,20 @@ export async function POST(req: NextRequest) {
       }
 
       // v4.130: Calculate 15% surcharge if tenant has extra non-view-only users
-      // v4.136 FIX: Check maxUsersAllowed (the LIMIT), not actual user count
-      const maxUsersAllowed = (subscription as any)?.maxUsersAllowed || 0
-      const hasExtraUsers = maxUsersAllowed > DEFAULT_NON_VIEW_ONLY_USERS
+      // v4.160 FIX: Check ACTUAL non-view-only user count, not just maxUsersAllowed
+      // The old code only checked maxUsersAllowed (purchased extra IDs) — missed users
+      // added directly via add-user. Now we count real users in UserTenant table.
+      const { rawDb: rawDb2 } = await import('@/lib/db-soft-delete')
+      const actualNonViewOnlyCountRecharge = await rawDb2.userTenant.count({
+        where: { tenantId, role: { notIn: ['VIEW_ONLY'] } },
+      })
+      const hasExtraUsers = actualNonViewOnlyCountRecharge > DEFAULT_NON_VIEW_ONLY_USERS
       const basePrice = plan.discountAmount // e.g., 150 for 50Hrs plan
       const surchargeAmount = hasExtraUsers ? Math.round(basePrice * EXTRA_USER_RECHARGE_SURCHARGE_PERCENT / 100) : 0
       const finalPrice = basePrice + surchargeAmount
 
       if (hasExtraUsers) {
-        console.log(`[RECHARGE] Tenant ${tenantId} maxUsersAllowed=${maxUsersAllowed} (> ${DEFAULT_NON_VIEW_ONLY_USERS}). Applying 15% surcharge: ₹${basePrice} + ₹${surchargeAmount} = ₹${finalPrice}`)
+        console.log(`[RECHARGE] Tenant ${tenantId} actualNonViewOnlyUsers=${actualNonViewOnlyCountRecharge} (> ${DEFAULT_NON_VIEW_ONLY_USERS}). Applying 15% surcharge: ₹${basePrice} + ₹${surchargeAmount} = ₹${finalPrice}`)
       }
 
       // Add recharge seconds to remaining

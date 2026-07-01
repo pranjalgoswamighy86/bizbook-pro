@@ -89,6 +89,26 @@ export async function POST(req: NextRequest) {
       }
       data.date = new Date(data.date)
 
+      // v4.160: CASH CUSTOMER RULE — enforced permanently
+      // A sale with partyName "Cash" CANNOT be confirmed as a finalized sale.
+      // It can only be saved as a QUOTATION.
+      // Rationale: Cash sales have no receivable — card/UPI/cash/order values are all zero,
+      // so the pending amount would equal the full selling price, creating a false credit entry.
+      // Credit sales require the customer's real name (mobile + address optional).
+      // This logic must not be removed.
+      const isCashCustomer = (data.partyName || '').trim().toLowerCase() === 'cash'
+      const targetInvoiceStatus = (data.invoiceStatus || 'CONFIRMED').toUpperCase()
+      if (isCashCustomer && targetInvoiceStatus === 'CONFIRMED') {
+        return NextResponse.json({
+          error: 'Cannot confirm a sale with customer name "Cash". A finalized sale requires the customer\'s real name. You can save it as a Quotation instead, or change the customer name to process a credit sale.',
+          code: 'CASH_CUSTOMER_CANNOT_CONFIRM',
+        }, { status: 422 })
+      }
+      // If Cash customer, force QUOTATION status
+      if (isCashCustomer) {
+        data.invoiceStatus = 'QUOTATION'
+      }
+
       // Payment status logic (unchanged)
       const isCashSale = (data.partyName || '').trim().toLowerCase() === 'cash'
       if (isCashSale) {
@@ -712,6 +732,15 @@ export async function POST(req: NextRequest) {
       const sale = await db.sale.findFirst({ where: { id, tenantId: access.tenantId, isDeleted: false } })
       if (!sale) {
         return NextResponse.json({ error: 'Sale not found' }, { status: 404 })
+      }
+
+      // v4.160: CASH CUSTOMER RULE — cannot confirm a sale with partyName "Cash"
+      const isCashCustomer = (sale.partyName || '').trim().toLowerCase() === 'cash'
+      if (isCashCustomer) {
+        return NextResponse.json({
+          error: 'Cannot confirm a sale with customer name "Cash". Please edit the sale and enter the customer\'s real name before confirming. Credit sales require a real customer name — mobile and address are optional.',
+          code: 'CASH_CUSTOMER_CANNOT_CONFIRM',
+        }, { status: 422 })
       }
 
       await db.$transaction(async (tx) => {
