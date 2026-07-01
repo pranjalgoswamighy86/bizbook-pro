@@ -372,18 +372,23 @@ export async function POST(req: NextRequest) {
         }
 
         // v4.159: Create Receipt record if payment was received (was missing — broke cash flow tracking)
+        // Wrapped in try-catch so receipt creation failure doesn't block the sale
         if (sale.amountReceived && sale.amountReceived > 0) {
-          await tx.receipt.create({
-            data: {
-              date: sale.date,
-              partyName: sale.partyName,
-              amount: roundTo2(sale.amountReceived),
-              paymentMode: sale.paymentMode || 'CASH',
-              reference: sale.invoiceNumber,
-              notes: `Payment received for sale ${sale.invoiceNumber}`,
-              tenantId: access.tenantId,
-            },
-          })
+          try {
+            await tx.receipt.create({
+              data: {
+                date: sale.date,
+                partyName: sale.partyName,
+                amount: roundTo2(sale.amountReceived),
+                paymentMode: sale.paymentMode || 'CASH',
+                reference: sale.invoiceNumber,
+                notes: `Payment received for sale ${sale.invoiceNumber}`,
+                tenantId: access.tenantId,
+              },
+            })
+          } catch (receiptErr) {
+            console.error('[SALE] Receipt creation failed (non-blocking):', receiptErr)
+          }
         }
 
         // 6. Audit log (inside transaction — commits or rolls back with the sale)
@@ -767,6 +772,8 @@ export async function POST(req: NextRequest) {
         { status: 422 }
       )
     }
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    // v4.159: Return actual error message for debugging (was hiding behind "Internal server error")
+    const errMsg = error?.message || 'Internal server error'
+    return NextResponse.json({ error: errMsg, stack: error?.stack?.slice(0, 300) }, { status: 500 })
   }
 }
