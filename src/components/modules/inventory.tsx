@@ -321,16 +321,24 @@ export function Inventory() {
                       <TableHead>SKU</TableHead>
                       <TableHead>Category</TableHead>
                       <TableHead className="text-right">Purch. Price</TableHead>
+                      <TableHead className="text-right">MRP</TableHead>
                       <TableHead className="text-right">Sale Price</TableHead>
-                      <TableHead className="text-right">Stock</TableHead>
+                      <TableHead className="text-right">Opening stock</TableHead>
+                      <TableHead className="text-right">Stock in</TableHead>
+                      <TableHead className="text-right">Stock out</TableHead>
+                      <TableHead className="text-right">Closing stock</TableHead>
                       <TableHead className="text-right">Value</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead className="text-right">Actions</TableHead>
                     </TableRow></TableHeader>
                     <TableBody>
                       {items.length === 0 ? (
-                        <TableRow><TableCell colSpan={10} className="text-center text-muted-foreground py-8">No inventory items. Add your first item.</TableCell></TableRow>
-                      ) : items.map((i) => (
+                        <TableRow><TableCell colSpan={14} className="text-center text-muted-foreground py-8">No inventory items. Add your first item.</TableCell></TableRow>
+                      ) : items.map((i) => {
+                        // v4.158: Compute Stock in/out from opening vs closing
+                        const stockIn = Math.max(0, i.currentStock - i.openingStock)
+                        const stockOut = Math.max(0, i.openingStock - i.currentStock)
+                        return (
                         <TableRow key={i.id}>
                           <TableCell className="font-medium">{i.name}</TableCell>
                           <TableCell>
@@ -341,8 +349,12 @@ export function Inventory() {
                           <TableCell>{i.sku || '-'}</TableCell>
                           <TableCell>{i.category || '-'}</TableCell>
                           <TableCell className="text-right">{formatCurrency(i.purchasePrice, tenant?.currency)}</TableCell>
+                          <TableCell className="text-right">{i.mrp ? formatCurrency(i.mrp, tenant?.currency) : '-'}</TableCell>
                           <TableCell className="text-right">{formatCurrency(i.salePrice, tenant?.currency)}</TableCell>
-                          <TableCell className="text-right">{i.currentStock} {i.unit}</TableCell>
+                          <TableCell className="text-right">{i.openingStock} {i.unit}</TableCell>
+                          <TableCell className="text-right text-emerald-600">{stockIn > 0 ? `+${stockIn}` : '0'} {i.unit}</TableCell>
+                          <TableCell className="text-right text-red-600">{stockOut > 0 ? `-${stockOut}` : '0'} {i.unit}</TableCell>
+                          <TableCell className="text-right font-medium">{i.currentStock} {i.unit}</TableCell>
                           <TableCell className="text-right">{formatCurrency(i.value, tenant?.currency)}</TableCell>
                           <TableCell>
                             {i.currentStock <= i.minStock ? (
@@ -393,7 +405,7 @@ export function Inventory() {
                             </div>
                           </TableCell>
                         </TableRow>
-                      ))}
+                      )})}
                     </TableBody>
                   </Table>
                 </div>
