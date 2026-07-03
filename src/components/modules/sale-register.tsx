@@ -585,36 +585,40 @@ export function SaleRegister() {
   <title>Invoice - ${sale.invoiceNumber}</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: 'Segoe UI', Arial, sans-serif; color: #1a1a1a; padding: 40px; max-width: 800px; margin: 0 auto; }
-    .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 30px; border-bottom: 3px solid #10b981; padding-bottom: 20px; }
-    .brand h1 { font-size: 24px; color: #10b981; }
-    .brand p { font-size: 12px; color: #666; margin-top: 4px; }
+    @page { size: A4; margin: 10mm; }
+    body { font-family: Arial, Helvetica, sans-serif; color: #000; padding: 20px; max-width: 100%; }
+    .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 30px; border-bottom: 4px solid #000; padding-bottom: 20px; }
+    .brand h1 { font-size: 48px; color: #000; font-weight: 900; }
+    .brand p { font-size: 24px; color: #000; margin-top: 8px; line-height: 1.4; }
     .invoice-title { text-align: right; }
-    .invoice-title h2 { font-size: 28px; color: #333; }
-    .invoice-title p { font-size: 13px; color: #666; margin-top: 4px; }
-    .parties { display: flex; justify-content: space-between; margin-bottom: 25px; }
-    .party-box { width: 48%; }
-    .party-box h3 { font-size: 11px; text-transform: uppercase; color: #999; letter-spacing: 1px; margin-bottom: 8px; }
-    .party-box .name { font-size: 16px; font-weight: 600; }
-    .party-box .detail { font-size: 13px; color: #555; margin-top: 3px; }
-    table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
-    thead th { background: #f8fafc; padding: 10px 12px; text-align: left; font-size: 12px; text-transform: uppercase; color: #64748b; border-bottom: 2px solid #e2e8f0; }
+    .invoice-title h2 { font-size: 56px; color: #000; font-weight: 900; letter-spacing: 4px; }
+    .invoice-title p { font-size: 26px; color: #000; margin-top: 8px; font-weight: 700; }
+    .parties { display: flex; justify-content: space-between; margin-bottom: 30px; gap: 30px; }
+    .party-box { width: 48%; padding: 20px; border: 4px solid #000; }
+    .party-box h3 { font-size: 22px; text-transform: uppercase; color: #000; margin-bottom: 10px; font-weight: 800; border-bottom: 3px solid #000; padding-bottom: 8px; }
+    .party-box .name { font-size: 30px; font-weight: 800; color: #000; }
+    .party-box .detail { font-size: 24px; color: #000; margin-top: 6px; }
+    table { width: 100%; border-collapse: collapse; margin-bottom: 30px; }
+    thead th { background: #000; color: #fff; padding: 16px 12px; text-align: left; font-size: 24px; text-transform: uppercase; font-weight: 800; border: 3px solid #000; }
     thead th.right { text-align: right; }
-    tbody td { padding: 10px 12px; font-size: 13px; border-bottom: 1px solid #f1f5f9; }
-    tbody td.right { text-align: right; }
+    tbody td { padding: 14px 12px; font-size: 26px; border: 3px solid #000; color: #000; }
+    tbody td.right { text-align: right; font-weight: 700; }
     .summary { display: flex; justify-content: flex-end; }
-    .summary-box { width: 300px; }
-    .summary-row { display: flex; justify-content: space-between; padding: 6px 0; font-size: 14px; }
-    .summary-row.total { font-size: 18px; font-weight: 700; border-top: 2px solid #10b981; padding-top: 10px; margin-top: 5px; color: #10b981; }
-    .summary-row.due { color: #ef4444; font-weight: 600; }
-    .footer { margin-top: 40px; padding-top: 15px; border-top: 1px solid #e2e8f0; font-size: 11px; color: #999; text-align: center; }
-    .badge { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; }
-    .badge-paid { background: #dcfce7; color: #166534; }
-    .badge-unpaid { background: #fef3c7; color: #92400e; }
-    .badge-partial { background: #dbeafe; color: #1e40af; }
-    .badge-pending { background: #fef3c7; color: #92400e; }
-    .badge-received { background: #dcfce7; color: #166534; }
-    @media print { body { padding: 20px; } }
+    .summary-box { width: 50%; }
+    .summary-row { display: flex; justify-content: space-between; padding: 10px 0; font-size: 28px; color: #000; border-bottom: 3px dashed #000; }
+    .summary-row.total { font-size: 40px; font-weight: 900; border-top: 5px solid #000; border-bottom: 5px solid #000; padding: 16px 0; margin-top: 12px; color: #000; }
+    .summary-row.due { font-weight: 800; border-bottom: none; }
+    .footer { margin-top: 50px; padding-top: 20px; border-top: 4px solid #000; font-size: 22px; color: #000; text-align: center; font-weight: 700; }
+    .badge { display: inline-block; padding: 8px 24px; border: 4px solid #000; font-size: 24px; font-weight: 800; }
+    .terms { margin-top: 25px; padding: 16px 20px; border: 4px solid #000; font-size: 24px; color: #000; }
+    .signature { margin-top: 60px; display: flex; justify-content: flex-end; }
+    .signature-box { text-align: center; border-top: 4px solid #000; padding-top: 12px; width: 300px; }
+    .signature-box p { font-size: 26px; color: #000; font-weight: 800; }
+    .signature-box small { font-size: 22px; color: #000; }
+    @media print {
+      body { padding: 10px; }
+      thead th { background: #000 !important; color: #fff !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    }
   </style>
 </head>
 <body>
