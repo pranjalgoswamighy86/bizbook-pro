@@ -57,6 +57,7 @@ try {
 }
 
 // Step 2: Push Prisma schema to PostgreSQL (creates tables if missing)
+// v4.182: Force --accept-data-loss to handle schema changes with existing data
 console.log('→ Syncing database schema to PostgreSQL...');
 try {
   execSync('npx prisma db push --skip-generate --accept-data-loss', {

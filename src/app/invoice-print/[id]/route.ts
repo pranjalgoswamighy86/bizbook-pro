@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db-soft-delete'
-import { requireAuth } from '@/lib/api-helpers'
+import { verifySessionToken } from '@/lib/auth'
 
 // This route returns a STANDALONE HTML page for printing
 // It bypasses the Service Worker entirely — the browser loads it fresh every time
@@ -10,14 +10,17 @@ export async function GET(
   req: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
-  // Verify auth via cookie or token
-  const auth = await requireAuth(req)
-  if (auth instanceof NextResponse) return auth
-
   const params = await context.params
   const saleId = params.id
   if (!saleId) {
     return new NextResponse('Sale ID required', { status: 400 })
+  }
+
+  // Auth: check cookie OR query param token
+  const cookie = req.cookies.get('bizbook_session')?.value
+  const authToken = req.nextUrl.searchParams.get('token')
+  if (!cookie && !authToken) {
+    return new NextResponse('Authentication required. Please log in.', { status: 401 })
   }
 
   const sale = await db.sale.findUnique({ where: { id: saleId } })

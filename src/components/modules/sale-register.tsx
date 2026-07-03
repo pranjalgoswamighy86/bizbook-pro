@@ -569,14 +569,10 @@ export function SaleRegister() {
 
   const handlePrintInvoice = (sale: Sale, thermal: boolean = false) => {
     // v4.182: Open server-side invoice route — bypasses Service Worker cache entirely
-    // The route /invoice-print/[id] returns standalone HTML that's never cached
     const token = useAppStore.getState().sessionToken
-    const printUrl = `/invoice-print/${sale.id}?t=${Date.now()}`
+    const printUrl = `/invoice-print/${sale.id}?t=${Date.now()}${token ? '&token=' + encodeURIComponent(token) : ''}`
     const printWindow = window.open(printUrl, '_blank', 'width=900,height=700')
-    if (printWindow) {
-      // The server route returns a full HTML page with auto-print CSS
-      // It will automatically trigger window.print() on load
-    } else {
+    if (!printWindow) {
       // Popup blocked — try direct navigation
       window.location.href = printUrl
     }
