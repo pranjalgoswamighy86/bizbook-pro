@@ -8,12 +8,13 @@ export const dynamic = 'force-dynamic'
 
 export async function GET(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) {
   // Verify auth via cookie or token
   const auth = await requireAuth(req)
   if (auth instanceof NextResponse) return auth
 
+  const params = await context.params
   const saleId = params.id
   if (!saleId) {
     return new NextResponse('Sale ID required', { status: 400 })

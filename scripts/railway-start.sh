@@ -8,7 +8,7 @@ mkdir -p db
 
 # Push schema to database (creates tables if they don't exist)
 echo "→ Syncing database schema..."
-npx prisma db push --skip-generate 2>/dev/null || true
+npx prisma db push --skip-generate --accept-data-loss 2>/dev/null || true
 
 # Seed admin user if no users exist
 echo "→ Checking for admin user..."

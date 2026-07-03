@@ -59,7 +59,7 @@ try {
 // Step 2: Push Prisma schema to PostgreSQL (creates tables if missing)
 console.log('→ Syncing database schema to PostgreSQL...');
 try {
-  execSync('npx prisma db push --skip-generate', {
+  execSync('npx prisma db push --skip-generate --accept-data-loss', {
     stdio: 'inherit',
     env: { ...process.env, DATABASE_URL: process.env.DATABASE_URL }
   });
