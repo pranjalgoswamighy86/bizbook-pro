@@ -27,6 +27,30 @@ export async function POST(req: NextRequest) {
         }
       }
       data.value = (Number(data.currentStock) || 0) * (Number(data.purchasePrice) || 0)
+
+      // v4.174: DEDUPLICATION ENFORCEMENT — prevent duplicate items in master inventory
+      // Each item must exist as exactly ONE primary row per tenant.
+      // Items can appear unlimited times in sales/purchase transactions,
+      // but the master inventory registry allows only one entry per item name.
+      const itemName = String(data.name || '').trim()
+      if (itemName) {
+        const { rawDb } = await import('@/lib/db-soft-delete')
+        // Case-insensitive dedup check
+        const existingItems = await rawDb.inventoryItem.findMany({
+          where: { tenantId, isDeleted: false },
+          select: { id: true, name: true },
+        })
+        const duplicate = existingItems.find(i => i.name.trim().toLowerCase() === itemName.toLowerCase())
+        if (duplicate) {
+          return NextResponse.json({
+            error: `Duplicate item: "${itemName}" already exists in inventory (ID: ${duplicate.id}). Master inventory allows only one entry per item. Use "Update" to modify the existing item, or "Adjust Stock" to change its quantity.`,
+            code: 'DUPLICATE_ITEM',
+            existingItemId: duplicate.id,
+            existingItemName: duplicate.name,
+          }, { status: 409 })
+        }
+      }
+
       const item = await db.inventoryItem.create({ data: data as any })
       return NextResponse.json({ item })
     }
