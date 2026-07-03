@@ -21,7 +21,7 @@
  * UPDATE MODAL: src/components/app/sw-update-modal.tsx
  */
 
-const CACHE_VERSION = 'bizbook-pro-v4.181.0-2026-07-03';
+const CACHE_VERSION = 'bizbook-pro-v4.182.0-2026-07-03';
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 const API_CACHE = `${CACHE_VERSION}-api`;
@@ -125,6 +125,11 @@ self.addEventListener('fetch', (event) => {
   // Skip chrome-extension and external requests
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
+
+  // v4.182: Never cache invoice-print routes — always fetch fresh from server
+  if (url.pathname.startsWith('/invoice-print/')) {
+    return;
+  }
 
   // v4.155: Cache API GET responses for offline reads
   if (url.pathname.startsWith('/api/')) {
