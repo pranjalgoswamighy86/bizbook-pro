@@ -568,12 +568,12 @@ export function SaleRegister() {
   }
 
   const handlePrintInvoice = (sale: Sale, thermal: boolean = false) => {
-    // v4.182: Open server-side invoice route — bypasses Service Worker cache entirely
+    // v4.184: Paper size — 'thermal' for 80mm receipt, 'a4' for full page
+    const paper = thermal ? 'thermal' : 'a4'
     const token = useAppStore.getState().sessionToken
-    const printUrl = `/invoice-print/${sale.id}?t=${Date.now()}${token ? '&token=' + encodeURIComponent(token) : ''}`
+    const printUrl = `/invoice-print/${sale.id}?t=${Date.now()}&paper=${paper}${token ? '&token=' + encodeURIComponent(token) : ''}`
     const printWindow = window.open(printUrl, '_blank', 'width=900,height=700')
     if (!printWindow) {
-      // Popup blocked — try direct navigation
       window.location.href = printUrl
     }
   }
@@ -652,7 +652,8 @@ export function SaleRegister() {
                       <TableCell>{statusBadge(s.paymentStatus)}</TableCell>
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-1">
-                          <Button variant="ghost" size="icon" className="h-8 w-8" title="Print Invoice" onClick={() => handlePrintInvoice(s, false)}><Printer className="h-4 w-4" /></Button>
+                          <Button variant="ghost" size="icon" className="h-8 w-8" title="Print A4" onClick={() => handlePrintInvoice(s, false)}><Printer className="h-4 w-4" /></Button>
+                          <Button variant="ghost" size="icon" className="h-8 w-8" title="Print Thermal (80mm)" onClick={() => handlePrintInvoice(s, true)}><Printer className="h-3 w-3" /></Button>
                           {s.partyGst && <Button variant="ghost" size="icon" className="h-8 w-8" title="Generate E-Invoice" onClick={() => handleGenerateEinvoice(s)}><FileCheck className="h-4 w-4" /></Button>}
                           <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setViewItem(s)}><Eye className="h-4 w-4" /></Button>
                           {/* v4.106: Show Confirm button for Quotation sales */}
