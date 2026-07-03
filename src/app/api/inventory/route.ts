@@ -118,9 +118,10 @@ export async function POST(req: NextRequest) {
       if (category) where.category = category
       if (lowStock) where.currentStock = { lte: 0 }
 
-      // v4.55: Add pagination for 1000+ user scalability
+      // v4.176: Remove 100-item pagination limit — load ALL items
+      // Default: no limit (load all). If client specifies a limit, cap at 10000.
       const page = Number(body.page) || 1
-      const limit = Math.min(Number(body.limit) || 100, 500)
+      const limit = body.limit ? Math.min(Number(body.limit), 10000) : 10000
       const skip = (page - 1) * limit
       const items = await db.inventoryItem.findMany({ where, orderBy: { name: 'asc' }, take: limit, skip })
       const totalValue = items.reduce((sum, i) => sum + i.value, 0)
