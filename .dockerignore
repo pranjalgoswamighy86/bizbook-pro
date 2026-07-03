@@ -1,0 +1,57 @@
+# === .dockerignore — prevents files from being included in Railway/Docker build context ===
+# This speeds up builds AND prevents the tsconfig.tsbuildinfo cache mount bug
+
+# TypeScript build info (CRITICAL — breaks Railway Nixpacks builds if included
+# because Nixpacks tries to cache-mount it as a directory but it's a file)
+*.tsbuildinfo
+tsconfig.tsbuildinfo
+
+# Dependencies (will be re-installed in the container)
+node_modules/
+
+# Build artifacts
+.next/
+out/
+dist/
+build/
+
+# Database (each Railway env has its own DB)
+db/*.db
+db/*.db-shm
+db/*.db-wal
+db/backups/
+
+# Environment files (Railway uses its own env vars)
+.env
+.env.local
+.env.production
+.env.*.local
+
+# Upload directories (Railway should not get local uploads)
+upload/
+uploaded-invoices/
+download/
+
+# Logs
+*.log
+logs/
+
+# Platform / dev tooling (not part of the app)
+skills/
+tool-results/
+agent-ctx/
+.zscripts/
+.git/
+.github/
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+
+# Documentation (not needed in production image)
+*.md
+!CUSTOM_DOMAIN_SETUP.md
+!README.md

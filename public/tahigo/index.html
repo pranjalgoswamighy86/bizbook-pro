@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tahigo International — Premium Business Software Solutions</title>
+  <meta name="description" content="Tahigo International — Makers of BizBook Pro. Premium multi-tenant SaaS billing, inventory & accounting software for Indian SMEs. GST-compliant, AI-powered, double-entry accounting.">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    :root {
+      --primary: #10b981;
+      --primary-dark: #059669;
+      --dark: #0f172a;
+      --slate: #1e293b;
+      --slate-light: #64748b;
+      --bg: #f8fafc;
+      --white: #ffffff;
+      --emerald-50: #ecfdf5;
+      --emerald-100: #d1fae5;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+      color: var(--slate);
+      background: var(--white);
+      line-height: 1.6;
+    }
+    /* Hero Section */
+    .hero {
+      background: linear-gradient(135deg, var(--dark) 0%, var(--slate) 100%);
+      color: var(--white);
+      padding: 6rem 2rem 4rem;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+    }
+    .hero::before {
+      content: '';
+      position: absolute;
+      top: -50%;
+      right: -20%;
+      width: 600px;
+      height: 600px;
+      background: radial-gradient(circle, rgba(16,185,129,0.15) 0%, transparent 70%);
+      border-radius: 50%;
+    }
+    .hero-logo {
+      font-size: 2.5rem;
+      font-weight: 800;
+      margin-bottom: 1rem;
+      background: linear-gradient(135deg, var(--primary) 0%, #34d399 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      letter-spacing: -0.02em;
+    }
+    .hero-tagline {
+      font-size: 1.25rem;
+      color: var(--slate-light);
+      margin-bottom: 2rem;
+      max-width: 600px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+    .hero-cta {
+      display: flex;
+      gap: 1rem;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.875rem 2rem;
+      border-radius: 10px;
+      text-decoration: none;
+      font-weight: 600;
+      font-size: 1rem;
+      transition: all 0.2s;
+      border: none;
+      cursor: pointer;
+    }
+    .btn-primary {
+      background: var(--primary);
+      color: var(--white);
+    }
+    .btn-primary:hover { background: var(--primary-dark); transform: translateY(-2px); }
+    .btn-outline {
+      background: transparent;
+      color: var(--white);
+      border: 2px solid var(--slate-light);
+    }
+    .btn-outline:hover { border-color: var(--primary); color: var(--primary); }
+    /* Container */
+    .container { max-width: 1200px; margin: 0 auto; padding: 0 2rem; }
+    /* Stats Bar */
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 2rem;
+      padding: 3rem 2rem;
+      background: var(--emerald-50);
+    }
+    .stat { text-align: center; }
+    .stat-number {
+      font-size: 2.5rem;
+      font-weight: 800;
+      color: var(--primary);
+      display: block;
+    }
+    .stat-label { color: var(--slate-light); font-size: 0.95rem; }
+    /* Section */
+    .section { padding: 5rem 0; }
+    .section-title {
+      font-size: 2.5rem;
+      font-weight: 800;
+      text-align: center;
+      margin-bottom: 1rem;
+      color: var(--dark);
+    }
+    .section-subtitle {
+      text-align: center;
+      color: var(--slate-light);
+      font-size: 1.15rem;
+      margin-bottom: 3rem;
+      max-width: 600px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+    /* Product Cards */
+    .product-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 2rem;
+    }
+    .product-card {
+      background: var(--white);
+      border: 1px solid #e2e8f0;
+      border-radius: 16px;
+      padding: 2rem;
+      transition: all 0.3s;
+    }
+    .product-card:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 12px 40px rgba(0,0,0,0.08);
+      border-color: var(--primary);
+    }
+    .product-icon {
+      width: 56px;
+      height: 56px;
+      border-radius: 12px;
+      background: var(--emerald-100);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.5rem;
+      margin-bottom: 1.5rem;
+    }
+    .product-card h3 { font-size: 1.3rem; margin-bottom: 0.5rem; color: var(--dark); }
+    .product-card p { color: var(--slate-light); margin-bottom: 1rem; }
+    .product-features { list-style: none; }
+    .product-features li {
+      padding: 0.25rem 0;
+      color: var(--slate);
+      font-size: 0.95rem;
+    }
+    .product-features li::before {
+      content: '✓ ';
+      color: var(--primary);
+      font-weight: bold;
+    }
+    /* Features Section */
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 1.5rem;
+    }
+    .feature-item {
+      padding: 1.5rem;
+      border-radius: 12px;
+      background: var(--bg);
+    }
+    .feature-item h4 { font-size: 1.1rem; margin-bottom: 0.5rem; color: var(--dark); }
+    .feature-item p { color: var(--slate-light); font-size: 0.95rem; }
+    /* Pricing */
+    .pricing-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 2rem;
+      max-width: 1000px;
+      margin: 0 auto;
+    }
+    .pricing-card {
+      background: var(--white);
+      border: 2px solid #e2e8f0;
+      border-radius: 16px;
+      padding: 2rem;
+      text-align: center;
+      position: relative;
+    }
+    .pricing-card.featured {
+      border-color: var(--primary);
+      transform: scale(1.05);
+    }
+    .pricing-card.featured::before {
+      content: 'Most Popular';
+      position: absolute;
+      top: -12px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--primary);
+      color: var(--white);
+      padding: 0.25rem 1rem;
+      border-radius: 20px;
+      font-size: 0.85rem;
+      font-weight: 600;
+    }
+    .pricing-plan { font-size: 1.25rem; font-weight: 700; color: var(--dark); margin-bottom: 0.5rem; }
+    .pricing-price { font-size: 2.5rem; font-weight: 800; color: var(--primary); margin: 1rem 0; }
+    .pricing-price span { font-size: 1rem; color: var(--slate-light); font-weight: 400; }
+    .pricing-features { list-style: none; margin: 1.5rem 0; text-align: left; }
+    .pricing-features li { padding: 0.5rem 0; border-bottom: 1px solid #f1f5f9; color: var(--slate); }
+    .pricing-features li::before { content: '✓ '; color: var(--primary); font-weight: bold; }
+    /* Download Section */
+    .download-section {
+      background: var(--dark);
+      color: var(--white);
+      padding: 5rem 2rem;
+      text-align: center;
+    }
+    .download-section h2 { font-size: 2rem; margin-bottom: 1rem; }
+    .download-section p { color: var(--slate-light); margin-bottom: 2rem; }
+    .download-buttons { display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap; }
+    /* Footer */
+    .footer {
+      background: var(--dark);
+      color: var(--slate-light);
+      padding: 3rem 2rem 2rem;
+      border-top: 1px solid var(--slate);
+    }
+    .footer-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 2rem;
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    .footer h4 { color: var(--white); margin-bottom: 1rem; font-size: 1rem; }
+    .footer a { color: var(--slate-light); text-decoration: none; display: block; padding: 0.25rem 0; font-size: 0.9rem; }
+    .footer a:hover { color: var(--primary); }
+    .footer-bottom { text-align: center; padding-top: 2rem; margin-top: 2rem; border-top: 1px solid var(--slate); font-size: 0.85rem; }
+    /* Badge */
+    .badge {
+      display: inline-block;
+      background: var(--emerald-100);
+      color: var(--primary-dark);
+      padding: 0.25rem 0.75rem;
+      border-radius: 20px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      margin-bottom: 1rem;
+    }
+    /* Responsive */
+    @media (max-width: 768px) {
+      .hero { padding: 4rem 1.5rem 3rem; }
+      .hero-logo { font-size: 2rem; }
+      .hero-tagline { font-size: 1rem; }
+      .section { padding: 3rem 0; }
+      .section-title { font-size: 1.75rem; }
+      .pricing-card.featured { transform: none; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Hero Section -->
+  <section class="hero">
+    <div class="hero-logo">Tahigo International</div>
+    <p class="hero-tagline">Premium Business Software Solutions for Indian SMEs. Makers of BizBook Pro — the next-generation cloud ERP with AI-powered automation and double-entry accounting.</p>
+    <div class="hero-cta">
+      <a href="#product" class="btn btn-primary">Explore BizBook Pro</a>
+      <a href="#download" class="btn btn-outline">Download .exe</a>
+    </div>
+  </section>
+
+  <!-- Stats Bar -->
+  <section class="stats">
+    <div class="stat">
+      <span class="stat-number">29+</span>
+      <span class="stat-label">Business Modules</span>
+    </div>
+    <div class="stat">
+      <span class="stat-number">42</span>
+      <span class="stat-label">API Endpoints</span>
+    </div>
+    <div class="stat">
+      <span class="stat-number">30+</span>
+      <span class="stat-label">Database Models</span>
+    </div>
+    <div class="stat">
+      <span class="stat-number">100K+</span>
+      <span class="stat-label">Requests Handled</span>
+    </div>
+  </section>
+
+  <!-- Product Section -->
+  <section class="section" id="product">
+    <div class="container">
+      <span class="badge">Flagship Product</span>
+      <h2 class="section-title">BizBook Pro</h2>
+      <p class="section-subtitle">A complete multi-tenant SaaS billing, inventory, and accounting platform built for Indian businesses. GST-compliant, AI-powered, and enterprise-ready.</p>
+
+      <div class="product-grid">
+        <div class="product-card">
+          <div class="product-icon">📊</div>
+          <h3>Double-Entry Accounting</h3>
+          <p>Full General Ledger with journal entries, trial balance, P&L, and balance sheet. Every transaction follows Assets = Liabilities + Equity.</p>
+          <ul class="product-features">
+            <li>Journal Entry + Reversal on Edit/Delete</li>
+            <li>Debtors (AR) & Creditors (AP) sub-ledgers</li>
+            <li>GST split (CGST/SGST/IGST)</li>
+            <li>Chart of Accounts (26 standard accounts)</li>
+            <li>Trial Balance with balance verification</li>
+          </ul>
+        </div>
+
+        <div class="product-card">
+          <div class="product-icon">🛒</div>
+          <h3>Sales & Purchase</h3>
+          <p>Create professional invoices with multi-item support, payment modes, and automatic inventory updates.</p>
+          <ul class="product-features">
+            <li>Item Type: Retail / Finished / Service</li>
+            <li>Payment modes: Cash / UPI / Card / Part Payment</li>
+            <li>Barcode scanner (continuous auto-scan)</li>
+            <li>E-invoice integration (IRN/AckNo)</li>
+            <li>Excel export with Payment Mode column</li>
+          </ul>
+        </div>
+
+        <div class="product-card">
+          <div class="product-icon">📦</div>
+          <h3>Inventory Management</h3>
+          <p>Stock tracking with BOM support, batch/expiry management, and anti-negative stock protection.</p>
+          <ul class="product-features">
+            <li>Raw Materials + Finished Products</li>
+            <li>Bill of Materials (BOM) with auto-deduction</li>
+            <li>Batch tracking with expiry dates</li>
+            <li>Customer-specific price lists</li>
+            <li>Barcode scanner for quick lookup</li>
+          </ul>
+        </div>
+
+        <div class="product-card">
+          <div class="product-icon">👥</div>
+          <h3>Staff & Payroll</h3>
+          <p>Complete staff management with biometric attendance and salary payments with automatic journal entries.</p>
+          <ul class="product-features">
+            <li>Fingerprint scanner (USB hardware support)</li>
+            <li>Auto check-in/check-out via barcode</li>
+            <li>Salary payment with Dr Salary / Cr Cash/Bank</li>
+            <li>Staff activity log with active time tracking</li>
+            <li>5-tier RBAC (View/Data Entry/Junior/Main/Super)</li>
+          </ul>
+        </div>
+
+        <div class="product-card">
+          <div class="product-icon">🤖</div>
+          <h3>AI-Powered Features</h3>
+          <p>Smart invoice import from images/PDF and AI-powered business valuation — features Tally doesn't have.</p>
+          <ul class="product-features">
+            <li>AI Smart Import (scan invoice → auto-fill)</li>
+            <li>AI Business Valuation</li>
+            <li>AI Support Chat (instant help)</li>
+            <li>Vision-based barcode scanning</li>
+            <li>Automated data entry</li>
+          </ul>
+        </div>
+
+        <div class="product-card">
+          <div class="product-icon">🔐</div>
+          <h3>Security & Compliance</h3>
+          <p>Enterprise-grade security with multi-tenant isolation, soft-delete pattern, and full audit trails.</p>
+          <ul class="product-features">
+            <li>Multi-tenant row-level isolation</li>
+            <li>Soft-delete (records never truly deleted)</li>
+            <li>Audit log on all CREATE/UPDATE/DELETE</li>
+            <li>OTP via Email + SMS (registration)</li>
+            <li>5-minute AFK auto-logout</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Features Section -->
+  <section class="section" style="background: var(--bg);">
+    <div class="container">
+      <h2 class="section-title">Why Choose BizBook Pro?</h2>
+      <p class="section-subtitle">Built on modern technology with features that go beyond traditional ERP systems.</p>
+      <div class="features-grid">
+        <div class="feature-item">
+          <h4>☁️ Cloud-Native SaaS</h4>
+          <p>Access from anywhere, anytime. No installation or server maintenance required. Multi-tenant architecture supports multiple companies per user.</p>
+        </div>
+        <div class="feature-item">
+          <h4>📱 Mobile Responsive</h4>
+          <p>Works perfectly on mobile, tablet, and desktop. Touch-friendly UI with safe-area support for iPhone notch.</p>
+        </div>
+        <div class="feature-item">
+          <h4>⚡ High Performance</h4>
+          <p>Lazy-loaded modules, hover-prefetch, database aggregation, PM2 cluster mode. Handles 926 requests/second with 0 failures.</p>
+        </div>
+        <div class="feature-item">
+          <h4>🇮🇳 GST Compliant</h4>
+          <p>Automatic CGST/SGST/IGST split based on inter/intra-state supply. E-invoice integration with IRP. GSTR reports ready.</p>
+        </div>
+        <div class="feature-item">
+          <h4>💰 UPI Payment Verification</h4>
+          <p>3-layer verification: SMS webhook + IMAP email scan + manual screenshot/UTR. Subscription activation only after verified payment.</p>
+        </div>
+        <div class="feature-item">
+          <h4>🔄 Auto Excel Backup</h4>
+          <p>Automatic Excel backup download after every sale/purchase/expense. One-click manual backup. Full data export capability.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Pricing Section -->
+  <section class="section">
+    <div class="container">
+      <h2 class="section-title">Pricing Plans</h2>
+      <p class="section-subtitle">Hour-based subscription model. Pay only for what you use. No hidden fees.</p>
+      <div class="pricing-grid">
+        <div class="pricing-card">
+          <div class="pricing-plan">Free Tier</div>
+          <div class="pricing-price">₹0<span>/month</span></div>
+          <p style="color: var(--slate-light);">100 hours free</p>
+          <ul class="pricing-features">
+            <li>All modules included</li>
+            <li>1 Main Admin + 1 Junior Admin</li>
+            <li>1 Data Entry + 1 View Only</li>
+            <li>100 hours usage</li>
+            <li>Email support</li>
+          </ul>
+          <a href="#" class="btn btn-primary">Start Free</a>
+        </div>
+        <div class="pricing-card featured">
+          <div class="pricing-plan">50 Hours</div>
+          <div class="pricing-price">₹599<span>/month</span></div>
+          <p style="color: var(--slate-light);">50 hours + extra staff slots</p>
+          <ul class="pricing-features">
+            <li>All modules included</li>
+            <li>1 Main Admin (10h) + 1 Junior (15h)</li>
+            <li>1 Data Entry (25h) + View Only (free)</li>
+            <li>50 hours usage</li>
+            <li>Priority email + AI chat support</li>
+            <li>Excel backup + data export</li>
+          </ul>
+          <a href="#" class="btn btn-primary">Choose Plan</a>
+        </div>
+        <div class="pricing-card">
+          <div class="pricing-plan">Enterprise</div>
+          <div class="pricing-price">Custom</div>
+          <p style="color: var(--slate-light);">Unlimited everything</p>
+          <ul class="pricing-features">
+            <li>All modules included</li>
+            <li>Unlimited staff slots</li>
+            <li>Unlimited hours</li>
+            <li>24/7 phone + email support</li>
+            <li>Custom integrations</li>
+            <li>On-premise deployment option</li>
+          </ul>
+          <a href="#" class="btn btn-outline" style="color: var(--primary); border-color: var(--primary);">Contact Sales</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Download Section -->
+  <section class="download-section" id="download">
+    <h2>Download BizBook Pro</h2>
+    <p>Get the desktop application or access the cloud version. Both come with all features included.</p>
+    <div class="download-buttons">
+      <a href="/download.html" class="btn btn-primary">📄 Download Documents</a>
+      <a href="#" class="btn btn-outline">💻 Download .exe (Coming Soon)</a>
+      <a href="https://bizbook-pro-production.up.railway.app" class="btn btn-outline">☁️ Launch Cloud Version</a>
+    </div>
+    <div style="margin-top: 3rem; display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1.5rem; max-width: 800px; margin-left: auto; margin-right: auto;">
+      <div style="text-align: left;">
+        <h4 style="color: var(--white); margin-bottom: 0.5rem;">📋 Complete Blueprint</h4>
+        <p style="font-size: 0.9rem;">Architecture, modules, database schema, accounting system</p>
+      </div>
+      <div style="text-align: left;">
+        <h4 style="color: var(--white); margin-bottom: 0.5rem;">📋 Development Document</h4>
+        <p style="font-size: 0.9rem;">Setup guide, API patterns, GST logic, version history</p>
+      </div>
+      <div style="text-align: left;">
+        <h4 style="color: var(--white); margin-bottom: 0.5rem;">📋 Complete Chat Log</h4>
+        <p style="font-size: 0.9rem;">All development conversations, deployment history</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="footer-grid">
+      <div>
+        <h4>Tahigo International</h4>
+        <p style="font-size: 0.9rem; margin-bottom: 1rem;">Premium business software solutions for Indian SMEs.</p>
+        <p style="font-size: 0.85rem;">A Product by Tahigo International</p>
+      </div>
+      <div>
+        <h4>Product</h4>
+        <a href="#product">BizBook Pro</a>
+        <a href="#download">Download</a>
+        <a href="#">Pricing</a>
+        <a href="#">Features</a>
+      </div>
+      <div>
+        <h4>Resources</h4>
+        <a href="/download.html">Documentation</a>
+        <a href="#">API Reference</a>
+        <a href="#">Support</a>
+        <a href="#">Blog</a>
+      </div>
+      <div>
+        <h4>Company</h4>
+        <a href="#">About Us</a>
+        <a href="#">Contact</a>
+        <a href="#">Privacy Policy</a>
+        <a href="#">Terms of Service</a>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <p>&copy; 2026 Tahigo International. All rights reserved. BizBook Pro v4.85.</p>
+    </div>
+  </footer>
+
+</body>
+</html>
