@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db-soft-delete'
 import { verifySessionToken } from '@/lib/auth'
 
-// This route returns a STANDALONE HTML page for printing
-// It bypasses the Service Worker entirely — the browser loads it fresh every time
+// This route returns a STANDALONE HTML page for printing.
+// It bypasses the Service Worker entirely — the browser loads it fresh every time.
 export const dynamic = 'force-dynamic'
 
 export async function GET(
@@ -16,11 +16,13 @@ export async function GET(
     return new NextResponse('Sale ID required', { status: 400 })
   }
 
-  // v4.185: Single print route — CSS auto-detects printer via @media queries
-  // No paper size parameter needed. The browser's print dialog determines
-  // the paper size, and the CSS automatically switches:
-  // - A4 (default): multi-column, edge-to-edge, flex layout
-  // - 80mm thermal (max-width: 90mm): single-column, compact receipt
+  // v4.186: FLUID EDGE-TO-EDGE LAYOUT
+  // - padding: 0 on body, no whitespace margins
+  // - All blocks use width: 100%
+  // - Central billing/summary block expanded to full page width (no longer 45%)
+  // - Typography sharply upscaled (headers 28-46px, line items 20-22px, totals 36px)
+  // - Tables stretch edge-to-edge with no inner gutters
+  // - @media print and (max-width: 90mm) auto-detects thermal 80mm printers
 
   // Auth: check cookie OR query param token
   const cookie = req.cookies.get('bizbook_session')?.value
@@ -79,82 +81,375 @@ export async function GET(
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Invoice - ${sale.invoiceNumber}</title>
   <style>
+    /* ====================================================================
+       v4.186 — FLUID EDGE-TO-EDGE PRINT LAYOUT
+       - body padding: 0  →  NO blank margins
+       - all blocks width: 100%  →  NO compression in the middle
+       - typography sharply upscaled for instant legibility
+       ==================================================================== */
     * { margin: 0; padding: 0; box-sizing: border-box; }
 
-    /* === DEFAULT: A4 PRINTER — full page, edge-to-edge === */
+    /* === DEFAULT: A4 PRINTER — full bleed, edge-to-edge === */
     @page { size: A4; margin: 0; }
-    html, body { width: 210mm; min-height: 297mm; margin: 0; padding: 0; }
-    body { font-family: Arial, Helvetica, sans-serif; color: #000; padding: 10mm; display: flex; flex-direction: column; }
-    .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 5mm; border-bottom: 3px solid #000; padding-bottom: 4mm; }
-    .brand h1 { font-size: 30px; font-weight: 900; line-height: 1; }
-    .brand p { font-size: 15px; margin-top: 3px; line-height: 1.3; }
-    .invoice-title { text-align: right; }
-    .invoice-title h2 { font-size: 36px; font-weight: 900; letter-spacing: 3px; line-height: 1; }
-    .invoice-title p { font-size: 16px; margin-top: 3px; font-weight: 700; }
-    .parties { display: flex; justify-content: space-between; margin-bottom: 5mm; gap: 5mm; }
-    .party-box { width: 48%; padding: 4mm; border: 3px solid #000; }
-    .party-box h3 { font-size: 13px; text-transform: uppercase; margin-bottom: 3px; font-weight: 800; border-bottom: 2px solid #000; padding-bottom: 2px; }
-    .party-box .name { font-size: 20px; font-weight: 800; }
-    .party-box .detail { font-size: 15px; margin-top: 2px; }
-    table { width: 100%; border-collapse: collapse; margin-bottom: 5mm; flex-grow: 1; }
-    thead th { background: #000; color: #fff; padding: 6px 5px; text-align: left; font-size: 15px; text-transform: uppercase; font-weight: 800; border: 2px solid #000; }
-    thead th.right { text-align: right; }
-    tbody td { padding: 5px 5px; font-size: 16px; border: 2px solid #000; }
-    tbody td.right { text-align: right; font-weight: 700; }
-    .summary { display: flex; justify-content: flex-end; margin-bottom: 4mm; }
-    .summary-box { width: 45%; }
-    .summary-row { display: flex; justify-content: space-between; padding: 4px 0; font-size: 17px; border-bottom: 2px dashed #000; }
-    .summary-row.total { font-size: 24px; font-weight: 900; border-top: 3px solid #000; border-bottom: 3px solid #000; padding: 6px 0; margin-top: 4px; }
-    .summary-row.due { font-weight: 800; border-bottom: none; }
-    .footer { margin-top: auto; padding-top: 4mm; border-top: 3px solid #000; font-size: 13px; text-align: center; font-weight: 700; }
-    .badge { display: inline-block; padding: 3px 12px; border: 3px solid #000; font-size: 15px; font-weight: 800; }
-    .terms { margin-top: 3mm; padding: 4mm; border: 3px solid #000; font-size: 15px; }
-    .signature { margin-top: auto; display: flex; justify-content: flex-end; padding-top: 8mm; }
-    .signature-box { text-align: center; border-top: 3px solid #000; padding-top: 3mm; width: 60mm; }
-    .signature-box p { font-size: 17px; font-weight: 800; }
-    .signature-box small { font-size: 13px; }
-
-    @media print {
-      body { padding: 10mm; }
-      thead th { background: #000 !important; color: #fff !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    html, body {
+      width: 210mm;
+      min-height: 297mm;
+      margin: 0;
+      padding: 0;            /* <-- NO WHITESPACE MARGINS */
+    }
+    body {
+      font-family: Arial, Helvetica, sans-serif;
+      color: #000;
+      padding: 0;            /* <-- NO WHITESPACE MARGINS */
+      display: flex;
+      flex-direction: column;
+      width: 100%;
     }
 
-    /* === THERMAL PRINTER (80mm) — auto-detected by browser === */
-    /* Triggers when the selected printer/paper width is <= 90mm */
+    /* --- HEADER: full-width banner, edge-to-edge --- */
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      width: 100%;
+      padding: 8mm 8mm 5mm 8mm;
+      margin: 0;
+      border-bottom: 4px solid #000;
+    }
+    .brand h1 {
+      font-size: 46px;          /* was 30px  → +53% */
+      font-weight: 900;
+      line-height: 1.05;
+      letter-spacing: -0.5px;
+    }
+    .brand p {
+      font-size: 20px;          /* was 15px  → +33% */
+      margin-top: 5px;
+      line-height: 1.35;
+      font-weight: 600;
+    }
+    .invoice-title { text-align: right; }
+    .invoice-title h2 {
+      font-size: 56px;          /* was 36px  → +55% */
+      font-weight: 900;
+      letter-spacing: 4px;
+      line-height: 1;
+    }
+    .invoice-title p {
+      font-size: 22px;          /* was 16px  → +37% */
+      margin-top: 5px;
+      font-weight: 800;
+    }
+    .badge {
+      display: inline-block;
+      padding: 6px 18px;
+      border: 3px solid #000;
+      font-size: 20px;          /* was 15px  → +33% */
+      font-weight: 900;
+      margin-top: 6px;
+    }
+
+    /* --- PARTIES: two equal full-width halves, edge-to-edge --- */
+    .parties {
+      display: flex;
+      width: 100%;
+      margin: 0;
+      padding: 0;
+      gap: 0;                   /* edge-to-edge, no gutter */
+    }
+    .party-box {
+      width: 50%;
+      padding: 6mm 8mm;
+      border: 0;
+      border-right: 4px solid #000;
+      border-bottom: 4px solid #000;
+    }
+    .party-box:last-child {
+      border-right: 0;
+    }
+    .party-box h3 {
+      font-size: 18px;          /* was 13px  → +38% */
+      text-transform: uppercase;
+      margin-bottom: 6px;
+      font-weight: 900;
+      border-bottom: 3px solid #000;
+      padding-bottom: 4px;
+      letter-spacing: 1px;
+    }
+    .party-box .name {
+      font-size: 28px;          /* was 20px  → +40% */
+      font-weight: 900;
+      margin-bottom: 4px;
+    }
+    .party-box .detail {
+      font-size: 20px;          /* was 15px  → +33% */
+      margin-top: 4px;
+      font-weight: 600;
+      line-height: 1.35;
+    }
+
+    /* --- LINE-ITEM TABLE: edge-to-edge, big fonts --- */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 0;
+      flex-grow: 1;
+    }
+    thead th {
+      background: #000;
+      color: #fff;
+      padding: 12px 10px;       /* was 6px 5px   → +100% */
+      text-align: left;
+      font-size: 20px;          /* was 15px      → +33% */
+      text-transform: uppercase;
+      font-weight: 900;
+      border: 2px solid #000;
+      letter-spacing: 0.5px;
+    }
+    thead th.right { text-align: right; }
+    tbody td {
+      padding: 10px 10px;       /* was 5px 5px   → +100% */
+      font-size: 22px;          /* was 16px      → +37% */
+      border: 2px solid #000;
+      vertical-align: top;
+    }
+    tbody td.right {
+      text-align: right;
+      font-weight: 800;
+    }
+
+    /* --- BILLING BLOCK: FULL WIDTH — no longer 45% compressed on the side --- */
+    .summary {
+      display: block;
+      width: 100%;
+      margin: 0;
+      padding: 0;
+    }
+    .summary-box {
+      width: 100%;              /* was 45% → now FULL PAGE WIDTH */
+      padding: 6mm 8mm;
+      border-top: 4px solid #000;
+      border-bottom: 4px solid #000;
+      background: #f5f5f5;
+    }
+    .summary-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 0;           /* was 4px       → +100% */
+      font-size: 24px;          /* was 17px      → +41% */
+      border-bottom: 2px dashed #000;
+      font-weight: 700;
+    }
+    .summary-row span:first-child { letter-spacing: 0.3px; }
+    .summary-row span:last-child  { font-weight: 900; font-variant-numeric: tabular-nums; }
+    .summary-row.total {
+      font-size: 36px;          /* was 24px      → +50% */
+      font-weight: 900;
+      border-top: 5px solid #000;
+      border-bottom: 5px solid #000;
+      padding: 14px 0;          /* was 6px       → +133% */
+      margin-top: 8px;
+      background: #000;
+      color: #fff;
+    }
+    .summary-row.due {
+      font-weight: 900;
+      border-bottom: none;
+      color: #b91c1c;
+    }
+
+    /* --- TERMS / NOTES: full-width banner --- */
+    .terms {
+      width: 100%;
+      padding: 6mm 8mm;
+      border: 0;
+      border-bottom: 4px solid #000;
+      font-size: 20px;          /* was 15px      → +33% */
+      line-height: 1.4;
+      font-weight: 600;
+    }
+    .terms strong { font-size: 22px; }
+
+    /* --- E-INVOICE BLOCK: full-width --- */
+    .einvoice-block {
+      width: 100%;
+      padding: 6mm 8mm;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 4px solid #000;
+      background: #f0fdf4;
+    }
+    .einvoice-block h4 {
+      font-size: 22px;
+      margin-bottom: 6px;
+      font-weight: 900;
+    }
+    .einvoice-block .meta {
+      font-size: 18px;
+      line-height: 1.4;
+    }
+
+    /* --- UPI QR: centered, full-width band --- */
+    .upi-band {
+      width: 100%;
+      padding: 6mm 8mm;
+      text-align: center;
+      border-bottom: 4px solid #000;
+    }
+    .upi-band img { width: 180px; height: 180px; }
+    .upi-band .label {
+      font-size: 22px;
+      margin-top: 8px;
+      font-weight: 900;
+    }
+
+    /* --- SIGNATURE: full-width, right-aligned inside its row --- */
+    .signature {
+      width: 100%;
+      padding: 10mm 8mm 6mm 8mm;
+      display: flex;
+      justify-content: flex-end;
+    }
+    .signature-box {
+      text-align: center;
+      border-top: 4px solid #000;
+      padding-top: 5mm;
+      width: 80mm;
+    }
+    .signature-box p {
+      font-size: 22px;          /* was 17px → +29% */
+      font-weight: 900;
+    }
+    .signature-box small {
+      font-size: 18px;          /* was 13px → +38% */
+      font-weight: 600;
+    }
+
+    /* --- FOOTER: edge-to-edge --- */
+    .footer {
+      width: 100%;
+      margin-top: auto;
+      padding: 5mm 8mm;
+      border-top: 4px solid #000;
+      font-size: 18px;          /* was 13px → +38% */
+      text-align: center;
+      font-weight: 800;
+      background: #fafafa;
+    }
+
+    @media print {
+      body { padding: 0; }
+      thead th {
+        background: #000 !important;
+        color: #fff !important;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+      .summary-box,
+      .summary-row.total,
+      .footer,
+      .einvoice-block { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    }
+
+    /* ====================================================================
+       THERMAL PRINTER (80mm) — auto-detected by browser
+       Triggers when the selected printer/paper width is <= 90mm
+       ==================================================================== */
     @media print and (max-width: 90mm) {
       @page { size: 80mm auto; margin: 2mm; }
-      html, body { width: 76mm; min-height: auto; padding: 2mm; }
+      html, body {
+        width: 76mm;
+        min-height: auto;
+        padding: 2mm;
+      }
       body { font-family: 'Courier New', monospace; display: block; }
-      .header { display: block; text-align: center; margin-bottom: 2mm; padding-bottom: 2mm; border-bottom: 2px solid #000; }
-      .brand h1 { font-size: 16px; }
-      .brand p { font-size: 10px; margin-top: 1px; }
+
+      .header {
+        display: block;
+        text-align: center;
+        padding: 2mm;
+        margin: 0;
+        border-bottom: 2px solid #000;
+      }
+      .brand h1 { font-size: 18px; letter-spacing: 0; }
+      .brand p { font-size: 10px; margin-top: 1px; font-weight: 600; }
       .invoice-title { text-align: center; margin-top: 2mm; }
-      .invoice-title h2 { font-size: 18px; letter-spacing: 1px; }
+      .invoice-title h2 { font-size: 20px; letter-spacing: 1px; }
       .invoice-title p { font-size: 11px; margin-top: 1px; }
-      .parties { display: block; margin-bottom: 2mm; gap: 0; }
-      .party-box { width: 100%; padding: 1mm; border: 1px solid #000; margin-bottom: 1mm; }
-      .party-box h3 { font-size: 9px; margin-bottom: 1px; padding-bottom: 1px; border-bottom: 1px solid #000; }
-      .party-box .name { font-size: 12px; }
+      .badge { font-size: 11px; padding: 1px 6px; border: 2px solid #000; margin-top: 4px; }
+
+      .parties { display: block; gap: 0; }
+      .party-box {
+        width: 100%;
+        padding: 1mm 2mm;
+        border: 1px solid #000;
+        border-bottom: 1px solid #000;
+        margin-bottom: 1mm;
+      }
+      .party-box h3 { font-size: 10px; margin-bottom: 1px; padding-bottom: 1px; border-bottom: 1px solid #000; }
+      .party-box .name { font-size: 13px; margin-bottom: 1px; }
       .party-box .detail { font-size: 10px; margin-top: 1px; }
-      table { margin-bottom: 2mm; flex-grow: 0; }
-      thead th { padding: 1px 1px; font-size: 8px; border: 1px solid #000; background: #000 !important; color: #fff !important; }
-      tbody td { padding: 1px 1px; font-size: 10px; border: 1px solid #000; }
-      .summary { display: block; margin-bottom: 2mm; }
-      .summary-box { width: 100%; }
-      .summary-row { font-size: 11px; padding: 1px 0; border-bottom: 1px dashed #000; }
-      .summary-row.total { font-size: 14px; padding: 2px 0; border-top: 2px solid #000; border-bottom: 2px solid #000; }
-      .footer { font-size: 9px; margin-top: 2mm; padding-top: 1mm; border-top: 2px solid #000; }
-      .badge { font-size: 10px; padding: 1px 5px; border: 2px solid #000; }
-      .terms { font-size: 10px; padding: 1mm; border: 1px solid #000; margin-top: 1mm; }
-      .signature { display: block; margin-top: 3mm; padding-top: 0; text-align: center; }
-      .signature-box { width: 100%; padding-top: 1mm; border-top: 1px solid #000; }
-      .signature-box p { font-size: 11px; }
-      .signature-box small { font-size: 9px; }
+
+      table { margin: 0; flex-grow: 0; }
+      thead th {
+        padding: 2px 2px;
+        font-size: 9px;
+        border: 1px solid #000;
+      }
+      tbody td {
+        padding: 2px 2px;
+        font-size: 11px;
+        border: 1px solid #000;
+      }
+
+      .summary-box {
+        width: 100%;
+        padding: 2mm;
+        border-top: 2px solid #000;
+        border-bottom: 2px solid #000;
+        background: #fff;
+      }
+      .summary-row {
+        font-size: 12px;
+        padding: 1px 0;
+        border-bottom: 1px dashed #000;
+      }
+      .summary-row.total {
+        font-size: 15px;
+        padding: 3px 0;
+        border-top: 2px solid #000;
+        border-bottom: 2px solid #000;
+        background: #000;
+        color: #fff;
+      }
+
+      .terms { font-size: 10px; padding: 2mm; border-bottom: 2px solid #000; }
+      .terms strong { font-size: 11px; }
+      .einvoice-block { padding: 2mm; display: block; text-align: center; }
+      .einvoice-block h4 { font-size: 12px; }
+      .einvoice-block .meta { font-size: 10px; }
+      .upi-band { padding: 2mm; }
+      .upi-band img { width: 110px; height: 110px; }
+      .upi-band .label { font-size: 12px; margin-top: 4px; }
+
+      .signature { padding: 2mm; display: block; text-align: center; }
+      .signature-box { width: 100%; padding-top: 2mm; border-top: 1px solid #000; }
+      .signature-box p { font-size: 12px; }
+      .signature-box small { font-size: 10px; }
+
+      .footer { font-size: 9px; padding: 2mm; border-top: 2px solid #000; background: #fff; }
     }
 
     /* === SCREEN PREVIEW — shows A4 layout in browser === */
     @media screen {
-      body { max-width: 210mm; margin: 0 auto; }
+      body {
+        max-width: 210mm;
+        margin: 0 auto;
+        background: #fff;
+        box-shadow: 0 0 0 1px #ddd;
+      }
     }
   </style>
 </head>
@@ -162,7 +457,7 @@ export async function GET(
   <div class="header">
     <div class="brand">
       <h1>${tenant.name || 'BizBook Pro'}</h1>
-      <p>${tenant.address || ''}</p>
+      ${tenant.address ? '<p>' + tenant.address + '</p>' : ''}
       ${tenant.phone ? '<p>Phone: ' + tenant.phone + '</p>' : ''}
       ${tenant.email ? '<p>Email: ' + tenant.email + '</p>' : ''}
       ${tenant.gstNumber ? '<p>GSTIN: ' + tenant.gstNumber + '</p>' : ''}
@@ -215,7 +510,7 @@ export async function GET(
         <td class="right">${item.discount > 0 ? fmtCurrency(item.discount) : '-'}</td>
         <td class="right">${fmtCurrency(item.amount)}</td>
         <td class="right">${fmtCurrency(item.totalTax)}</td>
-        <td class="right" style="font-weight:700">${fmtCurrency(item.total)}</td>
+        <td class="right">${fmtCurrency(item.total)}</td>
       </tr>`).join('')}
     </tbody>
   </table>
@@ -224,7 +519,7 @@ export async function GET(
     <div class="summary-box">
       <div class="summary-row"><span>Subtotal</span><span>${fmtCurrency(sale.subtotal)}</span></div>
       <div class="summary-row"><span>Tax / Duties</span><span>${fmtCurrency(sale.gstAmount)}</span></div>
-      <div class="summary-row total"><span>Grand Total</span><span>${fmtCurrency(sale.totalAmount)}</span></div>
+      <div class="summary-row total"><span>GRAND TOTAL</span><span>${fmtCurrency(sale.totalAmount)}</span></div>
       <div class="summary-row"><span>Amount Received</span><span>${fmtCurrency(sale.amountReceived || sale.amountPaid)}</span></div>
       <div class="summary-row due"><span>Balance Due</span><span>${fmtCurrency(sale.totalAmount - (sale.amountReceived || sale.amountPaid))}</span></div>
     </div>
@@ -233,19 +528,17 @@ export async function GET(
   ${sale.notes ? '<div class="terms"><strong>Notes:</strong> ' + sale.notes + '</div>' : ''}
 
   ${sale.einvoiceStatus === 'GENERATED' ? `
-  <div style="margin-top:4mm;padding:4mm;border:2px solid #000;border-radius:4px;background:#f0fdf4;">
-    <div style="display:flex;justify-content:space-between;align-items:center;">
-      <div>
-        <h4 style="font-size:14px;margin-bottom:4px;">E-INVOICE VERIFIED</h4>
-        <div style="font-size:13px;">IRN: <span style="font-family:monospace;word-break:break-all;">${sale.einvoiceIrn || ''}</span></div>
-        ${sale.einvoiceAckNo ? '<div style="font-size:13px;margin-top:3px;">Ack No: ' + sale.einvoiceAckNo + '</div>' : ''}
-      </div>
-      ${sale.einvoiceQrCodeText ? '<div style="text-align:center;"><img src="https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=' + encodeURIComponent(sale.einvoiceQrCodeText) + '" alt="QR" style="width:100px;height:100px;border:1px solid #ccc;" /></div>' : ''}
+  <div class="einvoice-block">
+    <div>
+      <h4>E-INVOICE VERIFIED</h4>
+      <div class="meta">IRN: <span style="font-family:monospace;word-break:break-all;">${sale.einvoiceIrn || ''}</span></div>
+      ${sale.einvoiceAckNo ? '<div class="meta" style="margin-top:4px;">Ack No: ' + sale.einvoiceAckNo + '</div>' : ''}
     </div>
+    ${sale.einvoiceQrCodeText ? '<div style="text-align:center;"><img src="https://api.qrserver.com/v1/create-qr-code/?size=110x110&data=' + encodeURIComponent(sale.einvoiceQrCodeText) + '" alt="QR" style="width:110px;height:110px;border:1px solid #ccc;" /></div>' : ''}
   </div>
   ` : ''}
 
-  ${upiQrCode ? '<div style="margin:4mm 0;text-align:center;"><img src="' + upiQrCode + '" alt="UPI QR" style="width:150px;height:150px;border:1px solid #ccc;border-radius:4px;" /><div style="font-size:14px;margin-top:5px;font-weight:600;">Scan to Pay ' + fmtCurrency(sale.upiAmount || 0) + '</div></div>' : ''}
+  ${upiQrCode ? '<div class="upi-band"><img src="' + upiQrCode + '" alt="UPI QR" /><div class="label">Scan to Pay ' + fmtCurrency(sale.upiAmount || 0) + '</div></div>' : ''}
 
   <div class="signature">
     <div class="signature-box">
@@ -255,7 +548,7 @@ export async function GET(
   </div>
 
   <div class="footer">
-    Computer-generated invoice from BizBook Pro by Tahigo International · ${new Date().toLocaleString('en-IN')}
+    Computer-generated invoice from BizBook Pro by Tahigo International &middot; ${new Date().toLocaleString('en-IN')}
   </div>
 <script>window.onload = function() { setTimeout(function() { window.print(); }, 500); };</script>
 </body>
