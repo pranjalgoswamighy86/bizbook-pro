@@ -747,11 +747,49 @@ export function SaleRegister() {
 </body>
 </html>`
 
-    const printWindow = window.open('', '_blank', 'width=900,height=700')
-    if (printWindow) {
-      printWindow.document.write(printHtml)
-      printWindow.document.close()
-      printWindow.onload = () => { printWindow.print() }
+    // v4.180: Use hidden iframe instead of window.open — more reliable across browsers
+    // window.open + document.write is blocked by popup blockers and some browsers
+    const existingFrame = document.getElementById('print-frame') as HTMLIFrameElement | null
+    if (existingFrame) existingFrame.remove()
+
+    const printFrame = document.createElement('iframe')
+    printFrame.id = 'print-frame'
+    printFrame.style.position = 'fixed'
+    printFrame.style.right = '0'
+    printFrame.style.bottom = '0'
+    printFrame.style.width = '210mm'
+    printFrame.style.height = '297mm'
+    printFrame.style.border = 'none'
+    printFrame.style.opacity = '0'
+    printFrame.style.pointerEvents = 'none'
+    document.body.appendChild(printFrame)
+
+    const frameDoc = printFrame.contentWindow?.document || printFrame.contentDocument
+    if (frameDoc) {
+      frameDoc.open()
+      frameDoc.write(printHtml)
+      frameDoc.close()
+
+      // Wait for the iframe to load, then print
+      printFrame.onload = () => {
+        try {
+          printFrame.contentWindow?.focus()
+          printFrame.contentWindow?.print()
+        } catch (e) {
+          console.error('Print failed:', e)
+          // Fallback: open in new window
+          const fallbackWindow = window.open('', '_blank', 'width=900,height=700')
+          if (fallbackWindow) {
+            fallbackWindow.document.write(printHtml)
+            fallbackWindow.document.close()
+          }
+        }
+        // Clean up iframe after print
+        setTimeout(() => {
+          const f = document.getElementById('print-frame')
+          if (f) f.remove()
+        }, 1000)
+      }
     }
   }
 
