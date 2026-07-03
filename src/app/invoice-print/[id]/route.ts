@@ -16,13 +16,15 @@ export async function GET(
     return new NextResponse('Sale ID required', { status: 400 })
   }
 
-  // v4.186: FLUID EDGE-TO-EDGE LAYOUT
-  // - padding: 0 on body, no whitespace margins
-  // - All blocks use width: 100%
-  // - Central billing/summary block expanded to full page width (no longer 45%)
-  // - Typography sharply upscaled (headers 28-46px, line items 20-22px, totals 36px)
-  // - Tables stretch edge-to-edge with no inner gutters
-  // - @media print and (max-width: 90mm) auto-detects thermal 80mm printers
+  // v4.187: DYNAMIC TEMPLATE STANDARDIZATION (wireframe: image (1).png)
+  // - Seller block (top-left): Seller Name, Address, Phone, Email — DYNAMIC bindings
+  // - Invoice metadata (top-right): #INV-XXXXXX, dd/mm/yy, PAID/PENDING status flag
+  // - Buyer block (top-right, nested): Bill To / Buyer Name / destination address
+  // - Itemized table RESTRUCTURED: each item is a STACKED grid block with a
+  //   dedicated HSN vertical column box on the right (no longer a wide table)
+  // - Footer: live system timestamp token `dd/mm/yyyy, HH:MM:SS pm/am`
+  // - @media print and (max-width: 90mm) thermal auto-detection preserved
+  // - Edge-to-edge fluid layout from v4.186 preserved
 
   // Auth: check cookie OR query param token
   const cookie = req.cookies.get('bizbook_session')?.value
@@ -47,45 +49,99 @@ export async function GET(
     parsedItems = JSON.parse(sale.items || '[]')
   } catch { /* empty */ }
 
-  // Helper functions
+  // ============================================================
+  // DYNAMIC DATA BINDINGS — all field values resolved at render
+  // ============================================================
+  const sellerName   = tenant.name    || 'BizBook Pro'
+  const sellerAddr   = tenant.address || ''
+  const sellerPhone  = tenant.phone   || ''
+  const sellerEmail  = tenant.email   || ''
+  const sellerGst    = tenant.gstNumber || ''
+  const upiId        = tenant.upiId   || ''
+
+  const buyerName    = sale.partyName    || ''
+  const buyerAddr    = sale.partyAddress || ''
+  const buyerGst     = sale.partyGst     || ''
+
+  // Live metadata pulled from the transaction record
+  const invoiceNo    = sale.invoiceNumber || ''
+  const invoiceDate  = new Date(sale.date).toLocaleDateString('en-IN', {
+                         day: '2-digit', month: '2-digit', year: '2-digit'
+                       })   // dd/mm/yy
+  const statusFlag   = (() => {
+                         const u = (sale.paymentStatus || '').toUpperCase()
+                         if (u === 'PAID' || u === 'RECEIVED') return 'PAID'
+                         if (u === 'PARTIAL') return 'PARTIAL'
+                         return 'PENDING'
+                       })()
+
+  // Live system timestamp token: dd/mm/yyyy, HH:MM:SS pm/am
+  const now = new Date()
+  const sysDate = now.toLocaleDateString('en-IN', {
+    day: '2-digit', month: '2-digit', year: 'numeric'
+  })
+  const sysTime = now.toLocaleTimeString('en-IN', {
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+    hour12: true
+  })
+  const systemTimestamp = `${sysDate}, ${sysTime}`   // dd/mm/yyyy, HH:MM:SS pm/am
+
+  // Currency formatter
   const fmtCurrency = (amt: number) => {
-    return '₹' + Number(amt || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-  }
-  const fmtDate = (dt: Date) => {
-    return new Date(dt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
-  }
-  const normalizeStatus = (s: string) => {
-    const u = (s || '').toUpperCase()
-    if (u === 'PAID' || u === 'RECEIVED') return 'RECEIVED'
-    if (u === 'UNPAID' || u === 'PENDING') return 'PENDING'
-    if (u === 'PARTIAL') return 'PARTIAL'
-    return u
-  }
-  const statusLabel = (s: string) => {
-    const n = normalizeStatus(s)
-    if (n === 'RECEIVED') return 'PAID'
-    if (n === 'PENDING') return 'UNPAID'
-    return n
+    return '₹' + Number(amt || 0).toLocaleString('en-IN', {
+      minimumFractionDigits: 2, maximumFractionDigits: 2
+    })
   }
 
   // Build UPI QR if configured
-  const upiId = tenant.upiId
   const upiQrCode = upiId
-    ? 'https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=' + encodeURIComponent('upi://pay?pa=' + upiId + '&pn=' + (tenant.name || 'Business') + '&am=' + (sale.upiAmount || 0) + '&cu=INR&tn=Invoice ' + sale.invoiceNumber)
+    ? 'https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=' + encodeURIComponent('upi://pay?pa=' + upiId + '&pn=' + (sellerName) + '&am=' + (sale.upiAmount || 0) + '&cu=INR&tn=Invoice ' + invoiceNo)
     : null
+
+  // ============================================================
+  // MULTI-ITEM STACKED ARRAY LOOP
+  // Each item is rendered as a grid block: details on left, HSN vertical box on right
+  // ============================================================
+  const itemBlocks = parsedItems.map((item, i) => {
+    const itemQty      = `${item.qty || 0} ${item.unit || ''}`
+    const itemRate     = fmtCurrency(item.rate)
+    const itemDiscount = item.discount > 0 ? fmtCurrency(item.discount) : '₹0.00'
+    const itemAmount   = fmtCurrency(item.amount)
+    const itemTax      = fmtCurrency(item.totalTax)
+    const itemTotal    = fmtCurrency(item.total)
+    const hsn          = item.hsn || '—'
+    const itemName     = item.name + (item.saleItemType === 'SERVICE' ? ' [SERVICE]' : '')
+    return `
+    <div class="item-block">
+      <div class="item-no">${i + 1}</div>
+      <div class="item-detail">
+        <div class="item-name">${itemName}</div>
+        <div class="item-row"><span class="lbl">Qty</span><span class="val">${itemQty}</span></div>
+        <div class="item-row"><span class="lbl">Rate</span><span class="val">${itemRate}</span></div>
+        <div class="item-row"><span class="lbl">Discount</span><span class="val">${itemDiscount}</span></div>
+        <div class="item-row"><span class="lbl">Amount</span><span class="val">${itemAmount}</span></div>
+        <div class="item-row"><span class="lbl">Tax</span><span class="val">${itemTax}</span></div>
+        <div class="item-row total-row"><span class="lbl">Total</span><span class="val">${itemTotal}</span></div>
+      </div>
+      <div class="item-hsn">
+        <div class="hsn-label">HSN</div>
+        <div class="hsn-value">${hsn}</div>
+      </div>
+    </div>`
+  }).join('')
 
   const html = `<!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Invoice - ${sale.invoiceNumber}</title>
+  <title>Invoice - ${invoiceNo}</title>
   <style>
     /* ====================================================================
-       v4.186 — FLUID EDGE-TO-EDGE PRINT LAYOUT
-       - body padding: 0  →  NO blank margins
-       - all blocks width: 100%  →  NO compression in the middle
-       - typography sharply upscaled for instant legibility
+       v4.187 — DYNAMIC TEMPLATE STANDARDIZATION (wireframe: image 1.png)
+       - Edge-to-edge fluid layout (padding: 0, width: 100%)
+       - Stacked grid blocks for line items with vertical HSN column
+       - Live system timestamp token in footer
        ==================================================================== */
     * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -95,262 +151,368 @@ export async function GET(
       width: 210mm;
       min-height: 297mm;
       margin: 0;
-      padding: 0;            /* <-- NO WHITESPACE MARGINS */
+      padding: 0;
     }
     body {
       font-family: Arial, Helvetica, sans-serif;
       color: #000;
-      padding: 0;            /* <-- NO WHITESPACE MARGINS */
+      padding: 0;
       display: flex;
       flex-direction: column;
       width: 100%;
     }
 
-    /* --- HEADER: full-width banner, edge-to-edge --- */
-    .header {
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-start;
+    /* --- INVOICE TITLE BANNER (full-width, centered) --- */
+    .title-banner {
       width: 100%;
+      text-align: center;
       padding: 8mm 8mm 5mm 8mm;
-      margin: 0;
       border-bottom: 4px solid #000;
     }
-    .brand h1 {
-      font-size: 46px;          /* was 30px  → +53% */
+    .title-banner h1 {
+      font-size: 56px;
       font-weight: 900;
-      line-height: 1.05;
-      letter-spacing: -0.5px;
-    }
-    .brand p {
-      font-size: 20px;          /* was 15px  → +33% */
-      margin-top: 5px;
-      line-height: 1.35;
-      font-weight: 600;
-    }
-    .invoice-title { text-align: right; }
-    .invoice-title h2 {
-      font-size: 56px;          /* was 36px  → +55% */
-      font-weight: 900;
-      letter-spacing: 4px;
+      letter-spacing: 6px;
       line-height: 1;
     }
-    .invoice-title p {
-      font-size: 22px;          /* was 16px  → +37% */
-      margin-top: 5px;
-      font-weight: 800;
-    }
-    .badge {
-      display: inline-block;
-      padding: 6px 18px;
-      border: 3px solid #000;
-      font-size: 20px;          /* was 15px  → +33% */
-      font-weight: 900;
-      margin-top: 6px;
-    }
 
-    /* --- PARTIES: two equal full-width halves, edge-to-edge --- */
-    .parties {
-      display: flex;
+    /* --- HEADER ROW: seller (left) + metadata/buyer (right) --- */
+    .header-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
       width: 100%;
-      margin: 0;
-      padding: 0;
-      gap: 0;                   /* edge-to-edge, no gutter */
-    }
-    .party-box {
-      width: 50%;
-      padding: 6mm 8mm;
-      border: 0;
-      border-right: 4px solid #000;
       border-bottom: 4px solid #000;
     }
-    .party-box:last-child {
-      border-right: 0;
-    }
-    .party-box h3 {
-      font-size: 18px;          /* was 13px  → +38% */
-      text-transform: uppercase;
-      margin-bottom: 6px;
-      font-weight: 900;
-      border-bottom: 3px solid #000;
-      padding-bottom: 4px;
-      letter-spacing: 1px;
-    }
-    .party-box .name {
-      font-size: 28px;          /* was 20px  → +40% */
-      font-weight: 900;
-      margin-bottom: 4px;
-    }
-    .party-box .detail {
-      font-size: 20px;          /* was 15px  → +33% */
-      margin-top: 4px;
-      font-weight: 600;
-      line-height: 1.35;
-    }
-
-    /* --- LINE-ITEM TABLE: edge-to-edge, big fonts --- */
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      margin: 0;
-      flex-grow: 1;
-    }
-    thead th {
-      background: #000;
-      color: #fff;
-      padding: 12px 10px;       /* was 6px 5px   → +100% */
-      text-align: left;
-      font-size: 20px;          /* was 15px      → +33% */
-      text-transform: uppercase;
-      font-weight: 900;
-      border: 2px solid #000;
-      letter-spacing: 0.5px;
-    }
-    thead th.right { text-align: right; }
-    tbody td {
-      padding: 10px 10px;       /* was 5px 5px   → +100% */
-      font-size: 22px;          /* was 16px      → +37% */
-      border: 2px solid #000;
+    .header-cell {
+      padding: 6mm 8mm;
       vertical-align: top;
     }
-    tbody td.right {
-      text-align: right;
-      font-weight: 800;
+    .header-cell.left  { border-right: 4px solid #000; }
+    .header-cell.right { }
+
+    .block-label {
+      font-size: 16px;
+      font-weight: 900;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      color: #b91c1c;   /* red accent per wireframe */
+      margin-bottom: 6px;
+      border-bottom: 2px solid #b91c1c;
+      padding-bottom: 3px;
     }
 
-    /* --- BILLING BLOCK: FULL WIDTH — no longer 45% compressed on the side --- */
-    .summary {
-      display: block;
+    /* Seller field bindings */
+    .seller-block .field-name {
+      font-size: 28px;
+      font-weight: 900;
+      margin-bottom: 8px;
+      line-height: 1.15;
+    }
+    .seller-block .field {
+      font-size: 18px;
+      margin-bottom: 4px;
+      line-height: 1.35;
+      font-weight: 600;
+    }
+    .seller-block .field .lbl {
+      display: inline-block;
+      font-weight: 900;
+      font-size: 14px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: #555;
+      margin-right: 6px;
+    }
+
+    /* Invoice metadata (right side, top) */
+    .meta-block {
+      text-align: right;
+      padding-bottom: 5mm;
+      margin-bottom: 5mm;
+      border-bottom: 2px dashed #000;
+    }
+    .meta-block .inv-no {
+      font-size: 32px;
+      font-weight: 900;
+      letter-spacing: 2px;
+      line-height: 1.1;
+    }
+    .meta-block .inv-date {
+      font-size: 22px;
+      font-weight: 800;
+      margin-top: 4px;
+      letter-spacing: 1px;
+    }
+    .meta-block .status-flag {
+      display: inline-block;
+      margin-top: 8px;
+      padding: 6px 20px;
+      font-size: 20px;
+      font-weight: 900;
+      letter-spacing: 3px;
+      border: 3px solid #000;
+    }
+    .meta-block .status-flag.PAID     { background: #14532d; color: #fff; border-color: #14532d; }
+    .meta-block .status-flag.PENDING  { background: #fff;    color: #b91c1c; border-color: #b91c1c; }
+    .meta-block .status-flag.PARTIAL  { background: #1e3a8a; color: #fff; border-color: #1e3a8a; }
+
+    /* Buyer nested block (right side, below meta) */
+    .buyer-block .field-name {
+      font-size: 24px;
+      font-weight: 900;
+      margin-bottom: 6px;
+      line-height: 1.15;
+    }
+    .buyer-block .field {
+      font-size: 18px;
+      margin-bottom: 4px;
+      line-height: 1.35;
+      font-weight: 600;
+    }
+    .buyer-block .field .lbl {
+      display: inline-block;
+      font-weight: 900;
+      font-size: 14px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: #555;
+      margin-right: 6px;
+    }
+
+    /* --- ITEMS SECTION: STACKED GRID BLOCKS WITH HSN VERTICAL COLUMN --- */
+    .items-section {
       width: 100%;
-      margin: 0;
-      padding: 0;
+      padding: 4mm 8mm;
+      flex-grow: 1;
     }
-    .summary-box {
-      width: 100%;              /* was 45% → now FULL PAGE WIDTH */
-      padding: 6mm 8mm;
-      border-top: 4px solid #000;
+    .items-header {
+      display: grid;
+      grid-template-columns: 8mm 1fr 30mm;
+      align-items: center;
+      padding: 6px 0;
       border-bottom: 4px solid #000;
-      background: #f5f5f5;
     }
+    .items-header .col-no   { font-size: 16px; font-weight: 900; color: #b91c1c; text-transform: uppercase; letter-spacing: 1px; }
+    .items-header .col-item { font-size: 22px; font-weight: 900; color: #b91c1c; text-transform: uppercase; letter-spacing: 2px; }
+    .items-header .col-hsn  { font-size: 22px; font-weight: 900; color: #b91c1c; text-transform: uppercase; letter-spacing: 2px; text-align: center; }
+
+    .item-block {
+      display: grid;
+      grid-template-columns: 8mm 1fr 30mm;
+      border-bottom: 3px solid #000;
+      padding: 4mm 0;
+      align-items: stretch;
+    }
+    .item-block:last-child { border-bottom: 4px solid #000; }
+
+    .item-no {
+      font-size: 18px;
+      font-weight: 900;
+      text-align: center;
+      padding-top: 2mm;
+    }
+
+    .item-detail { padding: 0 4mm; }
+    .item-name {
+      font-size: 22px;
+      font-weight: 900;
+      margin-bottom: 4px;
+      line-height: 1.2;
+    }
+    .item-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      padding: 2px 0;
+      font-size: 18px;
+      border-bottom: 1px dotted #ccc;
+    }
+    .item-row .lbl {
+      font-weight: 700;
+      color: #555;
+      text-transform: uppercase;
+      font-size: 14px;
+      letter-spacing: 1px;
+    }
+    .item-row .val {
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+    }
+    .item-row.total-row {
+      border-top: 2px solid #000;
+      border-bottom: none;
+      padding-top: 5px;
+      margin-top: 4px;
+    }
+    .item-row.total-row .lbl { color: #000; font-size: 16px; }
+    .item-row.total-row .val { font-size: 22px; font-weight: 900; }
+
+    /* HSN vertical column box */
+    .item-hsn {
+      border: 3px solid #000;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 3mm 1mm;
+      margin-left: 3mm;
+      background: #fafafa;
+    }
+    .item-hsn .hsn-label {
+      font-size: 13px;
+      font-weight: 900;
+      color: #b91c1c;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      margin-bottom: 4px;
+      border-bottom: 2px solid #b91c1c;
+      padding-bottom: 3px;
+      width: 100%;
+      text-align: center;
+    }
+    .item-hsn .hsn-value {
+      font-size: 22px;
+      font-weight: 900;
+      font-family: 'Courier New', monospace;
+      letter-spacing: 1px;
+      word-break: break-all;
+      text-align: center;
+    }
+
+    /* --- SUMMARY BLOCK: full page width --- */
+    .summary {
+      width: 100%;
+      padding: 4mm 8mm 6mm 8mm;
+      background: #f5f5f5;
+      border-bottom: 4px solid #000;
+    }
+    .summary-box { width: 100%; }
     .summary-row {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 8px 0;           /* was 4px       → +100% */
-      font-size: 24px;          /* was 17px      → +41% */
-      border-bottom: 2px dashed #000;
+      padding: 7px 0;
+      font-size: 22px;
       font-weight: 700;
+      border-bottom: 2px dashed #000;
     }
-    .summary-row span:first-child { letter-spacing: 0.3px; }
-    .summary-row span:last-child  { font-weight: 900; font-variant-numeric: tabular-nums; }
     .summary-row.total {
-      font-size: 36px;          /* was 24px      → +50% */
+      font-size: 32px;
       font-weight: 900;
-      border-top: 5px solid #000;
-      border-bottom: 5px solid #000;
-      padding: 14px 0;          /* was 6px       → +133% */
-      margin-top: 8px;
+      border-top: 4px solid #000;
+      border-bottom: 4px solid #000;
+      padding: 12px 0;
+      margin-top: 6px;
       background: #000;
       color: #fff;
     }
     .summary-row.due {
       font-weight: 900;
-      border-bottom: none;
       color: #b91c1c;
+      border-bottom: none;
     }
 
     /* --- TERMS / NOTES: full-width banner --- */
     .terms {
       width: 100%;
-      padding: 6mm 8mm;
-      border: 0;
+      padding: 5mm 8mm;
       border-bottom: 4px solid #000;
-      font-size: 20px;          /* was 15px      → +33% */
+      font-size: 20px;
       line-height: 1.4;
       font-weight: 600;
     }
-    .terms strong { font-size: 22px; }
+    .terms strong { font-size: 22px; font-weight: 900; }
 
-    /* --- E-INVOICE BLOCK: full-width --- */
+    /* --- E-INVOICE BLOCK --- */
     .einvoice-block {
       width: 100%;
-      padding: 6mm 8mm;
+      padding: 5mm 8mm;
       display: flex;
       justify-content: space-between;
       align-items: center;
       border-bottom: 4px solid #000;
       background: #f0fdf4;
     }
-    .einvoice-block h4 {
-      font-size: 22px;
-      margin-bottom: 6px;
-      font-weight: 900;
-    }
-    .einvoice-block .meta {
-      font-size: 18px;
-      line-height: 1.4;
-    }
+    .einvoice-block h4 { font-size: 22px; margin-bottom: 6px; font-weight: 900; }
+    .einvoice-block .meta { font-size: 18px; line-height: 1.4; }
 
-    /* --- UPI QR: centered, full-width band --- */
-    .upi-band {
+    /* --- SIGNATURE + QR ROW --- */
+    .sig-row {
+      width: 100%;
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      align-items: end;
+      padding: 8mm 8mm 4mm 8mm;
+      border-bottom: 4px solid #000;
+    }
+    .sig-cell { text-align: center; }
+    .sig-cell.left  { text-align: left; }
+    .sig-cell.right { text-align: right; }
+
+    .qr-block {
+      text-align: center;
+    }
+    .qr-block img {
+      width: 140px;
+      height: 140px;
+      border: 3px solid #000;
+      padding: 4px;
+      background: #fff;
+    }
+    .qr-block .qr-label {
+      font-size: 18px;
+      font-weight: 900;
+      margin-top: 6px;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+    }
+    .qr-block.upi .qr-label { color: #b91c1c; }
+
+    .signature-box {
+      display: inline-block;
+      text-align: center;
+      border-top: 4px solid #000;
+      padding-top: 4mm;
+      width: 60mm;
+    }
+    .signature-box p { font-size: 20px; font-weight: 900; }
+    .signature-box small { font-size: 16px; font-weight: 600; }
+
+    /* --- FOOTER: SYSTEM TIMESTAMP --- */
+    .footer {
       width: 100%;
       padding: 6mm 8mm;
       text-align: center;
-      border-bottom: 4px solid #000;
+      background: #000;
+      color: #fff;
+      font-weight: 700;
     }
-    .upi-band img { width: 180px; height: 180px; }
-    .upi-band .label {
-      font-size: 22px;
-      margin-top: 8px;
-      font-weight: 900;
-    }
-
-    /* --- SIGNATURE: full-width, right-aligned inside its row --- */
-    .signature {
-      width: 100%;
-      padding: 10mm 8mm 6mm 8mm;
-      display: flex;
-      justify-content: flex-end;
-    }
-    .signature-box {
-      text-align: center;
-      border-top: 4px solid #000;
-      padding-top: 5mm;
-      width: 80mm;
-    }
-    .signature-box p {
-      font-size: 22px;          /* was 17px → +29% */
-      font-weight: 900;
-    }
-    .signature-box small {
-      font-size: 18px;          /* was 13px → +38% */
-      font-weight: 600;
-    }
-
-    /* --- FOOTER: edge-to-edge --- */
-    .footer {
-      width: 100%;
-      margin-top: auto;
-      padding: 5mm 8mm;
-      border-top: 4px solid #000;
-      font-size: 18px;          /* was 13px → +38% */
-      text-align: center;
-      font-weight: 800;
-      background: #fafafa;
+    .footer .line1 { font-size: 18px; margin-bottom: 4px; }
+    .footer .line2 { font-size: 18px; font-weight: 900; letter-spacing: 1px; }
+    .footer .line2 .timestamp {
+      display: inline-block;
+      padding: 4px 12px;
+      border: 2px solid #fff;
+      font-family: 'Courier New', monospace;
+      letter-spacing: 2px;
+      margin-left: 6px;
     }
 
     @media print {
       body { padding: 0; }
+      .summary-row.total,
+      .footer,
+      .meta-block .status-flag.PAID,
+      .meta-block .status-flag.PARTIAL {
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
       thead th {
         background: #000 !important;
         color: #fff !important;
         -webkit-print-color-adjust: exact;
         print-color-adjust: exact;
       }
-      .summary-box,
-      .summary-row.total,
-      .footer,
-      .einvoice-block { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     }
 
     /* ====================================================================
@@ -366,80 +528,82 @@ export async function GET(
       }
       body { font-family: 'Courier New', monospace; display: block; }
 
-      .header {
-        display: block;
-        text-align: center;
-        padding: 2mm;
-        margin: 0;
+      .title-banner { padding: 2mm; border-bottom: 2px solid #000; }
+      .title-banner h1 { font-size: 22px; letter-spacing: 2px; }
+
+      .header-row { display: block; }
+      .header-cell { padding: 2mm; }
+      .header-cell.left { border-right: 0; border-bottom: 2px solid #000; }
+
+      .block-label { font-size: 11px; letter-spacing: 1px; margin-bottom: 2px; padding-bottom: 1px; }
+      .seller-block .field-name { font-size: 14px; margin-bottom: 2px; }
+      .seller-block .field { font-size: 11px; margin-bottom: 1px; }
+      .seller-block .field .lbl { font-size: 9px; }
+
+      .meta-block { text-align: center; padding-bottom: 2mm; margin-bottom: 2mm; border-bottom: 1px dashed #000; }
+      .meta-block .inv-no { font-size: 16px; letter-spacing: 1px; }
+      .meta-block .inv-date { font-size: 12px; margin-top: 2px; }
+      .meta-block .status-flag { font-size: 12px; padding: 2px 10px; margin-top: 4px; letter-spacing: 1px; }
+
+      .buyer-block .field-name { font-size: 13px; margin-bottom: 2px; }
+      .buyer-block .field { font-size: 11px; margin-bottom: 1px; }
+      .buyer-block .field .lbl { font-size: 9px; }
+
+      .items-section { padding: 2mm; }
+
+      .items-header { grid-template-columns: 5mm 1fr 16mm; padding: 2px 0; border-bottom: 2px solid #000; }
+      .items-header .col-no   { font-size: 9px; }
+      .items-header .col-item { font-size: 11px; letter-spacing: 1px; }
+      .items-header .col-hsn  { font-size: 11px; letter-spacing: 1px; }
+
+      .item-block {
+        grid-template-columns: 5mm 1fr 16mm;
+        padding: 2mm 0;
         border-bottom: 2px solid #000;
       }
-      .brand h1 { font-size: 18px; letter-spacing: 0; }
-      .brand p { font-size: 10px; margin-top: 1px; font-weight: 600; }
-      .invoice-title { text-align: center; margin-top: 2mm; }
-      .invoice-title h2 { font-size: 20px; letter-spacing: 1px; }
-      .invoice-title p { font-size: 11px; margin-top: 1px; }
-      .badge { font-size: 11px; padding: 1px 6px; border: 2px solid #000; margin-top: 4px; }
+      .item-no { font-size: 10px; padding-top: 1mm; }
+      .item-detail { padding: 0 1mm; }
+      .item-name { font-size: 12px; margin-bottom: 2px; }
+      .item-row { padding: 1px 0; font-size: 10px; border-bottom: 1px dotted #ccc; }
+      .item-row .lbl { font-size: 8px; }
+      .item-row.total-row { padding-top: 2px; margin-top: 2px; }
+      .item-row.total-row .lbl { font-size: 9px; }
+      .item-row.total-row .val { font-size: 12px; }
 
-      .parties { display: block; gap: 0; }
-      .party-box {
-        width: 100%;
-        padding: 1mm 2mm;
-        border: 1px solid #000;
-        border-bottom: 1px solid #000;
-        margin-bottom: 1mm;
-      }
-      .party-box h3 { font-size: 10px; margin-bottom: 1px; padding-bottom: 1px; border-bottom: 1px solid #000; }
-      .party-box .name { font-size: 13px; margin-bottom: 1px; }
-      .party-box .detail { font-size: 10px; margin-top: 1px; }
-
-      table { margin: 0; flex-grow: 0; }
-      thead th {
-        padding: 2px 2px;
-        font-size: 9px;
-        border: 1px solid #000;
-      }
-      tbody td {
-        padding: 2px 2px;
-        font-size: 11px;
-        border: 1px solid #000;
-      }
-
-      .summary-box {
-        width: 100%;
-        padding: 2mm;
-        border-top: 2px solid #000;
-        border-bottom: 2px solid #000;
+      .item-hsn {
+        border: 2px solid #000;
+        padding: 1mm 0.5mm;
+        margin-left: 1mm;
         background: #fff;
       }
-      .summary-row {
-        font-size: 12px;
-        padding: 1px 0;
-        border-bottom: 1px dashed #000;
-      }
-      .summary-row.total {
-        font-size: 15px;
-        padding: 3px 0;
-        border-top: 2px solid #000;
-        border-bottom: 2px solid #000;
-        background: #000;
-        color: #fff;
-      }
+      .item-hsn .hsn-label { font-size: 8px; margin-bottom: 2px; padding-bottom: 1px; letter-spacing: 1px; }
+      .item-hsn .hsn-value { font-size: 11px; letter-spacing: 0.5px; }
+
+      .summary { padding: 2mm; }
+      .summary-row { padding: 2px 0; font-size: 11px; border-bottom: 1px dashed #000; }
+      .summary-row.total { font-size: 14px; padding: 3px 0; margin-top: 3px; }
+      .summary-row.due { color: #b91c1c; }
 
       .terms { font-size: 10px; padding: 2mm; border-bottom: 2px solid #000; }
       .terms strong { font-size: 11px; }
+
       .einvoice-block { padding: 2mm; display: block; text-align: center; }
       .einvoice-block h4 { font-size: 12px; }
       .einvoice-block .meta { font-size: 10px; }
-      .upi-band { padding: 2mm; }
-      .upi-band img { width: 110px; height: 110px; }
-      .upi-band .label { font-size: 12px; margin-top: 4px; }
 
-      .signature { padding: 2mm; display: block; text-align: center; }
+      .sig-row { display: block; padding: 2mm; border-bottom: 2px solid #000; }
+      .sig-cell { text-align: center !important; margin-bottom: 3mm; }
+      .sig-cell.right { margin-bottom: 0; }
+      .qr-block img { width: 90px; height: 90px; }
+      .qr-block .qr-label { font-size: 11px; margin-top: 3px; letter-spacing: 1px; }
       .signature-box { width: 100%; padding-top: 2mm; border-top: 1px solid #000; }
       .signature-box p { font-size: 12px; }
       .signature-box small { font-size: 10px; }
 
-      .footer { font-size: 9px; padding: 2mm; border-top: 2px solid #000; background: #fff; }
+      .footer { padding: 2mm; }
+      .footer .line1 { font-size: 10px; margin-bottom: 2px; }
+      .footer .line2 { font-size: 10px; letter-spacing: 0.5px; }
+      .footer .line2 .timestamp { padding: 2px 6px; border: 1px solid #fff; letter-spacing: 1px; margin-left: 3px; }
     }
 
     /* === SCREEN PREVIEW — shows A4 layout in browser === */
@@ -454,67 +618,68 @@ export async function GET(
   </style>
 </head>
 <body>
-  <div class="header">
-    <div class="brand">
-      <h1>${tenant.name || 'BizBook Pro'}</h1>
-      ${tenant.address ? '<p>' + tenant.address + '</p>' : ''}
-      ${tenant.phone ? '<p>Phone: ' + tenant.phone + '</p>' : ''}
-      ${tenant.email ? '<p>Email: ' + tenant.email + '</p>' : ''}
-      ${tenant.gstNumber ? '<p>GSTIN: ' + tenant.gstNumber + '</p>' : ''}
+
+  <!-- ============================================================
+       TITLE BANNER
+       ============================================================ -->
+  <div class="title-banner">
+    <h1>INVOICE</h1>
+  </div>
+
+  <!-- ============================================================
+       HEADER ROW: Seller (left) + Invoice Metadata + Buyer (right)
+       ============================================================ -->
+  <div class="header-row">
+
+    <!-- LEFT: SELLER BLOCK (dynamic bindings) -->
+    <div class="header-cell left">
+      <div class="block-label">Seller</div>
+      <div class="seller-block">
+        <div class="field-name">${sellerName}</div>
+        ${sellerAddr   ? `<div class="field"><span class="lbl">Address</span>${sellerAddr}</div>`   : ''}
+        ${sellerPhone  ? `<div class="field"><span class="lbl">Phone</span>${sellerPhone}</div>`    : ''}
+        ${sellerEmail  ? `<div class="field"><span class="lbl">Email</span>${sellerEmail}</div>`    : ''}
+        ${sellerGst    ? `<div class="field"><span class="lbl">GSTIN</span>${sellerGst}</div>`      : ''}
+      </div>
     </div>
-    <div class="invoice-title">
-      <h2>INVOICE</h2>
-      <p>#${sale.invoiceNumber}</p>
-      <p>${fmtDate(sale.date)}</p>
-      <p><span class="badge">${statusLabel(sale.paymentStatus)}</span></p>
+
+    <!-- RIGHT: METADATA + BUYER (nested) -->
+    <div class="header-cell right">
+
+      <!-- Invoice metadata block -->
+      <div class="meta-block">
+        <div class="inv-no">#${invoiceNo}</div>
+        <div class="inv-date">${invoiceDate}</div>
+        <div class="status-flag ${statusFlag}">${statusFlag}</div>
+      </div>
+
+      <!-- Buyer nested block -->
+      <div class="buyer-block">
+        <div class="block-label">Bill To</div>
+        <div class="field-name">${buyerName}</div>
+        ${buyerAddr ? `<div class="field"><span class="lbl">Address</span>${buyerAddr}</div>` : ''}
+        ${buyerGst  ? `<div class="field"><span class="lbl">GSTIN</span>${buyerGst}</div>`    : ''}
+      </div>
+
     </div>
   </div>
 
-  <div class="parties">
-    <div class="party-box">
-      <h3>From</h3>
-      <div class="name">${tenant.name || 'Business'}</div>
-      ${tenant.address ? '<div class="detail">' + tenant.address + '</div>' : ''}
-      ${tenant.gstNumber ? '<div class="detail">GSTIN: ' + tenant.gstNumber + '</div>' : ''}
+  <!-- ============================================================
+       ITEMIZED TABLE — MULTI-ITEM STACKED ARRAY LOOP
+       Each item is a grid block: details (left) + HSN vertical column (right)
+       ============================================================ -->
+  <div class="items-section">
+    <div class="items-header">
+      <div class="col-no">#</div>
+      <div class="col-item">Item</div>
+      <div class="col-hsn">HSN</div>
     </div>
-    <div class="party-box">
-      <h3>Bill To</h3>
-      <div class="name">${sale.partyName}</div>
-      ${sale.partyAddress ? '<div class="detail">' + sale.partyAddress + '</div>' : ''}
-      ${sale.partyGst ? '<div class="detail">GSTIN: ' + sale.partyGst + '</div>' : ''}
-    </div>
+    ${itemBlocks}
   </div>
 
-  <table>
-    <thead>
-      <tr>
-        <th>#</th>
-        <th>Item</th>
-        <th>HSN</th>
-        <th class="right">Qty</th>
-        <th class="right">Rate</th>
-        <th class="right">Discount</th>
-        <th class="right">Amount</th>
-        <th class="right">Tax</th>
-        <th class="right">Total</th>
-      </tr>
-    </thead>
-    <tbody>
-      ${parsedItems.map((item, i) => `
-      <tr>
-        <td>${i + 1}</td>
-        <td>${item.name}${item.saleItemType === 'SERVICE' ? ' [SERVICE]' : ''}</td>
-        <td>${item.hsn || '-'}</td>
-        <td class="right">${item.qty} ${item.unit || ''}</td>
-        <td class="right">${fmtCurrency(item.rate)}</td>
-        <td class="right">${item.discount > 0 ? fmtCurrency(item.discount) : '-'}</td>
-        <td class="right">${fmtCurrency(item.amount)}</td>
-        <td class="right">${fmtCurrency(item.totalTax)}</td>
-        <td class="right">${fmtCurrency(item.total)}</td>
-      </tr>`).join('')}
-    </tbody>
-  </table>
-
+  <!-- ============================================================
+       SUMMARY / TOTALS BLOCK (full page width)
+       ============================================================ -->
   <div class="summary">
     <div class="summary-box">
       <div class="summary-row"><span>Subtotal</span><span>${fmtCurrency(sale.subtotal)}</span></div>
@@ -525,31 +690,48 @@ export async function GET(
     </div>
   </div>
 
-  ${sale.notes ? '<div class="terms"><strong>Notes:</strong> ' + sale.notes + '</div>' : ''}
+  ${sale.notes ? `<div class="terms"><strong>Notes:</strong> ${sale.notes}</div>` : ''}
 
   ${sale.einvoiceStatus === 'GENERATED' ? `
   <div class="einvoice-block">
     <div>
       <h4>E-INVOICE VERIFIED</h4>
       <div class="meta">IRN: <span style="font-family:monospace;word-break:break-all;">${sale.einvoiceIrn || ''}</span></div>
-      ${sale.einvoiceAckNo ? '<div class="meta" style="margin-top:4px;">Ack No: ' + sale.einvoiceAckNo + '</div>' : ''}
+      ${sale.einvoiceAckNo ? `<div class="meta" style="margin-top:4px;">Ack No: ${sale.einvoiceAckNo}</div>` : ''}
     </div>
-    ${sale.einvoiceQrCodeText ? '<div style="text-align:center;"><img src="https://api.qrserver.com/v1/create-qr-code/?size=110x110&data=' + encodeURIComponent(sale.einvoiceQrCodeText) + '" alt="QR" style="width:110px;height:110px;border:1px solid #ccc;" /></div>' : ''}
+    ${sale.einvoiceQrCodeText ? `<div style="text-align:center;"><img src="https://api.qrserver.com/v1/create-qr-code/?size=110x110&data=${encodeURIComponent(sale.einvoiceQrCodeText)}" alt="QR" style="width:110px;height:110px;border:1px solid #ccc;" /></div>` : ''}
   </div>
   ` : ''}
 
-  ${upiQrCode ? '<div class="upi-band"><img src="' + upiQrCode + '" alt="UPI QR" /><div class="label">Scan to Pay ' + fmtCurrency(sale.upiAmount || 0) + '</div></div>' : ''}
-
-  <div class="signature">
-    <div class="signature-box">
-      <p>Authorised Signatory</p>
-      <small>For ${tenant.name || 'Business'}</small>
+  <!-- ============================================================
+       SIGNATURE + QR ROW
+       ============================================================ -->
+  <div class="sig-row">
+    <div class="sig-cell left"></div>
+    <div class="sig-cell">
+      ${upiQrCode ? `
+      <div class="qr-block upi">
+        <img src="${upiQrCode}" alt="UPI QR" />
+        <div class="qr-label">Scan to Pay ${fmtCurrency(sale.upiAmount || 0)}</div>
+      </div>` : `<div class="qr-block"><div style="font-size:18px;font-weight:900;letter-spacing:2px;">QR CODE</div></div>`}
+    </div>
+    <div class="sig-cell right">
+      <div class="signature-box">
+        <p>Authorised Signatory</p>
+        <small>For ${sellerName}</small>
+      </div>
     </div>
   </div>
 
+  <!-- ============================================================
+       FOOTER: AUTOMATED SYSTEM TIMESTAMP
+       Token format: dd/mm/yyyy, HH:MM:SS pm/am  (live execution string)
+       ============================================================ -->
   <div class="footer">
-    Computer-generated invoice from BizBook Pro by Tahigo International &middot; ${new Date().toLocaleString('en-IN')}
+    <div class="line1">Computer-generated invoice from BizBook Pro</div>
+    <div class="line2">by Tahigo International &mdash;<span class="timestamp">${systemTimestamp}</span></div>
   </div>
+
 <script>window.onload = function() { setTimeout(function() { window.print(); }, 500); };</script>
 </body>
 </html>`
