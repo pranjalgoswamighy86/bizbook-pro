@@ -16,9 +16,11 @@ export async function GET(
     return new NextResponse('Sale ID required', { status: 400 })
   }
 
-  // v4.184: Paper size selector — 'a4' (default) or 'thermal' (80mm)
-  const paperSize = req.nextUrl.searchParams.get('paper') || 'a4'
-  const isThermal = paperSize === 'thermal' || paperSize === '80mm'
+  // v4.185: Single print route — CSS auto-detects printer via @media queries
+  // No paper size parameter needed. The browser's print dialog determines
+  // the paper size, and the CSS automatically switches:
+  // - A4 (default): multi-column, edge-to-edge, flex layout
+  // - 80mm thermal (max-width: 90mm): single-column, compact receipt
 
   // Auth: check cookie OR query param token
   const cookie = req.cookies.get('bizbook_session')?.value
@@ -78,41 +80,8 @@ export async function GET(
   <title>Invoice - ${sale.invoiceNumber}</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    ${isThermal ? `
-    /* === THERMAL PRINTER (80mm) — single column, compact === */
-    @page { size: 80mm auto; margin: 2mm; }
-    html, body { width: 76mm; min-height: auto; margin: 0; padding: 0; }
-    body { font-family: 'Courier New', monospace; color: #000; padding: 2mm; }
-    .header { text-align: center; margin-bottom: 2mm; border-bottom: 2px solid #000; padding-bottom: 2mm; }
-    .brand h1 { font-size: 16px; font-weight: 900; }
-    .brand p { font-size: 10px; margin-top: 1px; }
-    .invoice-title { margin-top: 2mm; }
-    .invoice-title h2 { font-size: 18px; font-weight: 900; }
-    .invoice-title p { font-size: 11px; margin-top: 1px; }
-    .parties { margin-bottom: 2mm; }
-    .party-box { width: 100%; padding: 1mm; border: 1px solid #000; margin-bottom: 1mm; }
-    .party-box h3 { font-size: 9px; margin-bottom: 1px; border-bottom: 1px solid #000; padding-bottom: 1px; }
-    .party-box .name { font-size: 12px; font-weight: 700; }
-    .party-box .detail { font-size: 10px; margin-top: 1px; }
-    table { width: 100%; border-collapse: collapse; margin-bottom: 2mm; }
-    thead th { padding: 1px 1px; font-size: 8px; border: 1px solid #000; font-weight: 700; }
-    thead th.right { text-align: right; }
-    tbody td { padding: 1px 1px; font-size: 10px; border: 1px solid #000; }
-    tbody td.right { text-align: right; font-weight: 700; }
-    .summary { margin-bottom: 2mm; }
-    .summary-box { width: 100%; }
-    .summary-row { font-size: 11px; padding: 1px 0; border-bottom: 1px dashed #000; display: flex; justify-content: space-between; }
-    .summary-row.total { font-size: 14px; font-weight: 900; border-top: 2px solid #000; border-bottom: 2px solid #000; padding: 2px 0; margin-top: 2px; }
-    .summary-row.due { font-weight: 700; border-bottom: none; }
-    .footer { font-size: 9px; margin-top: 2mm; padding-top: 1mm; border-top: 1px solid #000; text-align: center; }
-    .badge { font-size: 10px; padding: 1px 4px; border: 2px solid #000; font-weight: 700; display: inline-block; }
-    .terms { font-size: 10px; padding: 1mm; border: 1px solid #000; margin-top: 1mm; }
-    .signature { margin-top: 3mm; text-align: center; }
-    .signature-box { border-top: 1px solid #000; padding-top: 1mm; width: 100%; }
-    .signature-box p { font-size: 11px; font-weight: 700; }
-    .signature-box small { font-size: 9px; }
-    ` : `
-    /* === A4 PRINTER — full page, edge-to-edge === */
+
+    /* === DEFAULT: A4 PRINTER — full page, edge-to-edge === */
     @page { size: A4; margin: 0; }
     html, body { width: 210mm; min-height: 297mm; margin: 0; padding: 0; }
     body { font-family: Arial, Helvetica, sans-serif; color: #000; padding: 10mm; display: flex; flex-direction: column; }
@@ -144,11 +113,49 @@ export async function GET(
     .signature-box { text-align: center; border-top: 3px solid #000; padding-top: 3mm; width: 60mm; }
     .signature-box p { font-size: 17px; font-weight: 800; }
     .signature-box small { font-size: 13px; }
+
     @media print {
       body { padding: 10mm; }
       thead th { background: #000 !important; color: #fff !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     }
-    `}
+
+    /* === THERMAL PRINTER (80mm) — auto-detected by browser === */
+    /* Triggers when the selected printer/paper width is <= 90mm */
+    @media print and (max-width: 90mm) {
+      @page { size: 80mm auto; margin: 2mm; }
+      html, body { width: 76mm; min-height: auto; padding: 2mm; }
+      body { font-family: 'Courier New', monospace; display: block; }
+      .header { display: block; text-align: center; margin-bottom: 2mm; padding-bottom: 2mm; border-bottom: 2px solid #000; }
+      .brand h1 { font-size: 16px; }
+      .brand p { font-size: 10px; margin-top: 1px; }
+      .invoice-title { text-align: center; margin-top: 2mm; }
+      .invoice-title h2 { font-size: 18px; letter-spacing: 1px; }
+      .invoice-title p { font-size: 11px; margin-top: 1px; }
+      .parties { display: block; margin-bottom: 2mm; gap: 0; }
+      .party-box { width: 100%; padding: 1mm; border: 1px solid #000; margin-bottom: 1mm; }
+      .party-box h3 { font-size: 9px; margin-bottom: 1px; padding-bottom: 1px; border-bottom: 1px solid #000; }
+      .party-box .name { font-size: 12px; }
+      .party-box .detail { font-size: 10px; margin-top: 1px; }
+      table { margin-bottom: 2mm; flex-grow: 0; }
+      thead th { padding: 1px 1px; font-size: 8px; border: 1px solid #000; background: #000 !important; color: #fff !important; }
+      tbody td { padding: 1px 1px; font-size: 10px; border: 1px solid #000; }
+      .summary { display: block; margin-bottom: 2mm; }
+      .summary-box { width: 100%; }
+      .summary-row { font-size: 11px; padding: 1px 0; border-bottom: 1px dashed #000; }
+      .summary-row.total { font-size: 14px; padding: 2px 0; border-top: 2px solid #000; border-bottom: 2px solid #000; }
+      .footer { font-size: 9px; margin-top: 2mm; padding-top: 1mm; border-top: 2px solid #000; }
+      .badge { font-size: 10px; padding: 1px 5px; border: 2px solid #000; }
+      .terms { font-size: 10px; padding: 1mm; border: 1px solid #000; margin-top: 1mm; }
+      .signature { display: block; margin-top: 3mm; padding-top: 0; text-align: center; }
+      .signature-box { width: 100%; padding-top: 1mm; border-top: 1px solid #000; }
+      .signature-box p { font-size: 11px; }
+      .signature-box small { font-size: 9px; }
+    }
+
+    /* === SCREEN PREVIEW — shows A4 layout in browser === */
+    @media screen {
+      body { max-width: 210mm; margin: 0 auto; }
+    }
   </style>
 </head>
 <body>

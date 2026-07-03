@@ -567,11 +567,13 @@ export function SaleRegister() {
     }
   }
 
-  const handlePrintInvoice = (sale: Sale, thermal: boolean = false) => {
-    // v4.184: Paper size — 'thermal' for 80mm receipt, 'a4' for full page
-    const paper = thermal ? 'thermal' : 'a4'
+  const handlePrintInvoice = (sale: Sale) => {
+    // v4.185: Single print button — CSS auto-detects printer width via @media queries
+    // The server-side route includes BOTH A4 and 80mm CSS.
+    // The browser's print dialog determines the paper size, and the CSS
+    // @media print and (max-width: 90mm) automatically switches to thermal layout.
     const token = useAppStore.getState().sessionToken
-    const printUrl = `/invoice-print/${sale.id}?t=${Date.now()}&paper=${paper}${token ? '&token=' + encodeURIComponent(token) : ''}`
+    const printUrl = `/invoice-print/${sale.id}?t=${Date.now()}${token ? '&token=' + encodeURIComponent(token) : ''}`
     const printWindow = window.open(printUrl, '_blank', 'width=900,height=700')
     if (!printWindow) {
       window.location.href = printUrl
@@ -652,8 +654,7 @@ export function SaleRegister() {
                       <TableCell>{statusBadge(s.paymentStatus)}</TableCell>
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-1">
-                          <Button variant="ghost" size="icon" className="h-8 w-8" title="Print A4" onClick={() => handlePrintInvoice(s, false)}><Printer className="h-4 w-4" /></Button>
-                          <Button variant="ghost" size="icon" className="h-8 w-8" title="Print Thermal (80mm)" onClick={() => handlePrintInvoice(s, true)}><Printer className="h-3 w-3" /></Button>
+                          <Button variant="ghost" size="icon" className="h-8 w-8" title="Print Invoice" onClick={() => handlePrintInvoice(s)}><Printer className="h-4 w-4" /></Button>
                           {s.partyGst && <Button variant="ghost" size="icon" className="h-8 w-8" title="Generate E-Invoice" onClick={() => handleGenerateEinvoice(s)}><FileCheck className="h-4 w-4" /></Button>}
                           <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setViewItem(s)}><Eye className="h-4 w-4" /></Button>
                           {/* v4.106: Show Confirm button for Quotation sales */}
