@@ -585,39 +585,76 @@ export function SaleRegister() {
   <title>Invoice - ${sale.invoiceNumber}</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    @page { size: A4; margin: 10mm; }
-    body { font-family: Arial, Helvetica, sans-serif; color: #000; padding: 20px; max-width: 100%; }
-    .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 30px; border-bottom: 4px solid #000; padding-bottom: 20px; }
-    .brand h1 { font-size: 48px; color: #000; font-weight: 900; }
-    .brand p { font-size: 24px; color: #000; margin-top: 8px; line-height: 1.4; }
+    @page { size: A4; margin: 8mm; }
+    body { font-family: Arial, Helvetica, sans-serif; color: #000; padding: 5px; max-width: 100%; }
+    .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 15px; border-bottom: 4px solid #000; padding-bottom: 12px; }
+    .brand h1 { font-size: 52px; color: #000; font-weight: 900; line-height: 1.1; }
+    .brand p { font-size: 26px; color: #000; margin-top: 6px; line-height: 1.3; }
     .invoice-title { text-align: right; }
-    .invoice-title h2 { font-size: 56px; color: #000; font-weight: 900; letter-spacing: 4px; }
-    .invoice-title p { font-size: 26px; color: #000; margin-top: 8px; font-weight: 700; }
-    .parties { display: flex; justify-content: space-between; margin-bottom: 30px; gap: 30px; }
-    .party-box { width: 48%; padding: 20px; border: 4px solid #000; }
-    .party-box h3 { font-size: 22px; text-transform: uppercase; color: #000; margin-bottom: 10px; font-weight: 800; border-bottom: 3px solid #000; padding-bottom: 8px; }
-    .party-box .name { font-size: 30px; font-weight: 800; color: #000; }
-    .party-box .detail { font-size: 24px; color: #000; margin-top: 6px; }
-    table { width: 100%; border-collapse: collapse; margin-bottom: 30px; }
-    thead th { background: #000; color: #fff; padding: 16px 12px; text-align: left; font-size: 24px; text-transform: uppercase; font-weight: 800; border: 3px solid #000; }
+    .invoice-title h2 { font-size: 60px; color: #000; font-weight: 900; letter-spacing: 4px; line-height: 1; }
+    .invoice-title p { font-size: 28px; color: #000; margin-top: 6px; font-weight: 700; }
+    .parties { display: flex; justify-content: space-between; margin-bottom: 15px; gap: 12px; }
+    .party-box { width: 49%; padding: 10px; border: 4px solid #000; }
+    .party-box h3 { font-size: 24px; text-transform: uppercase; color: #000; margin-bottom: 6px; font-weight: 800; border-bottom: 3px solid #000; padding-bottom: 4px; }
+    .party-box .name { font-size: 32px; font-weight: 800; color: #000; }
+    .party-box .detail { font-size: 26px; color: #000; margin-top: 4px; }
+    table { width: 100%; border-collapse: collapse; margin-bottom: 15px; }
+    thead th { background: #000; color: #fff; padding: 10px 6px; text-align: left; font-size: 26px; text-transform: uppercase; font-weight: 800; border: 3px solid #000; }
     thead th.right { text-align: right; }
-    tbody td { padding: 14px 12px; font-size: 26px; border: 3px solid #000; color: #000; }
+    tbody td { padding: 8px 6px; font-size: 28px; border: 3px solid #000; color: #000; }
     tbody td.right { text-align: right; font-weight: 700; }
     .summary { display: flex; justify-content: flex-end; }
     .summary-box { width: 50%; }
-    .summary-row { display: flex; justify-content: space-between; padding: 10px 0; font-size: 28px; color: #000; border-bottom: 3px dashed #000; }
-    .summary-row.total { font-size: 40px; font-weight: 900; border-top: 5px solid #000; border-bottom: 5px solid #000; padding: 16px 0; margin-top: 12px; color: #000; }
+    .summary-row { display: flex; justify-content: space-between; padding: 6px 0; font-size: 30px; color: #000; border-bottom: 3px dashed #000; }
+    .summary-row.total { font-size: 44px; font-weight: 900; border-top: 5px solid #000; border-bottom: 5px solid #000; padding: 10px 0; margin-top: 8px; color: #000; }
     .summary-row.due { font-weight: 800; border-bottom: none; }
-    .footer { margin-top: 50px; padding-top: 20px; border-top: 4px solid #000; font-size: 22px; color: #000; text-align: center; font-weight: 700; }
-    .badge { display: inline-block; padding: 8px 24px; border: 4px solid #000; font-size: 24px; font-weight: 800; }
-    .terms { margin-top: 25px; padding: 16px 20px; border: 4px solid #000; font-size: 24px; color: #000; }
-    .signature { margin-top: 60px; display: flex; justify-content: flex-end; }
-    .signature-box { text-align: center; border-top: 4px solid #000; padding-top: 12px; width: 300px; }
-    .signature-box p { font-size: 26px; color: #000; font-weight: 800; }
-    .signature-box small { font-size: 22px; color: #000; }
+    .footer { margin-top: 30px; padding-top: 12px; border-top: 4px solid #000; font-size: 24px; color: #000; text-align: center; font-weight: 700; }
+    .badge { display: inline-block; padding: 6px 20px; border: 4px solid #000; font-size: 26px; font-weight: 800; }
+    .terms { margin-top: 15px; padding: 10px; border: 4px solid #000; font-size: 26px; color: #000; }
+    .signature { margin-top: 40px; display: flex; justify-content: flex-end; }
+    .signature-box { text-align: center; border-top: 4px solid #000; padding-top: 8px; width: 320px; }
+    .signature-box p { font-size: 28px; color: #000; font-weight: 800; }
+    .signature-box small { font-size: 24px; color: #000; }
+
+    /* A4 PRINT — full width, multi-column, professional */
     @media print {
-      body { padding: 10px; }
+      body { padding: 5px; }
       thead th { background: #000 !important; color: #fff !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    }
+
+    /* THERMAL PRINTER — 80mm roll, single column, compact */
+    @media print and (max-width: 90mm) {
+      @page { size: 80mm auto; margin: 3mm; }
+      body { padding: 2px; max-width: 80mm; font-size: 12px; }
+      .header { flex-direction: column; margin-bottom: 8px; padding-bottom: 6px; border-bottom: 2px solid #000; }
+      .brand h1 { font-size: 20px; }
+      .brand p { font-size: 11px; margin-top: 2px; }
+      .invoice-title { text-align: left; margin-top: 6px; }
+      .invoice-title h2 { font-size: 24px; letter-spacing: 1px; }
+      .invoice-title p { font-size: 12px; margin-top: 2px; }
+      .parties { flex-direction: column; gap: 6px; margin-bottom: 8px; }
+      .party-box { width: 100%; padding: 4px; border: 2px solid #000; }
+      .party-box h3 { font-size: 10px; margin-bottom: 2px; padding-bottom: 2px; border-bottom: 1px solid #000; }
+      .party-box .name { font-size: 14px; }
+      .party-box .detail { font-size: 11px; margin-top: 1px; }
+      table { margin-bottom: 8px; }
+      thead th { padding: 3px 2px; font-size: 10px; border: 1px solid #000; }
+      tbody td { padding: 3px 2px; font-size: 11px; border: 1px solid #000; }
+      .summary-box { width: 100%; }
+      .summary-row { font-size: 12px; padding: 2px 0; border-bottom: 1px dashed #000; }
+      .summary-row.total { font-size: 16px; padding: 4px 0; border-top: 2px solid #000; border-bottom: 2px solid #000; }
+      .footer { font-size: 10px; margin-top: 10px; padding-top: 4px; border-top: 2px solid #000; }
+      .badge { font-size: 11px; padding: 2px 8px; border: 2px solid #000; }
+      .terms { font-size: 11px; padding: 4px; border: 2px solid #000; margin-top: 6px; }
+      .signature { margin-top: 15px; }
+      .signature-box { width: 150px; padding-top: 4px; border-top: 2px solid #000; }
+      .signature-box p { font-size: 12px; }
+      .signature-box small { font-size: 10px; }
+    }
+
+    /* SCREEN PREVIEW — scaled down so it fits in the browser window */
+    @media screen {
+      body { transform: scale(0.5); transform-origin: top left; width: 200%; }
     }
   </style>
 </head>
