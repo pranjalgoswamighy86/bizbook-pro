@@ -19,7 +19,7 @@
  *   GitHub Releases — the button links to the releases page
  */
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Download, Monitor, Apple, Terminal, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
@@ -68,6 +68,14 @@ export function DownloadForDesktop() {
   const [platform, setPlatform] = useState<Platform>('unknown')
   const [isDesktop, setIsDesktop] = useState(false)
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null)
+  const modalRef = useRef<HTMLDivElement>(null)
+
+  // Scroll modal to top when it opens
+  useEffect(() => {
+    if (showModal && modalRef.current) {
+      modalRef.current.scrollTop = 0
+    }
+  }, [showModal])
 
   useEffect(() => {
     const checkDesktop = () => setIsDesktop(window.innerWidth >= 900)
@@ -136,6 +144,7 @@ export function DownloadForDesktop() {
           onClick={() => setShowModal(false)}
         >
           <div
+            ref={modalRef}
             className="bg-card border rounded-xl shadow-2xl max-w-lg w-full p-6 relative max-h-[calc(100vh-4rem)] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
@@ -146,13 +155,13 @@ export function DownloadForDesktop() {
               <X className="h-5 w-5" />
             </button>
 
-            <h2 className="text-xl font-bold mb-1">Download BizBook Pro Desktop</h2>
-            <p className="text-sm text-muted-foreground mb-4">
+            <h2 className="text-lg font-bold mb-1">Download BizBook Pro Desktop</h2>
+            <p className="text-xs text-muted-foreground mb-3">
               Install the native desktop app for silent thermal printing, fingerprint scanner support, and offline access.
             </p>
 
             {/* Platform download buttons */}
-            <div className="space-y-2 mb-4">
+            <div className="space-y-1.5 mb-3">
               {(Object.keys(PLATFORM_INFO) as Platform[]).map((plat) => {
                 const info = PLATFORM_INFO[plat]
                 const Icon = info.icon
@@ -161,16 +170,16 @@ export function DownloadForDesktop() {
                   <button
                     key={plat}
                     onClick={() => handleDownload(plat)}
-                    className={`w-full flex items-center gap-3 p-3 rounded-lg border-2 transition-colors text-left ${
+                    className={`w-full flex items-center gap-3 p-2.5 rounded-lg border-2 transition-colors text-left ${
                       isRecommended
                         ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/30'
                         : 'border-border hover:border-emerald-300 hover:bg-accent'
                     }`}
                   >
-                    <Icon className="h-6 w-6 flex-shrink-0" />
+                    <Icon className="h-5 w-5 flex-shrink-0" />
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
-                        <span className="font-semibold">{info.label}</span>
+                        <span className="font-semibold text-sm">{info.label}</span>
                         <span className="text-xs text-muted-foreground">{info.ext}</span>
                         {isRecommended && (
                           <span className="text-[10px] bg-emerald-600 text-white px-1.5 py-0.5 rounded-full font-bold">
