@@ -189,7 +189,7 @@ export async function GET(
   <footer class="footer">
     <div>Computer-generated invoice from BizBook Pro</div>
     <div>by Tahigo International — <span class="ts">${systemTimestamp}</span></div>
-    <div class="ver">v5.10 · ${paper.toUpperCase()}</div>
+    <div class="ver">v5.11 · ${paper.toUpperCase()}</div>
   </footer>
 </body>
 </html>`
@@ -200,7 +200,7 @@ export async function GET(
       'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
       'Pragma': 'no-cache',
       'Expires': '0',
-      'X-BizBook-Version': 'v5.10',
+      'X-BizBook-Version': 'v5.11',
       'X-Frame-Options': 'ALLOWALL',
     },
   })
@@ -273,79 +273,92 @@ body {
 
 // =====================================================================
 // CSS — THERMAL 80mm LAYOUT (continuous roll)
-// v5.1: @page size 80mm 9999mm — tricks browser into treating the entire
-//       document as ONE long page, no pagination. Removed all page-break
-//       rules so content flows continuously along the roll.
-//       For TRUE continuous-roll (no browser pagination at all), use the
-//       Electron desktop app which bypasses the browser print engine.
-// =====================================================================
+// v5.11: AGGRESSIVE thermal CSS — forces 58mm/80mm layout
+// The @page size + !important rules + print media query work together
+// to override the browser's default A4 paper size in the print dialog
 const CSS_THERMAL = `
-@page { size: 80mm 9999mm; margin: 0; }
+@page {
+  size: 80mm 9999mm !important;
+  margin: 0 !important;
+}
+@media print {
+  @page {
+    size: 80mm 9999mm !important;
+    margin: 0 !important;
+  }
+}
 * {
-  margin: 0; padding: 0; box-sizing: border-box;
+  margin: 0 !important;
+  padding: 0 !important;
+  box-sizing: border-box !important;
   -webkit-print-color-adjust: exact !important;
   print-color-adjust: exact !important;
 }
+html, body {
+  width: 80mm !important;
+  max-width: 80mm !important;
+  min-width: 80mm !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
 body {
-  font-family: 'Courier New', monospace;
-  color: #000;
-  width: 80mm;
-  padding: 2mm;
-  font-size: 11pt;
-  line-height: 1.3;
+  font-family: 'Courier New', monospace !important;
+  color: #000 !important;
+  font-size: 11pt !important;
+  line-height: 1.3 !important;
+  background: #fff !important;
 }
 
-.title { text-align: center; border-bottom: 2px solid #000; padding-bottom: 2mm; margin-bottom: 2mm; }
-.title h1 { font-size: 16pt; font-weight: bold; letter-spacing: 2px; }
+.title { text-align: center !important; border-bottom: 2px solid #000 !important; padding-bottom: 2mm !important; margin-bottom: 2mm !important; }
+.title h1 { font-size: 16pt !important; font-weight: bold !important; letter-spacing: 2px !important; }
 
-.parties { margin-bottom: 2mm; }
-.seller, .buyer { width: 100%; }
-.buyer { margin-top: 2mm; padding-top: 2mm; border-top: 1px dashed #000; }
-.parties .lbl { font-size: 8pt; font-weight: bold; text-transform: uppercase; color: #b91c1c; letter-spacing: 1px; margin-bottom: 1mm; }
-.parties .name { font-size: 12pt; font-weight: bold; margin-bottom: 1mm; }
-.parties div { font-size: 9pt; margin-bottom: 0.5mm; word-break: break-word; }
+.parties { margin-bottom: 2mm !important; }
+.seller, .buyer { width: 100% !important; }
+.buyer { margin-top: 2mm !important; padding-top: 2mm !important; border-top: 1px dashed #000 !important; }
+.parties .lbl { font-size: 8pt !important; font-weight: bold !important; text-transform: uppercase !important; color: #b91c1c !important; letter-spacing: 1px !important; margin-bottom: 1mm !important; }
+.parties .name { font-size: 12pt !important; font-weight: bold !important; margin-bottom: 1mm !important; }
+.parties div { font-size: 9pt !important; margin-bottom: 0.5mm !important; word-break: break-word !important; }
 
-.buyer .meta { text-align: center; margin-bottom: 2mm; padding-bottom: 2mm; border-bottom: 1px dashed #000; }
-.inv-no { font-size: 12pt; font-weight: bold; }
-.inv-date { font-size: 9pt; }
-.status { display: inline-block; margin-top: 1mm; padding: 1px 6px; font-size: 8pt; font-weight: bold; border: 1px solid #000; }
+.buyer .meta { text-align: center !important; margin-bottom: 2mm !important; padding-bottom: 2mm !important; border-bottom: 1px dashed #000 !important; }
+.inv-no { font-size: 12pt !important; font-weight: bold !important; }
+.inv-date { font-size: 9pt !important; }
+.status { display: inline-block !important; margin-top: 1mm !important; padding: 1px 6px !important; font-size: 8pt !important; font-weight: bold !important; border: 1px solid #000 !important; }
 .status.PAID { background: #14532d !important; color: #fff !important; border-color: #14532d !important; }
 .status.PENDING { color: #b91c1c !important; border-color: #b91c1c !important; }
 .status.PARTIAL { background: #1e3a8a !important; color: #fff !important; border-color: #1e3a8a !important; }
 
-.items { width: 100%; border-collapse: collapse; margin-bottom: 2mm; table-layout: fixed; }
-.items th, .items td { border: 1px solid #000; padding: 1.5px 2px; font-size: 8pt; word-break: break-word; }
-.items th { background: #000 !important; color: #fff !important; font-weight: bold; text-transform: uppercase; font-size: 7pt; }
-.items td.num, .items th.num { text-align: right; white-space: nowrap; }
-.items td.c-tot { font-weight: bold; }
-/* Hide narrow-only columns on thermal */
-.items .c-hsn, .items .c-disc, .items .c-amt { display: none; }
-.c-no { width: 6%; }
-.c-item { width: 44%; }
-.c-qty { width: 16%; }
-.c-rate { width: 16%; }
-.c-tax { width: 8%; }
-.c-tot { width: 10%; }
+.items { width: 100% !important; border-collapse: collapse !important; margin-bottom: 2mm !important; table-layout: fixed !important; }
+.items th, .items td { border: 1px solid #000 !important; padding: 1.5px 2px !important; font-size: 8pt !important; word-break: break-word !important; }
+.items th { background: #000 !important; color: #fff !important; font-weight: bold !important; text-transform: uppercase !important; font-size: 7pt !important; }
+.items td.num, .items th.num { text-align: right !important; white-space: nowrap !important; }
+.items td.c-tot { font-weight: bold !important; }
+.items .c-hsn, .items .c-disc, .items .c-amt { display: none !important; }
+.c-no { width: 6% !important; }
+.c-item { width: 44% !important; }
+.c-qty { width: 16% !important; }
+.c-rate { width: 16% !important; }
+.c-tax { width: 8% !important; }
+.c-tot { width: 10% !important; }
 
-.totals { width: 100%; margin-bottom: 2mm; }
-.totals .row { display: flex; justify-content: space-between; padding: 1.5px 0; border-bottom: 1px dashed #000; font-size: 9pt; }
-.totals .grand { font-size: 11pt; font-weight: bold; background: #000 !important; color: #fff !important; border: 1px solid #000; padding: 2px 4px; margin-top: 1mm; }
-.totals .due { color: #b91c1c !important; font-weight: bold; border-bottom: none; }
+.totals { width: 100% !important; margin-bottom: 2mm !important; }
+.totals .row { display: flex !important; justify-content: space-between !important; padding: 1.5px 0 !important; border-bottom: 1px dashed #000 !important; font-size: 9pt !important; }
+.totals .grand { font-size: 11pt !important; font-weight: bold !important; background: #000 !important; color: #fff !important; border: 1px solid #000 !important; padding: 2px 4px !important; margin-top: 1mm !important; }
+.totals .due { color: #b91c1c !important; font-weight: bold !important; border-bottom: none !important; }
 
-.notes, .einv { padding: 1.5mm; border: 1px solid #000; margin-bottom: 2mm; font-size: 8pt; word-break: break-word; }
-.einv { background: #f0fdf4; }
-.einv code { font-family: monospace; word-break: break-all; font-size: 7pt; }
+.notes, .einv { padding: 1.5mm !important; border: 1px solid #000 !important; margin-bottom: 2mm !important; font-size: 8pt !important; word-break: break-word !important; }
+.einv { background: #f0fdf4 !important; }
+.einv code { font-family: monospace !important; word-break: break-all !important; font-size: 7pt !important; }
 
-.qr { text-align: center; margin: 2mm 0; }
-.qr img { width: 80px; height: 80px; border: 1px solid #000; }
-.qr div { font-size: 8pt; font-weight: bold; margin-top: 1mm; }
+.qr { text-align: center !important; margin: 2mm 0 !important; }
+.qr img { width: 80px !important; height: 80px !important; border: 1px solid #000 !important; }
+.qr div { font-size: 8pt !important; font-weight: bold !important; margin-top: 1mm !important; }
 
-.sig { margin-top: 3mm; text-align: center; }
-.sig .line { border-top: 1px solid #000; width: 60%; margin: 0 auto 1mm; }
-.sig div { font-size: 8pt; }
-.sig .for { font-size: 7pt; color: #555; }
+.sig { margin-top: 3mm !important; text-align: center !important; }
+.sig .line { border-top: 1px solid #000 !important; width: 60% !important; margin: 0 auto 1mm !important; }
+.sig div { font-size: 8pt !important; }
+.sig .for { font-size: 7pt !important; color: #555 !important; }
 
-.footer { margin-top: 3mm; padding-top: 2mm; border-top: 2px solid #000; text-align: center; font-size: 7pt; }
-.footer .ts { font-family: monospace; word-break: break-all; }
-.footer .ver { font-size: 6pt; color: #999; margin-top: 1mm; }
+.footer { margin-top: 3mm !important; padding-top: 2mm !important; border-top: 2px solid #000 !important; text-align: center !important; font-size: 7pt !important; }
+.footer .ts { font-family: monospace !important; word-break: break-all !important; }
+.footer .ver { font-size: 6pt !important; color: #999 !important; margin-top: 1mm !important; }
 `
