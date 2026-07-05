@@ -25,16 +25,15 @@ jobs:
           node-version: '20'
           cache: 'npm'
       # Delete package-lock.json so npm install regenerates platform-specific deps
-      # The lockfile has Linux-specific @next/swc-linux-x64-gnu locked in,
-      # which causes EBADPLATFORM on Windows/macOS
       - run: rm -f package-lock.json
         shell: bash
-      - run: npm install --no-audit --no-fund
+      - run: npm install --no-audit --no-fund --force
+      - run: npx prisma generate
       - run: npm run build
         env:
           DATABASE_URL: 'postgresql://placeholder:placeholder@localhost:5432/placeholder'
       - run: npx tsc -p electron/tsconfig.json
-      - run: npx electron-builder --config electron-builder.yml --publish never
+      - run: npx electron-builder --config electron-builder.yml --publish never --config.npmRebuild=false
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions/upload-artifact@v4
