@@ -34,6 +34,22 @@ let nextServer: ChildProcess | null = null
 const isDev = !app.isPackaged
 const PORT = isDev ? 3000 : 3456  // different port in prod to avoid conflicts
 
+// v5.3: Single-instance lock — prevent multiple app instances from spawning
+// This prevents the crash caused by multiple windows/processes
+const gotTheLock = app.requestSingleInstanceLock()
+if (!gotTheLock) {
+  // Another instance is already running — quit this one immediately
+  app.quit()
+} else {
+  app.on('second-instance', () => {
+    // Someone tried to run a second instance — focus the existing window instead
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore()
+      mainWindow.focus()
+    }
+  })
+}
+
 // ============================================================
 // Start Next.js server (production mode)
 // ============================================================
@@ -110,11 +126,15 @@ function createWindow() {
   mainWindow.loadURL(url)
 
   // Open external links in browser (not in Electron)
+  // v5.3: Deny ALL new Electron windows to prevent crash from window spawn loop
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith('http://localhost') || url.startsWith('https://localhost')) {
-      return { action: 'allow' }
+      // Internal links — navigate in the same window, don't open new window
+      mainWindow?.loadURL(url)
+    } else {
+      // External links — open in user's default browser
+      shell.openExternal(url)
     }
-    shell.openExternal(url)
     return { action: 'deny' }
   })
 
@@ -410,10 +430,14 @@ ipcMain.handle('print:invoice-to-printer', async (_, url: string, printerName: s
 // App lifecycle
 // ============================================================
 app.whenReady().then(async () => {
-  // v4.154: Initialize fingerprint scanner SDK
-  await initFingerprintSDK()
-  registerFingerprintIpc()
-  console.log(`[Fingerprint] SDK initialized: ${getSdkType()}`)
+  // v5.3: Initialize fingerprint scanner SDK (non-blocking, won't crash if missing)
+  try {
+    await initFingerprintSDK()
+    registerFingerprintIpc()
+    console.log(`[Fingerprint] SDK initialized: ${getSdkType()}`)
+  } catch (err) {
+    console.warn('[Fingerprint] SDK initialization failed (non-fatal):', err)
+  }
 
   await startNextServer()
   createWindow()
@@ -444,6 +468,14 @@ app.on('before-quit', () => {
 })
 
 // Security: prevent new-window creation (we use setWindowOpenHandler instead)
+// v5.3: Only deny external windows — allow localhost links in the main window
+// but force them to open in the user's external browser, not a new Electron window
 app.on('web-contents-created', (_, contents) => {
-  contents.setWindowOpenHandler(() => ({ action: 'deny' }))
+  contents.setWindowOpenHandler(({ url }) => {
+    // Always deny new Electron windows — open external URLs in browser
+    if (!url.startsWith('http://localhost') && !url.startsWith('https://localhost')) {
+      shell.openExternal(url)
+    }
+    return { action: 'deny' }
+  })
 })
