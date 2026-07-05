@@ -4,8 +4,15 @@
  * Wraps z-ai-web-dev-sdk with a fallback config so it works on Railway
  * (where /etc/.z-ai-config doesn't exist by default).
  *
+ * v4.192: Made the SDK import dynamic + optional so the build does not fail
+ * when z-ai-web-dev-sdk is not installed (e.g., Railway production).
+ * The SDK is only loaded on demand when getZaiClient() is actually called.
+ * If the SDK cannot be loaded, getZaiClient() throws a clear error and
+ * isZaiAvailable() returns false — callers should check before using.
+ *
  * Usage:
- *   import { getZaiClient } from '@/lib/zai-client'
+ *   import { getZaiClient, isZaiAvailable } from '@/lib/zai-client'
+ *   if (!isZaiAvailable()) return res.status(503).json({ error: 'AI features unavailable' })
  *   const zai = await getZaiClient()
  *   const response = await zai.chat.completions.create({...})
  *
@@ -14,8 +21,6 @@
  *   2. Fallback: use new ZAI(config) with hardcoded config from env vars
  *      or default ZAI public credentials
  */
-
-import ZAI from 'z-ai-web-dev-sdk'
 
 interface ZaiConfig {
   baseUrl: string
@@ -37,19 +42,50 @@ const DEFAULT_CONFIG: ZaiConfig = {
   ...(process.env.ZAI_TOKEN ? { token: process.env.ZAI_TOKEN } : {}),
 }
 
-let cachedClient: ZAI | null = null
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let cachedClient: any | null = null
+let sdkLoadAttempted = false
+let sdkLoadError: string | null = null
+
+// Dynamically load the SDK so the build does not fail when the package is missing.
+// We use eval('require') to bypass Next.js's static analysis of the import.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function loadZaiSdk(): Promise<any> {
+  if (sdkLoadAttempted) {
+    if (sdkLoadError) throw new Error(sdkLoadError)
+    return cachedClient
+  }
+  sdkLoadAttempted = true
+  try {
+    // Dynamic require — works in Node runtime (server-side only)
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const mod = await import(/* @vite-ignore */ 'z-ai-web-dev-sdk').catch(() => null as any)
+    if (!mod || !mod.default) {
+      sdkLoadError = 'z-ai-web-dev-sdk is not installed. Run: npm install z-ai-web-dev-sdk'
+      throw new Error(sdkLoadError)
+    }
+    return mod.default
+  } catch (err: any) {
+    sdkLoadError = `Failed to load z-ai-web-dev-sdk: ${err?.message || 'unknown error'}`
+    throw new Error(sdkLoadError)
+  }
+}
 
 /**
  * Get a ZAI SDK client.
  * Tries ZAI.create() first (reads .z-ai-config file).
  * Falls back to direct constructor with DEFAULT_CONFIG if file is missing.
+ * Throws if the SDK package is not installed.
  */
-export async function getZaiClient(): Promise<ZAI> {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function getZaiClient(): Promise<any> {
   if (cachedClient) return cachedClient
+
+  const ZAISdk = await loadZaiSdk()
 
   // Try the standard create() method (looks for .z-ai-config file)
   try {
-    cachedClient = await ZAI.create()
+    cachedClient = await ZAISdk.create()
     console.log('[ZAI] Client initialized via .z-ai-config file')
     return cachedClient
   } catch (err: any) {
@@ -59,7 +95,8 @@ export async function getZaiClient(): Promise<ZAI> {
   // Fallback: use the constructor directly with our config
   // This bypasses the file lookup and works on Railway
   try {
-    cachedClient = new ZAI(DEFAULT_CONFIG as any)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    cachedClient = new ZAISdk(DEFAULT_CONFIG as any)
     console.log('[ZAI] Client initialized via fallback config (baseUrl:', DEFAULT_CONFIG.baseUrl + ')')
     return cachedClient
   } catch (err: any) {
@@ -69,8 +106,17 @@ export async function getZaiClient(): Promise<ZAI> {
 }
 
 /**
- * Check if ZAI is available (for health checks)
+ * Check if ZAI SDK is available (package installed).
+ * Returns false if the package could not be loaded.
  */
 export function isZaiAvailable(): boolean {
-  return true // Always available with fallback config
+  if (!sdkLoadAttempted) return true // optimistically allow call to attempt load
+  return cachedClient !== null || sdkLoadError === null
+}
+
+/**
+ * Get the SDK load error (for diagnostics).
+ */
+export function getZaiLoadError(): string | null {
+  return sdkLoadError
 }

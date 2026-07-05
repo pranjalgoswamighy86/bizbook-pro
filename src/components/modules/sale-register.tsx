@@ -568,16 +568,27 @@ export function SaleRegister() {
   }
 
   const handlePrintInvoice = (sale: Sale) => {
-    // v4.185: Single print button — CSS auto-detects printer width via @media queries
-    // The server-side route includes BOTH A4 and 80mm CSS.
-    // The browser's print dialog determines the paper size, and the CSS
-    // @media print and (max-width: 90mm) automatically switches to thermal layout.
+    // v5.0: Single-click print. Paper size from localStorage (default A4).
+    // To switch paper: change `bizbook-paper-pref` in Settings (future)
+    // or call handlePrintInvoice(sale, 'thermal') explicitly.
+    // Hidden iframe — no new browser tab.
     const token = useAppStore.getState().sessionToken
-    const printUrl = `/invoice-print/${sale.id}?t=${Date.now()}${token ? '&token=' + encodeURIComponent(token) : ''}`
-    const printWindow = window.open(printUrl, '_blank', 'width=900,height=700')
-    if (!printWindow) {
-      window.location.href = printUrl
+    const paper = (typeof window !== 'undefined' && localStorage.getItem('bizbook-paper-pref')) || 'a4'
+    const url = `/invoice-print/${sale.id}?paper=${paper}&t=${Date.now()}${token ? '&token=' + encodeURIComponent(token) : ''}`
+    let iframe = document.getElementById('bizbook-print-iframe') as HTMLIFrameElement | null
+    if (!iframe) {
+      iframe = document.createElement('iframe')
+      iframe.id = 'bizbook-print-iframe'
+      iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden;'
+      document.body.appendChild(iframe)
     }
+    iframe.onload = () => {
+      const cw = iframe!.contentWindow
+      if (!cw) return
+      cw.focus()
+      setTimeout(() => { try { cw.print() } catch (e) { console.error(e) } }, 400)
+    }
+    iframe.src = url
   }
 
 

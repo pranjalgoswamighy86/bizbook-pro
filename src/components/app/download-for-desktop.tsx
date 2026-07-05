@@ -1,14 +1,26 @@
 'use client'
 
 /**
- * Download for Desktop — PWA Install Button (DESKTOP ONLY)
- * =========================================================
- * v4.43 UPDATE.pdf A6: Self-hides on mobile browsing.
- * The "Download Desktop" feature is desktop-only per spec.
+ * Download for Desktop — v5.1 COMPLETE REWRITE
+ * =================================================
+ * Old version (v4.43) showed a PWA install hint modal. User explicitly
+ * requested this button offer the actual .exe / .AppImage / .dmg installer
+ * files for the Electron desktop app.
+ *
+ * New behavior:
+ * - Button opens a dropdown modal with platform options
+ * - Each platform links to its installer download URL
+ * - Auto-detects user's OS from navigator.userAgent
+ * - Also offers "Install as PWA" as a secondary option
+ *
+ * Installer hosting:
+ * - Linux AppImage is built and hosted at /api/desktop-download?platform=linux
+ * - Windows .exe and Mac .dmg are built via GitHub Actions and hosted on
+ *   GitHub Releases — the button links to the releases page
  */
 
-import { useState, useEffect } from 'react'
-import { Download, Monitor } from 'lucide-react'
+import { useState, useEffect, useRef } from 'react'
+import { Download, Monitor, Apple, Terminal, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
 interface BeforeInstallPromptEvent extends Event {
@@ -16,12 +28,60 @@ interface BeforeInstallPromptEvent extends Event {
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>
 }
 
+type Platform = 'windows' | 'mac' | 'linux' | 'unknown'
+
+function detectPlatform(): Platform {
+  if (typeof window === 'undefined') return 'unknown'
+  const ua = window.navigator.userAgent.toLowerCase()
+  if (ua.includes('win')) return 'windows'
+  if (ua.includes('mac')) return 'mac'
+  if (ua.includes('linux')) return 'linux'
+  return 'unknown'
+}
+
+const PLATFORM_INFO = {
+  windows: {
+    label: 'Windows',
+    icon: Monitor,
+    ext: '.exe',
+    size: '~380 MB',
+    note: 'Windows 10/11 (64-bit)',
+  },
+  mac: {
+    label: 'macOS',
+    icon: Apple,
+    ext: '.dmg',
+    size: '~380 MB',
+    note: 'macOS 11+ (Intel & Apple Silicon)',
+  },
+  linux: {
+    label: 'Linux',
+    icon: Terminal,
+    ext: '.AppImage',
+    size: '380 MB',
+    note: 'Ubuntu/Debian/Fedora (x64)',
+  },
+}
+
 export function DownloadForDesktop() {
-  const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null)
-  const [installed, setInstalled] = useState(false)
-  const [showHint, setShowHint] = useState(false)
-  // v4.43: Self-hide on mobile browsing (UPDATE.pdf A6)
+  const [showModal, setShowModal] = useState(false)
+  const [platform, setPlatform] = useState<Platform>('unknown')
   const [isDesktop, setIsDesktop] = useState(false)
+  const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null)
+  const modalRef = useRef<HTMLDivElement>(null)
+
+  // Scroll modal to top when it opens
+  useEffect(() => {
+    if (showModal) {
+      // Use setTimeout to ensure the modal is rendered before scrolling
+      const timer = setTimeout(() => {
+        if (modalRef.current) {
+          modalRef.current.scrollTop = 0
+        }
+      }, 0)
+      return () => clearTimeout(timer)
+    }
+  }, [showModal])
 
   useEffect(() => {
     const checkDesktop = () => setIsDesktop(window.innerWidth >= 900)
@@ -32,66 +92,141 @@ export function DownloadForDesktop() {
 
   useEffect(() => {
     if (!isDesktop) return
-
-    if (window.matchMedia('(display-mode: standalone)').matches || (window.navigator as any).standalone === true) {
-      setInstalled(true)
-      return
-    }
+    setPlatform(detectPlatform())
 
     const handler = (e: Event) => {
       e.preventDefault()
       setInstallPrompt(e as BeforeInstallPromptEvent)
     }
     window.addEventListener('beforeinstallprompt', handler)
-
-    const installedHandler = () => { setInstalled(true); setInstallPrompt(null) }
-    window.addEventListener('appinstalled', installedHandler)
-
-    return () => {
-      window.removeEventListener('beforeinstallprompt', handler)
-      window.removeEventListener('appinstalled', installedHandler)
-    }
+    return () => window.removeEventListener('beforeinstallprompt', handler)
   }, [isDesktop])
 
-  const handleInstall = async () => {
+  // Hard block on mobile
+  if (!isDesktop) return null
+
+  const handleDownload = (plat: Platform) => {
+    // Route to the download API which serves the installer file
+    // For Windows/Mac, redirect to GitHub Releases (built via CI)
+    // For Linux, serve the AppImage from the server
+    const baseUrl = typeof window !== 'undefined' ? window.location.origin : ''
+    if (plat === 'linux') {
+      // Linux AppImage is served directly from the server
+      window.open(`${baseUrl}/api/desktop-download?platform=linux`, '_blank')
+    } else {
+      // Windows .exe and Mac .dmg are hosted on GitHub Releases
+      window.open('https://github.com/pranjalgoswamighy86/bizbook-pro/releases/latest', '_blank')
+    }
+    setShowModal(false)
+  }
+
+  const handlePWAInstall = async () => {
     if (installPrompt) {
       await installPrompt.prompt()
       const choice = await installPrompt.userChoice
       if (choice.outcome === 'accepted') {
-        setInstalled(true)
-        setInstallPrompt(null)
+        setShowModal(false)
       }
-    } else {
-      setShowHint(!showHint)
     }
   }
 
-  // v4.43: Hard block — return null on mobile (not even rendered)
-  if (!isDesktop) return null
-  if (installed) return null
-
   return (
-    <div className="relative">
+    <>
       <Button
         variant="outline"
         size="sm"
-        onClick={handleInstall}
+        onClick={() => setShowModal(true)}
         className="gap-2 text-xs border-emerald-200 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-800 dark:text-emerald-300"
-        title="Install BizBook Pro as a desktop app"
+        title="Download BizBook Pro desktop app"
       >
-        <Monitor className="h-3.5 w-3.5" />
-        <span className="hidden sm:inline">Download for Desktop</span>
-        <span className="sm:hidden">Install</span>
+        <Download className="h-3.5 w-3.5" />
+        <span className="hidden sm:inline">Download Desktop</span>
+        <span className="sm:hidden">Desktop</span>
       </Button>
 
-      {showHint && !installPrompt && (
-        <div className="absolute top-full right-0 mt-1 p-3 bg-card border rounded-lg shadow-lg text-xs max-w-xs z-50">
-          <p className="font-semibold mb-1">Install BizBook Pro:</p>
-          <p className="text-muted-foreground">Chrome/Edge: Click the install icon (⊕) in the address bar.</p>
-          <p className="text-muted-foreground mt-1">Safari: Share → Add to Home Screen.</p>
-          <button onClick={() => setShowHint(false)} className="mt-2 text-emerald-600 hover:underline">Close</button>
+      {showModal && (
+        <div
+          className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 p-4"
+          onClick={() => setShowModal(false)}
+        >
+          <div
+            ref={modalRef}
+            className="bg-card border-2 border-emerald-500 rounded-xl shadow-2xl max-w-lg w-full p-6 relative mx-auto my-auto max-h-[85vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              onClick={() => setShowModal(false)}
+              className="absolute top-3 right-3 text-muted-foreground hover:text-foreground z-10"
+            >
+              <X className="h-5 w-5" />
+            </button>
+
+            <h2 className="text-lg font-bold mb-1">Download BizBook Pro Desktop</h2>
+            <p className="text-xs text-muted-foreground mb-3">
+              Install the native desktop app for silent thermal printing, fingerprint scanner support, and offline access.
+            </p>
+
+            {/* Platform download buttons */}
+            <div className="space-y-2 mb-4">
+              {(Object.keys(PLATFORM_INFO) as Platform[]).map((plat) => {
+                const info = PLATFORM_INFO[plat]
+                const Icon = info.icon
+                const isRecommended = plat === platform
+                return (
+                  <button
+                    key={plat}
+                    onClick={() => handleDownload(plat)}
+                    className={`w-full flex items-center gap-3 p-3 rounded-lg border-2 transition-colors text-left bg-white dark:bg-zinc-900 ${
+                      isRecommended
+                        ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/30'
+                        : 'border-gray-300 dark:border-zinc-700 hover:border-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/20'
+                    }`}
+                  >
+                    <Icon className="h-5 w-5 flex-shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="font-semibold text-sm">{info.label}</span>
+                        <span className="text-xs text-muted-foreground">{info.ext}</span>
+                        {isRecommended && (
+                          <span className="text-[10px] bg-emerald-600 text-white px-1.5 py-0.5 rounded-full font-bold">
+                            RECOMMENDED
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        {info.note} · {info.size}
+                      </div>
+                    </div>
+                    <Download className="h-4 w-4 text-emerald-600 flex-shrink-0" />
+                  </button>
+                )
+              })}
+            </div>
+
+            {/* PWA install option (secondary) */}
+            {installPrompt && (
+              <div className="border-t pt-3">
+                <button
+                  onClick={handlePWAInstall}
+                  className="w-full text-sm text-muted-foreground hover:text-foreground underline"
+                >
+                  Or install as a lightweight PWA (browser-based, no download)
+                </button>
+              </div>
+            )}
+
+            <div className="mt-4 pt-3 border-t text-xs text-muted-foreground">
+              <p className="mb-1"><strong>Why the desktop app?</strong></p>
+              <ul className="list-disc list-inside space-y-0.5">
+                <li>Silent thermal printer support (no print dialog)</li>
+                <li>USB fingerprint scanner integration</li>
+                <li>Offline mode with auto-sync</li>
+                <li>Auto-detects thermal vs A4 printer</li>
+              </ul>
+            </div>
+          </div>
         </div>
       )}
-    </div>
+    </>
   )
 }
