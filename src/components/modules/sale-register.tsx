@@ -568,10 +568,12 @@ export function SaleRegister() {
   }
 
   const handlePrintInvoice = async (sale: Sale) => {
-    // v5.8: AUTO-DETECT paper size from default printer (Electron only)
-    // Falls back to localStorage, then 'a4'
+    // v5.12: ESC/POS DIRECT PRINTING for thermal printers
+    // This BYPASSES the browser print engine entirely — sends raw
+    // ESC/POS commands to the printer via USB. No A4 layout, no dialog.
     const token = useAppStore.getState().sessionToken
     const electronAPI = (window as any).electron
+    const { tenant } = useAppStore.getState()
 
     let paper: string | null = null
 
@@ -582,7 +584,6 @@ export function SaleRegister() {
         if (result?.paper) {
           paper = result.paper
           console.log('[print] Auto-detected paper:', paper, 'from printer:', result.printerName)
-          // Save for future prints (so browser fallback also uses it)
           if (typeof window !== 'undefined' && paper) {
             localStorage.setItem('bizbook-paper-pref', paper)
           }
@@ -598,11 +599,82 @@ export function SaleRegister() {
     }
     if (!paper) paper = 'a4'
 
+    // ============================================================
+    // ESC/POS DIRECT PRINT — for thermal printers (58mm/80mm)
+    // ============================================================
+    // This is the REAL fix. Instead of loading HTML and using the
+    // browser print engine (which forces A4), we send raw ESC/POS
+    // commands directly to the printer via USB.
+    if (electronAPI?.printEscpos && (paper === '58mm' || paper === '80mm' || paper === 'thermal')) {
+      try {
+        toast({ title: 'Printing...', description: `Sending to thermal printer (${paper.toUpperCase()})` })
+
+        // Parse sale items
+        let items: any[] = []
+        try { items = JSON.parse(sale.items || '[]') } catch { items = [] }
+
+        const escposData = {
+          sellerName: tenant?.name || 'BizBook Pro',
+          sellerAddr: tenant?.address || '',
+          sellerPhone: tenant?.phone || '',
+          sellerGst: tenant?.gstNumber || '',
+          buyerName: sale.partyName || '',
+          buyerAddr: sale.partyAddress || '',
+          invNo: sale.invoiceNumber || '',
+          invDate: new Date(sale.date).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: '2-digit' }),
+          status: (() => {
+            const u = (sale.paymentStatus || '').toUpperCase()
+            if (u === 'PAID' || u === 'RECEIVED') return 'PAID'
+            if (u === 'PARTIAL') return 'PARTIAL'
+            return 'PENDING'
+          })(),
+          items: items.map((it: any) => ({
+            name: it.name || '',
+            qty: it.qty || 0,
+            unit: it.unit || '',
+            rate: it.rate || 0,
+            total: it.total || 0,
+          })),
+          subtotal: sale.subtotal || 0,
+          taxAmount: sale.gstAmount || 0,
+          totalAmount: sale.totalAmount || 0,
+          amountReceived: sale.amountReceived || sale.amountPaid || 0,
+          balanceDue: (sale.totalAmount || 0) - (sale.amountReceived || sale.amountPaid || 0),
+          paperWidth: paper,
+        }
+
+        console.log('[print] Using ESC/POS direct printing:', paper)
+        const result = await electronAPI.printEscpos(escposData)
+
+        if (result?.ok) {
+          toast({ title: 'Printed', description: `Receipt printed (${paper.toUpperCase()})` })
+          return
+        } else {
+          console.error('[print] ESC/POS failed:', result?.error)
+          toast({
+            title: 'ESC/POS print failed',
+            description: `${result?.error || 'Unknown error'}. Falling back to HTML print.`,
+            variant: 'destructive',
+          })
+          // Fall through to HTML print below
+        }
+      } catch (e: any) {
+        console.error('[print] ESC/POS error:', e)
+        toast({
+          title: 'ESC/POS error',
+          description: `${e?.message || 'Unknown'}. Falling back to HTML print.`,
+          variant: 'destructive',
+        })
+        // Fall through to HTML print below
+      }
+    }
+
+    // ============================================================
+    // HTML PRINT — for A4 or ESC/POS fallback
+    // ============================================================
     const relativeUrl = `/invoice-print/${sale.id}?paper=${paper}&t=${Date.now()}${token ? '&token=' + encodeURIComponent(token) : ''}`
 
-    // ---- SILENT PRINT VIA ELECTRON (desktop app) ----
-    // v5.9: If Electron is available, ONLY use silent print — never fall back to iframe
-    // The iframe shows the OS print dialog which we want to avoid
+    // ---- SILENT PRINT VIA ELECTRON (desktop app, A4) ----
     if (electronAPI?.printInvoiceSilent) {
       try {
         const origin = typeof window !== 'undefined' ? window.location.origin : ''
@@ -613,10 +685,10 @@ export function SaleRegister() {
           toast({ title: 'Printed', description: `Invoice sent to printer (${paper.toUpperCase()})` })
           return
         } else {
-          console.error('[print] Electron silent print failed:', result?.error)
+          console.error('[print] Silent print failed:', result?.error)
           toast({
             title: 'Print failed',
-            description: `Silent print error: ${result?.error || 'Unknown'}. Check console for details.`,
+            description: `Error: ${result?.error || 'Unknown'}`,
             variant: 'destructive',
           })
           return
@@ -625,7 +697,7 @@ export function SaleRegister() {
         console.error('[print] Electron API error:', e)
         toast({
           title: 'Print failed',
-          description: `Electron API error: ${e?.message || 'Unknown'}`,
+          description: `Error: ${e?.message || 'Unknown'}`,
           variant: 'destructive',
         })
         return

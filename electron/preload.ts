@@ -32,6 +32,12 @@ contextBridge.exposeInMainWorld('electron', {
     ipcRenderer.on('menu-action', (_, action: string) => callback(action))
   },
 
+  // v5.12: ESC/POS direct printing — bypasses browser entirely
+  // Sends raw ESC/POS commands to thermal printer via USB
+  // This is the ONLY reliable way to print on 58mm thermal paper
+  printEscpos: (data: any) =>
+    ipcRenderer.invoke('print:escpos', data),
+
   // v5.8: Silent print + auto-detect APIs
   // - printInvoiceSilent(url): prints to default OS printer with NO dialog
   // - listPrinters(): returns array of installed printers with detectedPaper
