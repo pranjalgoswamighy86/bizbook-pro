@@ -352,6 +352,99 @@ ipcMain.handle('app:version', () => ({
 }))
 
 // ============================================================
+// v5.8: PRINTER AUTO-DETECTION + SILENT PRINT
+// ============================================================
+// Auto-detects paper size from the default printer's name:
+//   - "58mm" / "58" / "everycom-58" / "thermal" / "receipt" → 58mm thermal
+//   - "80mm" / "80" / "pos" / "star" / "epson tm" / "bixolon" → 80mm thermal
+//   - Anything else → A4
+//
+// Then silently prints the invoice URL to the default printer — NO dialog.
+
+// Get list of installed printers with auto-detected paper size
+ipcMain.handle('print:list-printers', async () => {
+  if (!mainWindow) return { printers: [] }
+  try {
+    const printers = await mainWindow.webContents.getPrintersAsync()
+    return {
+      printers: printers.map(p => {
+        const fullName = (p.name + ' ' + (p.displayName || '')).toLowerCase()
+        let detectedPaper = 'a4'
+        let isThermal = false
+        // 58mm thermal printers (Everycom-58, etc.)
+        if (/58mm|58|everycom|escpos|pos-?58/.test(fullName)) {
+          detectedPaper = '58mm'
+          isThermal = true
+        }
+        // 80mm thermal printers (standard POS receipt printers)
+        else if (/80mm|80|thermal|receipt|pos|star|epson tm|bixolon/.test(fullName)) {
+          detectedPaper = '80mm'
+          isThermal = true
+        }
+        return {
+          name: p.name,
+          displayName: p.displayName,
+          isDefault: p.isDefault,
+          isThermal,
+          detectedPaper,
+        }
+      }),
+    }
+  } catch (err: any) {
+    return { printers: [], error: err?.message }
+  }
+})
+
+// Auto-detect paper size from default printer
+ipcMain.handle('print:auto-detect-paper', async () => {
+  if (!mainWindow) return { paper: 'a4' }
+  try {
+    const printers = await mainWindow.webContents.getPrintersAsync()
+    const defaultPrinter = printers.find(p => p.isDefault)
+    if (!defaultPrinter) return { paper: 'a4' }
+    const fullName = (defaultPrinter.name + ' ' + (defaultPrinter.displayName || '')).toLowerCase()
+    if (/58mm|58|everycom|escpos|pos-?58/.test(fullName)) {
+      return { paper: '58mm', printerName: defaultPrinter.name }
+    }
+    if (/80mm|80|thermal|receipt|pos|star|epson tm|bixolon/.test(fullName)) {
+      return { paper: '80mm', printerName: defaultPrinter.name }
+    }
+    return { paper: 'a4', printerName: defaultPrinter.name }
+  } catch (err: any) {
+    return { paper: 'a4', error: err?.message }
+  }
+})
+
+// Silent print — loads URL in hidden window, prints with no dialog
+ipcMain.handle('print:invoice-silent', async (_, url: string) => {
+  if (!mainWindow) {
+    return { ok: false, error: 'Main window not available' }
+  }
+  try {
+    const printWindow = new BrowserWindow({
+      show: false,
+      width: 800,
+      height: 600,
+      webPreferences: {
+        contextIsolation: true,
+      },
+    })
+    await printWindow.loadURL(url)
+    // Wait for fonts/images to settle
+    await new Promise(resolve => setTimeout(resolve, 1000))
+    await printWindow.webContents.print({
+      silent: true,
+      printBackground: true,
+    })
+    printWindow.close()
+    return { ok: true }
+  } catch (err: any) {
+    console.error('[silent-print] Error:', err)
+    return { ok: false, error: err?.message || 'Unknown print error' }
+  }
+})
+
+// ============================================================
 // App lifecycle
 // ============================================================
 app.whenReady().then(async () => {

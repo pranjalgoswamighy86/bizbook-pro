@@ -32,14 +32,17 @@ contextBridge.exposeInMainWorld('electron', {
     ipcRenderer.on('menu-action', (_, action: string) => callback(action))
   },
 
-  // v4.192: Silent print APIs (true zero-click printing via Electron)
+  // v5.8: Silent print + auto-detect APIs
   // - printInvoiceSilent(url): prints to default OS printer with NO dialog
-  // - listPrinters(): returns array of installed printers with isThermal flag
+  // - listPrinters(): returns array of installed printers with detectedPaper
+  // - autoDetectPaper(): returns { paper, printerName } from default printer
   // - printInvoiceToPrinter(url, printerName): prints to specific printer silently
   printInvoiceSilent: (url: string) =>
     ipcRenderer.invoke('print:invoice-silent', url),
   listPrinters: () =>
     ipcRenderer.invoke('print:list-printers'),
+  autoDetectPaper: () =>
+    ipcRenderer.invoke('print:auto-detect-paper'),
   printInvoiceToPrinter: (url: string, printerName: string) =>
     ipcRenderer.invoke('print:invoice-to-printer', url, printerName),
 

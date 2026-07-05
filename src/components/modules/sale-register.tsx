@@ -568,13 +568,39 @@ export function SaleRegister() {
   }
 
   const handlePrintInvoice = async (sale: Sale) => {
-    // v5.7: Silent print in Electron, iframe fallback in browser
+    // v5.8: AUTO-DETECT paper size from default printer (Electron only)
+    // Falls back to localStorage, then 'a4'
     const token = useAppStore.getState().sessionToken
-    const paper = (typeof window !== 'undefined' && localStorage.getItem('bizbook-paper-pref')) || 'a4'
+    const electronAPI = (window as any).electron
+
+    let paper: string | null = null
+
+    // ---- AUTO-DETECT FROM DEFAULT PRINTER (Electron desktop app) ----
+    if (electronAPI?.autoDetectPaper) {
+      try {
+        const result = await electronAPI.autoDetectPaper()
+        if (result?.paper) {
+          paper = result.paper
+          console.log('[print] Auto-detected paper:', paper, 'from printer:', result.printerName)
+          // Save for future prints (so browser fallback also uses it)
+          if (typeof window !== 'undefined' && paper) {
+            localStorage.setItem('bizbook-paper-pref', paper)
+          }
+        }
+      } catch (e) {
+        console.warn('[print] Auto-detect failed:', e)
+      }
+    }
+
+    // ---- FALLBACK: localStorage preference ----
+    if (!paper && typeof window !== 'undefined') {
+      paper = localStorage.getItem('bizbook-paper-pref') || 'a4'
+    }
+    if (!paper) paper = 'a4'
+
     const relativeUrl = `/invoice-print/${sale.id}?paper=${paper}&t=${Date.now()}${token ? '&token=' + encodeURIComponent(token) : ''}`
 
     // ---- SILENT PRINT VIA ELECTRON (desktop app) ----
-    const electronAPI = (window as any).electron
     if (electronAPI?.printInvoiceSilent) {
       try {
         const origin = typeof window !== 'undefined' ? window.location.origin : ''
