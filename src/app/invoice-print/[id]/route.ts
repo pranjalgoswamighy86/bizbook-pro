@@ -410,59 +410,211 @@ export async function GET(
     }
 
     /* ====================================================================
-       THERMAL PRINTER (80mm) — auto-detected by browser
+       THERMAL PRINTER (80mm continuous roll) — auto-detected by browser
+       v4.189: Continuous-roll support + edge-to-edge + enlarged fonts
+         - @page margin: 0  (no whitespace border)
+         - html/body width: 80mm (full paper width, not 76mm)
+         - All section paddings reduced to 1mm horizontal
+         - Fonts sharply upscaled (header 22px, items 12px, totals 18px)
+         - Continuous flow — NO pagination, NO page-break-inside avoid
+         - White-space: nowrap on numeric cells prevents wrap/overflow
        ==================================================================== */
     @media print and (max-width: 90mm) {
-      @page { size: 80mm auto; margin: 2mm; }
-      html, body { width: 76mm; min-height: auto; padding: 2mm; }
-      body { font-family: 'Courier New', monospace; display: block; }
+      @page {
+        size: 80mm auto;
+        margin: 0;            /* <-- NO WHITESPACE BORDER */
+      }
+      html, body {
+        width: 80mm;          /* <-- FULL PAPER WIDTH (was 76mm) */
+        min-height: auto;
+        margin: 0;
+        padding: 0;           /* <-- NO PADDING */
+      }
+      body {
+        font-family: 'Courier New', monospace;
+        display: block;
+        width: 80mm;
+      }
 
-      .title-banner { padding: 2mm; border-bottom: 2px solid #000; }
-      .title-banner h1 { font-size: 20px; letter-spacing: 2px; }
+      /* Disable pagination entirely — continuous roll */
+      * {
+        page-break-before: avoid !important;
+        page-break-after: avoid !important;
+        page-break-inside: avoid !important;
+        break-before: avoid !important;
+        break-after: avoid !important;
+        break-inside: avoid !important;
+      }
 
-      .header-row { display: block; }
-      .header-cell { padding: 2mm; }
-      .header-cell.left { border-right: 0; border-bottom: 2px solid #000; }
+      .title-banner {
+        width: 80mm;
+        padding: 2mm 1mm;
+        border-bottom: 2px solid #000;
+        text-align: center;
+      }
+      .title-banner h1 { font-size: 22px; letter-spacing: 2px; line-height: 1.1; }
 
-      .block-label { font-size: 10px; letter-spacing: 1px; margin-bottom: 2px; padding-bottom: 1px; }
-      .seller-block .field-name, .buyer-block .field-name { font-size: 13px; margin-bottom: 2px; }
-      .seller-block .field, .buyer-block .field { font-size: 10px; margin-bottom: 1px; }
-      .seller-block .field .lbl, .buyer-block .field .lbl { font-size: 8px; }
+      .header-row { display: block; width: 80mm; }
+      .header-cell {
+        width: 80mm;
+        padding: 2mm 1mm;
+      }
+      .header-cell.left {
+        border-right: 0;
+        border-bottom: 2px solid #000;
+      }
 
-      .meta-block { text-align: center; padding-bottom: 2mm; margin-bottom: 2mm; border-bottom: 1px dashed #000; }
-      .meta-block .inv-no { font-size: 14px; letter-spacing: 1px; }
-      .meta-block .inv-date { font-size: 11px; margin-top: 2px; }
-      .meta-block .status-flag { font-size: 11px; padding: 2px 8px; margin-top: 4px; letter-spacing: 1px; }
+      .block-label {
+        font-size: 12px;
+        letter-spacing: 1px;
+        margin-bottom: 2px;
+        padding-bottom: 1px;
+      }
+      .seller-block .field-name,
+      .buyer-block .field-name {
+        font-size: 16px;        /* was 13px → +23% */
+        margin-bottom: 2px;
+        line-height: 1.2;
+      }
+      .seller-block .field,
+      .buyer-block .field {
+        font-size: 12px;        /* was 10px → +20% */
+        margin-bottom: 1px;
+        line-height: 1.3;
+        word-break: break-word;
+      }
+      .seller-block .field .lbl,
+      .buyer-block .field .lbl {
+        font-size: 10px;        /* was 8px → +25% */
+      }
 
-      .items-section { padding: 0 2mm; }
-      table.items thead th { padding: 2px 1px; font-size: 8px; letter-spacing: 0.5px; }
-      table.items tbody td { padding: 2px 1px; font-size: 9px; }
-      table.items .col-hsn { display: none; }   /* hide HSN column on thermal */
+      .meta-block {
+        text-align: center;
+        padding: 2mm 1mm;
+        margin: 0;
+        border-bottom: 1px dashed #000;
+      }
+      .meta-block .inv-no {
+        font-size: 16px;        /* was 14px */
+        letter-spacing: 1px;
+        font-weight: 900;
+      }
+      .meta-block .inv-date {
+        font-size: 13px;        /* was 11px */
+        margin-top: 2px;
+      }
+      .meta-block .status-flag {
+        font-size: 13px;        /* was 11px */
+        padding: 2px 10px;
+        margin-top: 4px;
+        letter-spacing: 1px;
+      }
+
+      .items-section {
+        width: 80mm;
+        padding: 0 1mm;
+      }
+      table.items { width: 100%; }
+      table.items thead th {
+        padding: 3px 1px;
+        font-size: 11px;        /* was 8px → +37% */
+        letter-spacing: 0.5px;
+      }
+      table.items tbody td {
+        padding: 3px 1px;
+        font-size: 12px;        /* was 9px → +33% */
+        white-space: normal;
+        word-break: break-word;
+      }
+      table.items tbody td.num {
+        white-space: nowrap;    /* numbers must not wrap */
+      }
+      table.items .col-hsn { display: none; }
       table.items thead .col-hsn { display: none; }
+      /* Drop less-critical columns on thermal to free width */
+      table.items .col-disc { display: none; }
+      table.items thead .col-disc { display: none; }
+      table.items .col-amt { display: none; }
+      table.items thead .col-amt { display: none; }
 
-      .bottom-row { display: block; border-top: 2px solid #000; }
-      .bottom-cell.left, .bottom-cell.right { padding: 2mm; border-right: 0; border-bottom: 2px solid #000; }
+      .bottom-row {
+        display: block;
+        width: 80mm;
+        border-top: 2px solid #000;
+      }
+      .bottom-cell.left,
+      .bottom-cell.right {
+        width: 80mm;
+        padding: 2mm 1mm;
+        border-right: 0;
+        border-bottom: 2px solid #000;
+      }
 
-      .summary-row { padding: 1px 0; font-size: 11px; border-bottom: 1px dashed #000; }
-      .summary-row.total { font-size: 14px; padding: 2px 0; margin-top: 2px; }
+      .summary-row {
+        padding: 2px 0;
+        font-size: 13px;        /* was 11px → +18% */
+        border-bottom: 1px dashed #000;
+      }
+      .summary-row.total {
+        font-size: 18px;        /* was 14px → +28% */
+        padding: 4px 0;
+        margin-top: 3px;
+      }
       .summary-row.due { color: #b91c1c; }
 
-      .qr-cell img { width: 80px; height: 80px; }
-      .qr-cell .qr-label { font-size: 10px; margin-top: 3px; }
-      .qr-cell .sig { margin-top: 2mm; padding-top: 1mm; font-size: 11px; }
-      .qr-cell .sig small { font-size: 9px; }
+      .qr-cell { text-align: center; }
+      .qr-cell img {
+        width: 110px;           /* was 80px → +37% */
+        height: 110px;
+      }
+      .qr-cell .qr-label {
+        font-size: 12px;        /* was 10px */
+        margin-top: 4px;
+      }
+      .qr-cell .sig {
+        margin-top: 3mm;
+        padding-top: 2mm;
+        font-size: 13px;        /* was 11px */
+      }
+      .qr-cell .sig small {
+        font-size: 11px;        /* was 9px */
+      }
 
-      .terms { font-size: 10px; padding: 2mm; border-bottom: 2px solid #000; }
-      .terms strong { font-size: 11px; }
+      .terms {
+        width: 80mm;
+        font-size: 12px;        /* was 10px */
+        padding: 2mm 1mm;
+        border-bottom: 2px solid #000;
+      }
+      .terms strong { font-size: 13px; }
 
-      .einvoice-block { padding: 2mm; display: block; text-align: center; }
-      .einvoice-block h4 { font-size: 11px; }
-      .einvoice-block .meta { font-size: 9px; }
+      .einvoice-block {
+        width: 80mm;
+        padding: 2mm 1mm;
+        display: block;
+        text-align: center;
+      }
+      .einvoice-block h4 { font-size: 13px; }
+      .einvoice-block .meta { font-size: 11px; }
 
-      .footer { padding: 2mm; }
-      .footer .line1 { font-size: 9px; margin-bottom: 1px; }
-      .footer .line2 { font-size: 9px; letter-spacing: 0.5px; }
-      .footer .line2 .timestamp { padding: 1px 5px; border: 1px solid #fff; letter-spacing: 0.5px; margin-left: 2px; }
+      .footer {
+        width: 80mm;
+        padding: 2mm 1mm;
+      }
+      .footer .line1 {
+        font-size: 11px;        /* was 9px */
+        margin-bottom: 2px;
+      }
+      .footer .line2 {
+        font-size: 11px;        /* was 9px */
+        letter-spacing: 0.5px;
+      }
+      .footer .line2 .timestamp {
+        padding: 2px 6px;
+        border: 1px solid #fff;
+        letter-spacing: 0.5px;
+        margin-left: 3px;
+      }
     }
 
     /* === SCREEN PREVIEW — shows A4 layout in browser === */
@@ -586,7 +738,13 @@ export async function GET(
     <div class="line2">by Tahigo International &mdash;<span class="timestamp">${systemTimestamp}</span></div>
   </div>
 
-<script>window.onload = function() { setTimeout(function() { window.print(); }, 500); };</script>
+<script>
+  // v4.189: Parent window calls iframe.contentWindow.print() directly.
+  // No auto-print here — the iframe onload handler in sale-register.tsx
+  // triggers the print after the document is fully loaded.
+  // This avoids double print dialogs and gives the parent control over timing.
+  window.__bizbookInvoiceReady = true;
+</script>
 </body>
 </html>`
 

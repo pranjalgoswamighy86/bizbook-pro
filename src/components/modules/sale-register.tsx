@@ -568,16 +568,55 @@ export function SaleRegister() {
   }
 
   const handlePrintInvoice = (sale: Sale) => {
-    // v4.185: Single print button — CSS auto-detects printer width via @media queries
-    // The server-side route includes BOTH A4 and 80mm CSS.
-    // The browser's print dialog determines the paper size, and the CSS
-    // @media print and (max-width: 90mm) automatically switches to thermal layout.
+    // v4.189: DIRECT PRINT PIPELINE — hidden iframe, no new window/tab
+    // The invoice HTML is loaded into a hidden iframe on the current page.
+    // When the iframe finishes loading, we call iframe.contentWindow.print()
+    // which routes the job straight to the OS print queue.
+    // The browser's native print dialog still appears (so the user can pick
+    // paper size / printer), but NO extra tab is opened and NO manual close
+    // step is needed — the dialog dismisses back to the active software UI.
+    //
+    // CSS @media print and (max-width: 90mm) inside the iframe auto-detects
+    // thermal 80mm printers and switches to the continuous-roll layout.
     const token = useAppStore.getState().sessionToken
     const printUrl = `/invoice-print/${sale.id}?t=${Date.now()}${token ? '&token=' + encodeURIComponent(token) : ''}`
-    const printWindow = window.open(printUrl, '_blank', 'width=900,height=700')
-    if (!printWindow) {
-      window.location.href = printUrl
+
+    // Reuse a single hidden iframe so repeat prints don't accumulate DOM nodes
+    let printIframe = document.getElementById('bizbook-print-iframe') as HTMLIFrameElement | null
+    if (!printIframe) {
+      printIframe = document.createElement('iframe')
+      printIframe.id = 'bizbook-print-iframe'
+      printIframe.style.position = 'fixed'
+      printIframe.style.right = '0'
+      printIframe.style.bottom = '0'
+      printIframe.style.width = '0'
+      printIframe.style.height = '0'
+      printIframe.style.border = '0'
+      printIframe.style.visibility = 'hidden'
+      document.body.appendChild(printIframe)
     }
+
+    // When the iframe finishes loading the invoice HTML, trigger print directly.
+    // The browser's print dialog opens ON TOP of the current tab — no new tab.
+    const onIframeLoad = () => {
+      try {
+        const cw = printIframe!.contentWindow
+        if (!cw) return
+        // Small delay to let fonts/images settle
+        cw.focus()
+        setTimeout(() => {
+          try {
+            cw.print()
+          } catch (e) {
+            console.error('[print] iframe.print() failed', e)
+          }
+        }, 400)
+      } catch (e) {
+        console.error('[print] iframe load handler error', e)
+      }
+    }
+    printIframe.onload = onIframeLoad
+    printIframe.src = printUrl
   }
 
 
