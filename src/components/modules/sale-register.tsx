@@ -79,90 +79,6 @@ const SALE_ITEM_TYPE_LABELS: Record<NonNullable<SaleItem['saleItemType']>, strin
   SERVICE: 'Service',
 }
 
-// v4.190: PrintMenu — popover with A4 / Thermal 80mm paper size options.
-// Replaces the single-click Print icon. Saves choice to localStorage so
-// future prints default to the same paper.
-function PrintMenu({ sale, onPrint, variant = 'icon' }: {
-  sale: Sale
-  onPrint: (sale: Sale, paper: 'a4' | 'thermal') => void
-  variant?: 'icon' | 'outline' | 'primary'
-}) {
-  const [open, setOpen] = useState(false)
-  const [paperPref, setPaperPref] = useState<'a4' | 'thermal'>(() => {
-    if (typeof window === 'undefined') return 'a4'
-    return (localStorage.getItem('bizbook-paper-pref') as 'a4' | 'thermal') || 'a4'
-  })
-
-  const handlePick = (paper: 'a4' | 'thermal') => {
-    setPaperPref(paper)
-    localStorage.setItem('bizbook-paper-pref', paper)
-    setOpen(false)
-    onPrint(sale, paper)
-  }
-
-  const trigger = (() => {
-    if (variant === 'icon') {
-      return (
-        <Button variant="ghost" size="icon" className="h-8 w-8" title="Print Invoice">
-          <Printer className="h-4 w-4" />
-        </Button>
-      )
-    }
-    if (variant === 'primary') {
-      return (
-        <Button variant="default">
-          <Printer className="h-4 w-4 mr-1" />Print
-          <ChevronDown className="h-3 w-3 ml-1" />
-        </Button>
-      )
-    }
-    return (
-      <Button variant="outline" size="sm" className="ml-2">
-        <Printer className="h-4 w-4 mr-1" />Print
-        <ChevronDown className="h-3 w-3 ml-1" />
-      </Button>
-    )
-  })()
-
-  return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        {trigger}
-      </PopoverTrigger>
-      <PopoverContent className="w-56 p-2" align="end">
-        <div className="text-xs font-bold uppercase tracking-wider text-muted-foreground px-2 py-1.5">
-          Paper Size
-        </div>
-        <button
-          type="button"
-          onClick={() => handlePick('a4')}
-          className="flex w-full items-center justify-between rounded-md px-2 py-2 text-sm hover:bg-accent transition-colors"
-        >
-          <span className="flex items-center gap-2">
-            <span className="font-medium">A4 Sheet</span>
-            <span className="text-[10px] text-muted-foreground">210mm × 297mm</span>
-          </span>
-          {paperPref === 'a4' && <CheckCircle2 className="h-4 w-4 text-emerald-600" />}
-        </button>
-        <button
-          type="button"
-          onClick={() => handlePick('thermal')}
-          className="flex w-full items-center justify-between rounded-md px-2 py-2 text-sm hover:bg-accent transition-colors"
-        >
-          <span className="flex items-center gap-2">
-            <span className="font-medium">Thermal 80mm</span>
-            <span className="text-[10px] text-muted-foreground">Roll receipt</span>
-          </span>
-          {paperPref === 'thermal' && <CheckCircle2 className="h-4 w-4 text-emerald-600" />}
-        </button>
-        <div className="border-t mt-1 pt-1.5 px-2 text-[10px] text-muted-foreground">
-          Choice saved for future prints
-        </div>
-      </PopoverContent>
-    </Popover>
-  )
-}
-
 export function SaleRegister() {
   const { tenant, user, dateFilter, searchQuery, setView } = useAppStore()
   const isAuthenticated = useAppStore(s => s.isAuthenticated)
@@ -651,113 +567,28 @@ export function SaleRegister() {
     }
   }
 
-  const handlePrintInvoice = async (sale: Sale, paper?: 'a4' | 'thermal') => {
-    // v4.192: AUTO-DETECT + SILENT PRINT
-    //
-    // HONEST ARCHITECTURE NOTE:
-    // Pure web browsers (Chrome, Firefox, Safari) CANNOT silently print without
-    // showing the OS print dialog. The browser security model requires user
-    // consent for every print job. True "zero-click" silent printing requires
-    // either:
-    //   (a) Chrome/Edge launched with --kiosk-printing --silent-print flag
-    //   (b) Electron desktop wrapper with webContents.print({silent: true})
-    //   (c) A native print spooler service running alongside the web app
-    //
-    // What we CAN do in a pure web app:
-    //   1. Auto-detect paper size preference from localStorage (no manual toggle)
-    //   2. If running inside Electron (window.electron), use SILENT print —
-    //      no dialog at all, prints straight to default OS printer
-    //   3. If running in pure browser, use hidden iframe + browser print dialog
-    //      (dialog dismisses back to active UI after print)
-    //   4. Auto-detect thermal vs A4 by querying OS printers via Electron
-    //      (when available) — if default printer name matches thermal
-    //      keywords (thermal/receipt/80mm/POS), use thermal layout
-    //
-    // For TRUE silent printing, build and run the Electron desktop app:
-    //   npm run electron:build  →  produces BizBook Pro.exe / .app / .deb
-    //   Launch the desktop app — all print buttons become silent
-
+  const handlePrintInvoice = (sale: Sale) => {
+    // v5.0: Single-click print. Paper size from localStorage (default A4).
+    // To switch paper: change `bizbook-paper-pref` in Settings (future)
+    // or call handlePrintInvoice(sale, 'thermal') explicitly.
+    // Hidden iframe — no new browser tab.
     const token = useAppStore.getState().sessionToken
-
-    // ---- AUTO-DETECT PAPER SIZE ----
-    let chosenPaper = paper
-    if (!chosenPaper) {
-      // Try Electron printer auto-detection first
-      const electronAPI = (window as any).electron
-      if (electronAPI?.listPrinters) {
-        try {
-          const result = await electronAPI.listPrinters()
-          const defaultPrinter = result?.printers?.find((p: any) => p.isDefault)
-          if (defaultPrinter?.isThermal) {
-            chosenPaper = 'thermal'
-          } else if (defaultPrinter) {
-            chosenPaper = 'a4'
-          }
-        } catch (e) {
-          console.warn('[print] Auto-detect failed, falling back to localStorage')
-        }
-      }
-      // Fallback to localStorage preference
-      if (!chosenPaper && typeof window !== 'undefined') {
-        chosenPaper = (localStorage.getItem('bizbook-paper-pref') as 'a4' | 'thermal') || 'a4'
-      }
-      if (!chosenPaper) chosenPaper = 'a4'
+    const paper = (typeof window !== 'undefined' && localStorage.getItem('bizbook-paper-pref')) || 'a4'
+    const url = `/invoice-print/${sale.id}?paper=${paper}&t=${Date.now()}${token ? '&token=' + encodeURIComponent(token) : ''}`
+    let iframe = document.getElementById('bizbook-print-iframe') as HTMLIFrameElement | null
+    if (!iframe) {
+      iframe = document.createElement('iframe')
+      iframe.id = 'bizbook-print-iframe'
+      iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden;'
+      document.body.appendChild(iframe)
     }
-
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('bizbook-paper-pref', chosenPaper)
+    iframe.onload = () => {
+      const cw = iframe!.contentWindow
+      if (!cw) return
+      cw.focus()
+      setTimeout(() => { try { cw.print() } catch (e) { console.error(e) } }, 400)
     }
-
-    // Build absolute URL (Electron needs absolute URL, iframe can use relative)
-    const origin = typeof window !== 'undefined' ? window.location.origin : ''
-    const relativeUrl = `/invoice-print/${sale.id}?paper=${chosenPaper}&t=${Date.now()}${token ? '&token=' + encodeURIComponent(token) : ''}`
-    const absoluteUrl = origin + relativeUrl
-
-    // ---- SILENT PRINT VIA ELECTRON (if available) ----
-    const electronAPI = (window as any).electron
-    if (electronAPI?.printInvoiceSilent) {
-      try {
-        const result = await electronAPI.printInvoiceSilent(absoluteUrl)
-        if (result?.ok) {
-          toast({ title: 'Printed', description: `Invoice sent to default printer (${chosenPaper.toUpperCase()})` })
-          return
-        } else {
-          console.warn('[print] Electron silent print failed, falling back to iframe:', result?.error)
-        }
-      } catch (e) {
-        console.warn('[print] Electron API error, falling back to iframe:', e)
-      }
-    }
-
-    // ---- FALLBACK: HIDDEN IFRAME + BROWSER PRINT DIALOG ----
-    let printIframe = document.getElementById('bizbook-print-iframe') as HTMLIFrameElement | null
-    if (!printIframe) {
-      printIframe = document.createElement('iframe')
-      printIframe.id = 'bizbook-print-iframe'
-      printIframe.style.position = 'fixed'
-      printIframe.style.right = '0'
-      printIframe.style.bottom = '0'
-      printIframe.style.width = '0'
-      printIframe.style.height = '0'
-      printIframe.style.border = '0'
-      printIframe.style.visibility = 'hidden'
-      document.body.appendChild(printIframe)
-    }
-
-    const onIframeLoad = () => {
-      try {
-        const cw = printIframe!.contentWindow
-        if (!cw) return
-        cw.focus()
-        setTimeout(() => {
-          try { cw.print() } catch (e) { console.error('[print] iframe.print() failed', e) }
-        }, 400)
-      } catch (e) {
-        console.error('[print] iframe load handler error', e)
-      }
-    }
-    printIframe.onload = onIframeLoad
-    printIframe.src = relativeUrl
+    iframe.src = url
   }
 
 
@@ -834,7 +665,7 @@ export function SaleRegister() {
                       <TableCell>{statusBadge(s.paymentStatus)}</TableCell>
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-1">
-                          <PrintMenu sale={s} onPrint={handlePrintInvoice} variant="icon" />
+                          <Button variant="ghost" size="icon" className="h-8 w-8" title="Print Invoice" onClick={() => handlePrintInvoice(s)}><Printer className="h-4 w-4" /></Button>
                           {s.partyGst && <Button variant="ghost" size="icon" className="h-8 w-8" title="Generate E-Invoice" onClick={() => handleGenerateEinvoice(s)}><FileCheck className="h-4 w-4" /></Button>}
                           <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setViewItem(s)}><Eye className="h-4 w-4" /></Button>
                           {/* v4.106: Show Confirm button for Quotation sales */}
@@ -1392,7 +1223,7 @@ export function SaleRegister() {
           <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
             <DialogHeader><DialogTitle className="flex items-center justify-between">
               <span>Sale Invoice - {viewItem?.invoiceNumber}</span>
-              {viewItem && <PrintMenu sale={viewItem} onPrint={handlePrintInvoice} variant="outline" />}
+              {viewItem && <Button variant="outline" size="sm" className="ml-2" onClick={() => handlePrintInvoice(viewItem)}><Printer className="h-4 w-4 mr-1" />Print</Button>}
             </DialogTitle></DialogHeader>
             {viewItem && (
               <div className="space-y-3 text-sm">
@@ -1483,7 +1314,9 @@ export function SaleRegister() {
             </div>
             <DialogFooter className="flex gap-2 sm:gap-2">
               <Button variant="outline" onClick={() => setJustSavedSale(null)}>Close</Button>
-              {justSavedSale && <PrintMenu sale={justSavedSale} onPrint={(s, p) => { handlePrintInvoice(s, p); setJustSavedSale(null) }} variant="primary" />}
+              <Button variant="outline" onClick={() => { if (justSavedSale) handlePrintInvoice(justSavedSale); setJustSavedSale(null) }}>
+                <Printer className="h-4 w-4 mr-2" /> Print Quotation
+              </Button>
               <Button className="bg-emerald-600 hover:bg-emerald-700" onClick={async () => {
                 if (!justSavedSale || !tenant) return
                 // v4.160: Cash customer rule — block confirmation
