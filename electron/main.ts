@@ -35,6 +35,36 @@ const isDev = !app.isPackaged
 const PORT = isDev ? 3000 : 3456  // different port in prod to avoid conflicts
 
 // ============================================================
+// v5.4: WINDOW SPAWN KILL SWITCH
+// ============================================================
+// Tracks window creation timestamps. If more than 3 windows are created
+// within 10 seconds, force-quit the app immediately to prevent the
+// infinite window spawn loop that crashes the PC.
+const windowCreateTimes: number[] = []
+const MAX_WINDOWS_IN_WINDOW = 3
+const WINDOW_TIMEFRAME_MS = 10000
+
+function checkWindowSpawnLimit(): boolean {
+  const now = Date.now()
+  windowCreateTimes.push(now)
+  // Remove entries older than the timeframe
+  while (windowCreateTimes.length > 0 && now - windowCreateTimes[0] > WINDOW_TIMEFRAME_MS) {
+    windowCreateTimes.shift()
+  }
+  if (windowCreateTimes.length > MAX_WINDOWS_IN_WINDOW) {
+    console.error(`[KILL SWITCH] ${windowCreateTimes.length} windows created in ${WINDOW_TIMEFRAME_MS}ms — FORCE QUITTING to prevent crash`)
+    // Kill the Next.js server first
+    if (nextServer) {
+      try { nextServer.kill('SIGTERM') } catch {}
+    }
+    app.quit()
+    process.exit(1)
+    return false
+  }
+  return true
+}
+
+// ============================================================
 // Start Next.js server (production mode)
 // ============================================================
 async function startNextServer(): Promise<void> {
@@ -82,13 +112,23 @@ async function startNextServer(): Promise<void> {
 // Create main window
 // ============================================================
 function createWindow() {
+  // v5.4: Kill switch — check if too many windows are being created
+  if (!checkWindowSpawnLimit()) return
+
+  // v5.4: If mainWindow already exists, just focus it — don't create another
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    if (mainWindow.isMinimized()) mainWindow.restore()
+    mainWindow.focus()
+    return
+  }
+
   mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
     minWidth: 1024,
     minHeight: 700,
     title: 'BizBook Pro',
-    icon: path.join(__dirname, '..', 'public', 'bizbook-pro-logo.png'),
+    icon: path.join(__dirname, '..', 'public', 'bizbook-pro-icon.ico'),
     backgroundColor: '#0f172a',
     webPreferences: {
       nodeIntegration: false,
@@ -96,25 +136,22 @@ function createWindow() {
       sandbox: true,
       preload: path.join(__dirname, 'preload.js'),
     },
-    // v4.153: Enable for fingerprint scanner hardware access
-    // WebUSB and WebHID are available via these flags
-    webSecurity: true,
-    allowRunningInsecureContent: false,
   })
 
   // Load the app
-  const url = isDev
-    ? `http://localhost:${PORT}`
-    : `http://localhost:${PORT}`
-
+  const url = `http://localhost:${PORT}`
   mainWindow.loadURL(url)
 
-  // Open external links in browser (not in Electron)
+  // v5.4: HARD DENY all new windows — no exceptions
+  // This is the critical fix for the window spawn loop crash.
+  // ALL window.open() calls from the web app are blocked.
+  // Internal navigation happens in the same window.
+  // External links open in the user's default browser.
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    if (url.startsWith('http://localhost') || url.startsWith('https://localhost')) {
-      return { action: 'allow' }
+    console.log('[Window Open Blocked]', url)
+    if (!url.startsWith('http://localhost') && !url.startsWith('https://localhost')) {
+      shell.openExternal(url).catch(() => {})
     }
-    shell.openExternal(url)
     return { action: 'deny' }
   })
 
@@ -126,7 +163,7 @@ function createWindow() {
   })
 
   // Build menu
-  const template: Electron.MenuTemplate = [
+  const template: any = [
     {
       label: 'File',
       submenu: [
@@ -344,9 +381,13 @@ app.on('before-quit', () => {
   }
 })
 
-// Security: prevent new-window creation (we use setWindowOpenHandler instead)
+// v5.4: Global window spawn prevention — deny ALL new windows on ALL web contents
 app.on('web-contents-created', (_, contents) => {
-  contents.on('new-window', (event) => {
-    event.preventDefault()
+  contents.setWindowOpenHandler(({ url }) => {
+    console.log('[Global Window Open Blocked]', url)
+    if (!url.startsWith('http://localhost') && !url.startsWith('https://localhost')) {
+      shell.openExternal(url).catch(() => {})
+    }
+    return { action: 'deny' }
   })
 })
