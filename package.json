@@ -74,8 +74,6 @@
     "dexie": "^4.4.4",
     "dexie-react-hooks": "^4.4.0",
     "embla-carousel-react": "^8.6.0",
-    "escpos": "^3.0.0-alpha.6",
-    "escpos-usb": "^3.0.0-alpha.4",
     "framer-motion": "^12.23.2",
     "imap": "^0.8.19",
     "input-otp": "^1.4.2",
