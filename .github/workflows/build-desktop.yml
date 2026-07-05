@@ -24,7 +24,10 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
-      - run: npm ci || npm install --no-audit --no-fund
+      # Delete package-lock.json so npm install regenerates platform-specific deps
+      - run: rm -f package-lock.json
+        shell: bash
+      - run: npm install --no-audit --no-fund
       - run: npm run build
         env:
           DATABASE_URL: 'postgresql://placeholder:placeholder@localhost:5432/placeholder'
