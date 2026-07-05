@@ -14,9 +14,10 @@
  */
 
 import { useAppStore, getRoleLabel } from '@/store/app-store'
-import { LogOut, Crown, Sparkles, Download, TrendingUp, Menu } from 'lucide-react'
+import { LogOut, Crown, Sparkles, TrendingUp, Menu } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { useState, useEffect } from 'react'
+import { DownloadForDesktop } from '@/components/app/download-for-desktop'
 import { authFetch } from '@/lib/auth-fetch'
 import { Button } from '@/components/ui/button'
 
@@ -32,7 +33,6 @@ export function TopBrandingBar() {
   const { user, tenant, logout, setView, sidebarOpen, setSidebarOpen } = useAppStore()
   const router = useRouter()
   const [subInfo, setSubInfo] = useState<SubscriptionInfo | null>(null)
-  const [deferredPrompt, setDeferredPrompt] = useState<any>(null)
   const [isMobile, setIsMobile] = useState(false)
 
   // Detect mobile screen size — used to show hamburger menu + hide desktop-only buttons
@@ -43,22 +43,7 @@ export function TopBrandingBar() {
     return () => window.removeEventListener('resize', checkMobile)
   }, [])
 
-  // PWA install prompt — "Download Desktop" button
-  useEffect(() => {
-    const handler = (e: Event) => {
-      e.preventDefault()
-      setDeferredPrompt(e)
-    }
-    window.addEventListener('beforeinstallprompt', handler)
-    return () => window.removeEventListener('beforeinstallprompt', handler)
-  }, [])
-
-  const handleInstall = async () => {
-    if (!deferredPrompt) return
-    deferredPrompt.prompt()
-    await deferredPrompt.userChoice
-    setDeferredPrompt(null)
-  }
+  // v5.1: PWA install prompt handling moved to DownloadForDesktop component
 
   // Fetch subscription info for the badge
   useEffect(() => {
@@ -139,19 +124,13 @@ export function TopBrandingBar() {
 
       {/* ============= RIGHT ZONE: Download Desktop (DESKTOP ONLY) + Subscription + Profile + Logout ============= */}
       <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-        {/* v4.43 UPDATE.pdf A6: Download Desktop button — ONLY on desktop browsing
-            Uses !isMobile guard (defense-in-depth) PLUS hidden md:flex CSS. */}
+        {/* v5.1: Download Desktop button — now opens a modal with platform
+            selection (Windows .exe, macOS .dmg, Linux .AppImage).
+            Replaces the old PWA install hint alert. */}
         {!isMobile && (
-          <button
-            onClick={deferredPrompt ? handleInstall : () => {
-              alert('To install BizBook Pro as a desktop app:\n\nChrome/Edge: Click the install icon (⊕) in the address bar\nFirefox: Menu → Install this site as an app\n\nOr use Chrome/Edge for best PWA support.')
-            }}
-            className="hidden md:flex items-center gap-1.5 px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-700 font-bold text-[11px] rounded-xl transition-all cursor-pointer"
-            title="Install BizBook Pro as a desktop app"
-          >
-            <Download className="h-3.5 w-3.5" />
-            <span className="hidden lg:inline">Download Desktop</span>
-          </button>
+          <div className="hidden md:flex">
+            <DownloadForDesktop />
+          </div>
         )}
 
         {/* Subscription Badge */}
