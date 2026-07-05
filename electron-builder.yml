@@ -19,7 +19,7 @@
   ],
   "extraResources": [],
   "win": {
-    "icon": "public/bizbook-pro-icon.png",
+    "icon": "public/bizbook-pro-icon.ico",
     "target": [
       {
         "target": "nsis",
@@ -37,9 +37,9 @@
     "oneClick": false,
     "perMachine": false,
     "allowToChangeInstallationDirectory": true,
-    "installerIcon": "public/bizbook-pro-icon.png",
-    "uninstallerIcon": "public/bizbook-pro-icon.png",
-    "installerHeaderIcon": "public/bizbook-pro-icon.png",
+    "installerIcon": "public/bizbook-pro-icon.ico",
+    "uninstallerIcon": "public/bizbook-pro-icon.ico",
+    "installerHeaderIcon": "public/bizbook-pro-icon.ico",
     "createDesktopShortcut": true,
     "createStartMenuShortcut": true,
     "shortcutName": "BizBook Pro",
