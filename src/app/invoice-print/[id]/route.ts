@@ -16,15 +16,14 @@ export async function GET(
     return new NextResponse('Sale ID required', { status: 400 })
   }
 
-  // v4.187: DYNAMIC TEMPLATE STANDARDIZATION (wireframe: image (1).png)
-  // - Seller block (top-left): Seller Name, Address, Phone, Email — DYNAMIC bindings
-  // - Invoice metadata (top-right): #INV-XXXXXX, dd/mm/yy, PAID/PENDING status flag
-  // - Buyer block (top-right, nested): Bill To / Buyer Name / destination address
-  // - Itemized table RESTRUCTURED: each item is a STACKED grid block with a
-  //   dedicated HSN vertical column box on the right (no longer a wide table)
-  // - Footer: live system timestamp token `dd/mm/yyyy, HH:MM:SS pm/am`
-  // - @media print and (max-width: 90mm) thermal auto-detection preserved
-  // - Edge-to-edge fluid layout from v4.186 preserved
+  // v4.188: HYBRID LAYOUT — wide horizontal items table + dynamic template
+  // Per screenshot feedback (054638/054657), the stacked-block item layout
+  // did not match user expectations. Reverted to a wide horizontal table with
+  // all 9 columns (#, Item, HSN, Qty, Rate, Discount, Amount, Tax, Total),
+  // while keeping the dynamic seller/buyer bindings, metadata, system
+  // timestamp, and edge-to-edge fluid layout from v4.186–v4.187.
+  // Items table uses border-collapse so all rows + totals + footer fit on
+  // a single A4 page without cut-off.
 
   // Auth: check cookie OR query param token
   const cookie = req.cookies.get('bizbook_session')?.value
@@ -50,7 +49,7 @@ export async function GET(
   } catch { /* empty */ }
 
   // ============================================================
-  // DYNAMIC DATA BINDINGS — all field values resolved at render
+  // DYNAMIC DATA BINDINGS
   // ============================================================
   const sellerName   = tenant.name    || 'BizBook Pro'
   const sellerAddr   = tenant.address || ''
@@ -63,7 +62,6 @@ export async function GET(
   const buyerAddr    = sale.partyAddress || ''
   const buyerGst     = sale.partyGst     || ''
 
-  // Live metadata pulled from the transaction record
   const invoiceNo    = sale.invoiceNumber || ''
   const invoiceDate  = new Date(sale.date).toLocaleDateString('en-IN', {
                          day: '2-digit', month: '2-digit', year: '2-digit'
@@ -84,7 +82,7 @@ export async function GET(
     hour: '2-digit', minute: '2-digit', second: '2-digit',
     hour12: true
   })
-  const systemTimestamp = `${sysDate}, ${sysTime}`   // dd/mm/yyyy, HH:MM:SS pm/am
+  const systemTimestamp = `${sysDate}, ${sysTime}`
 
   // Currency formatter
   const fmtCurrency = (amt: number) => {
@@ -99,36 +97,20 @@ export async function GET(
     : null
 
   // ============================================================
-  // MULTI-ITEM STACKED ARRAY LOOP
-  // Each item is rendered as a grid block: details on left, HSN vertical box on right
+  // MULTI-ITEM ROW LOOP — wide horizontal table
   // ============================================================
-  const itemBlocks = parsedItems.map((item, i) => {
-    const itemQty      = `${item.qty || 0} ${item.unit || ''}`
-    const itemRate     = fmtCurrency(item.rate)
-    const itemDiscount = item.discount > 0 ? fmtCurrency(item.discount) : '₹0.00'
-    const itemAmount   = fmtCurrency(item.amount)
-    const itemTax      = fmtCurrency(item.totalTax)
-    const itemTotal    = fmtCurrency(item.total)
-    const hsn          = item.hsn || '—'
-    const itemName     = item.name + (item.saleItemType === 'SERVICE' ? ' [SERVICE]' : '')
-    return `
-    <div class="item-block">
-      <div class="item-no">${i + 1}</div>
-      <div class="item-detail">
-        <div class="item-name">${itemName}</div>
-        <div class="item-row"><span class="lbl">Qty</span><span class="val">${itemQty}</span></div>
-        <div class="item-row"><span class="lbl">Rate</span><span class="val">${itemRate}</span></div>
-        <div class="item-row"><span class="lbl">Discount</span><span class="val">${itemDiscount}</span></div>
-        <div class="item-row"><span class="lbl">Amount</span><span class="val">${itemAmount}</span></div>
-        <div class="item-row"><span class="lbl">Tax</span><span class="val">${itemTax}</span></div>
-        <div class="item-row total-row"><span class="lbl">Total</span><span class="val">${itemTotal}</span></div>
-      </div>
-      <div class="item-hsn">
-        <div class="hsn-label">HSN</div>
-        <div class="hsn-value">${hsn}</div>
-      </div>
-    </div>`
-  }).join('')
+  const itemRows = parsedItems.map((item, i) => `
+    <tr>
+      <td class="col-no">${i + 1}</td>
+      <td class="col-item">${item.name || ''}${item.saleItemType === 'SERVICE' ? ' <span class="svc">[SERVICE]</span>' : ''}</td>
+      <td class="col-hsn">${item.hsn || '—'}</td>
+      <td class="col-qty num">${item.qty || 0} ${item.unit || ''}</td>
+      <td class="col-rate num">${fmtCurrency(item.rate)}</td>
+      <td class="col-disc num">${item.discount > 0 ? fmtCurrency(item.discount) : '—'}</td>
+      <td class="col-amt  num">${fmtCurrency(item.amount)}</td>
+      <td class="col-tax  num">${fmtCurrency(item.totalTax)}</td>
+      <td class="col-tot  num">${fmtCurrency(item.total)}</td>
+    </tr>`).join('')
 
   const html = `<!DOCTYPE html>
 <html>
@@ -138,10 +120,11 @@ export async function GET(
   <title>Invoice - ${invoiceNo}</title>
   <style>
     /* ====================================================================
-       v4.187 — DYNAMIC TEMPLATE STANDARDIZATION (wireframe: image 1.png)
-       - Edge-to-edge fluid layout (padding: 0, width: 100%)
-       - Stacked grid blocks for line items with vertical HSN column
-       - Live system timestamp token in footer
+       v4.188 — HYBRID LAYOUT
+       - Wide horizontal items table (9 columns) per screenshot feedback
+       - Dynamic seller/buyer bindings + metadata + system timestamp kept
+       - Edge-to-edge fluid layout (padding:0, width:100%) kept
+       - @media print thermal auto-detect kept
        ==================================================================== */
     * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -162,15 +145,15 @@ export async function GET(
       width: 100%;
     }
 
-    /* --- INVOICE TITLE BANNER (full-width, centered) --- */
+    /* --- INVOICE TITLE BANNER --- */
     .title-banner {
       width: 100%;
       text-align: center;
-      padding: 8mm 8mm 5mm 8mm;
+      padding: 6mm 8mm 4mm 8mm;
       border-bottom: 4px solid #000;
     }
     .title-banner h1 {
-      font-size: 56px;
+      font-size: 44px;
       font-weight: 900;
       letter-spacing: 6px;
       line-height: 1;
@@ -183,319 +166,235 @@ export async function GET(
       width: 100%;
       border-bottom: 4px solid #000;
     }
-    .header-cell {
-      padding: 6mm 8mm;
-      vertical-align: top;
-    }
-    .header-cell.left  { border-right: 4px solid #000; }
-    .header-cell.right { }
+    .header-cell { padding: 5mm 8mm; vertical-align: top; }
+    .header-cell.left { border-right: 4px solid #000; }
 
     .block-label {
-      font-size: 16px;
+      font-size: 14px;
       font-weight: 900;
       text-transform: uppercase;
       letter-spacing: 2px;
-      color: #b91c1c;   /* red accent per wireframe */
-      margin-bottom: 6px;
+      color: #b91c1c;
+      margin-bottom: 4px;
       border-bottom: 2px solid #b91c1c;
-      padding-bottom: 3px;
+      padding-bottom: 2px;
     }
 
-    /* Seller field bindings */
-    .seller-block .field-name {
-      font-size: 28px;
+    .seller-block .field-name,
+    .buyer-block .field-name {
+      font-size: 24px;
       font-weight: 900;
-      margin-bottom: 8px;
+      margin-bottom: 5px;
       line-height: 1.15;
     }
-    .seller-block .field {
-      font-size: 18px;
-      margin-bottom: 4px;
+    .seller-block .field,
+    .buyer-block .field {
+      font-size: 15px;
+      margin-bottom: 3px;
       line-height: 1.35;
       font-weight: 600;
     }
-    .seller-block .field .lbl {
+    .seller-block .field .lbl,
+    .buyer-block .field .lbl {
       display: inline-block;
       font-weight: 900;
-      font-size: 14px;
+      font-size: 12px;
       text-transform: uppercase;
       letter-spacing: 1px;
       color: #555;
       margin-right: 6px;
     }
 
-    /* Invoice metadata (right side, top) */
+    /* Invoice metadata block */
     .meta-block {
       text-align: right;
-      padding-bottom: 5mm;
-      margin-bottom: 5mm;
+      padding-bottom: 4mm;
+      margin-bottom: 4mm;
       border-bottom: 2px dashed #000;
     }
     .meta-block .inv-no {
-      font-size: 32px;
+      font-size: 26px;
       font-weight: 900;
       letter-spacing: 2px;
       line-height: 1.1;
     }
     .meta-block .inv-date {
-      font-size: 22px;
+      font-size: 18px;
       font-weight: 800;
-      margin-top: 4px;
+      margin-top: 3px;
       letter-spacing: 1px;
     }
     .meta-block .status-flag {
       display: inline-block;
-      margin-top: 8px;
-      padding: 6px 20px;
-      font-size: 20px;
+      margin-top: 6px;
+      padding: 4px 16px;
+      font-size: 16px;
       font-weight: 900;
       letter-spacing: 3px;
       border: 3px solid #000;
     }
-    .meta-block .status-flag.PAID     { background: #14532d; color: #fff; border-color: #14532d; }
-    .meta-block .status-flag.PENDING  { background: #fff;    color: #b91c1c; border-color: #b91c1c; }
-    .meta-block .status-flag.PARTIAL  { background: #1e3a8a; color: #fff; border-color: #1e3a8a; }
+    .meta-block .status-flag.PAID    { background: #14532d; color: #fff; border-color: #14532d; }
+    .meta-block .status-flag.PENDING { background: #fff;    color: #b91c1c; border-color: #b91c1c; }
+    .meta-block .status-flag.PARTIAL { background: #1e3a8a; color: #fff; border-color: #1e3a8a; }
 
-    /* Buyer nested block (right side, below meta) */
-    .buyer-block .field-name {
-      font-size: 24px;
-      font-weight: 900;
-      margin-bottom: 6px;
-      line-height: 1.15;
-    }
-    .buyer-block .field {
-      font-size: 18px;
-      margin-bottom: 4px;
-      line-height: 1.35;
-      font-weight: 600;
-    }
-    .buyer-block .field .lbl {
-      display: inline-block;
-      font-weight: 900;
-      font-size: 14px;
-      text-transform: uppercase;
-      letter-spacing: 1px;
-      color: #555;
-      margin-right: 6px;
-    }
-
-    /* --- ITEMS SECTION: STACKED GRID BLOCKS WITH HSN VERTICAL COLUMN --- */
+    /* --- ITEM TABLE: wide horizontal, 9 columns --- */
     .items-section {
       width: 100%;
-      padding: 4mm 8mm;
+      padding: 0 8mm;
       flex-grow: 1;
     }
-    .items-header {
-      display: grid;
-      grid-template-columns: 8mm 1fr 30mm;
-      align-items: center;
-      padding: 6px 0;
-      border-bottom: 4px solid #000;
+    table.items {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 0;
     }
-    .items-header .col-no   { font-size: 16px; font-weight: 900; color: #b91c1c; text-transform: uppercase; letter-spacing: 1px; }
-    .items-header .col-item { font-size: 22px; font-weight: 900; color: #b91c1c; text-transform: uppercase; letter-spacing: 2px; }
-    .items-header .col-hsn  { font-size: 22px; font-weight: 900; color: #b91c1c; text-transform: uppercase; letter-spacing: 2px; text-align: center; }
-
-    .item-block {
-      display: grid;
-      grid-template-columns: 8mm 1fr 30mm;
-      border-bottom: 3px solid #000;
-      padding: 4mm 0;
-      align-items: stretch;
-    }
-    .item-block:last-child { border-bottom: 4px solid #000; }
-
-    .item-no {
-      font-size: 18px;
-      font-weight: 900;
-      text-align: center;
-      padding-top: 2mm;
-    }
-
-    .item-detail { padding: 0 4mm; }
-    .item-name {
-      font-size: 22px;
-      font-weight: 900;
-      margin-bottom: 4px;
-      line-height: 1.2;
-    }
-    .item-row {
-      display: flex;
-      justify-content: space-between;
-      align-items: baseline;
-      padding: 2px 0;
-      font-size: 18px;
-      border-bottom: 1px dotted #ccc;
-    }
-    .item-row .lbl {
-      font-weight: 700;
-      color: #555;
-      text-transform: uppercase;
+    table.items thead th {
+      background: #000;
+      color: #fff;
+      padding: 8px 5px;
       font-size: 14px;
-      letter-spacing: 1px;
-    }
-    .item-row .val {
-      font-weight: 700;
-      font-variant-numeric: tabular-nums;
-    }
-    .item-row.total-row {
-      border-top: 2px solid #000;
-      border-bottom: none;
-      padding-top: 5px;
-      margin-top: 4px;
-    }
-    .item-row.total-row .lbl { color: #000; font-size: 16px; }
-    .item-row.total-row .val { font-size: 22px; font-weight: 900; }
-
-    /* HSN vertical column box */
-    .item-hsn {
-      border: 3px solid #000;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      padding: 3mm 1mm;
-      margin-left: 3mm;
-      background: #fafafa;
-    }
-    .item-hsn .hsn-label {
-      font-size: 13px;
       font-weight: 900;
-      color: #b91c1c;
       text-transform: uppercase;
-      letter-spacing: 2px;
-      margin-bottom: 4px;
-      border-bottom: 2px solid #b91c1c;
-      padding-bottom: 3px;
-      width: 100%;
-      text-align: center;
-    }
-    .item-hsn .hsn-value {
-      font-size: 22px;
-      font-weight: 900;
-      font-family: 'Courier New', monospace;
       letter-spacing: 1px;
-      word-break: break-all;
-      text-align: center;
+      border: 2px solid #000;
+      text-align: left;
+    }
+    table.items thead th.num { text-align: right; }
+    table.items tbody td {
+      padding: 6px 5px;
+      font-size: 15px;
+      border: 1px solid #000;
+      vertical-align: top;
+    }
+    table.items tbody td.num {
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+      font-weight: 700;
+    }
+    table.items tbody td.col-tot {
+      font-weight: 900;
+    }
+    table.items tbody td.col-hsn {
+      font-family: 'Courier New', monospace;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+    }
+    table.items tbody td.col-item { font-weight: 700; }
+    table.items tbody .svc {
+      font-size: 11px;
+      color: #b91c1c;
+      font-weight: 900;
     }
 
-    /* --- SUMMARY BLOCK: full page width --- */
-    .summary {
+    /* --- SUMMARY BLOCK: full page width, side-by-side with QR --- */
+    .bottom-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
       width: 100%;
-      padding: 4mm 8mm 6mm 8mm;
-      background: #f5f5f5;
+      border-top: 4px solid #000;
       border-bottom: 4px solid #000;
     }
-    .summary-box { width: 100%; }
+    .bottom-cell.left  { padding: 5mm 8mm; border-right: 4px solid #000; }
+    .bottom-cell.right { padding: 5mm 8mm; }
+
     .summary-row {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 7px 0;
-      font-size: 22px;
+      padding: 5px 0;
+      font-size: 17px;
       font-weight: 700;
       border-bottom: 2px dashed #000;
     }
+    .summary-row:last-child { border-bottom: none; }
     .summary-row.total {
-      font-size: 32px;
+      font-size: 26px;
       font-weight: 900;
-      border-top: 4px solid #000;
-      border-bottom: 4px solid #000;
-      padding: 12px 0;
-      margin-top: 6px;
+      border-top: 3px solid #000;
+      border-bottom: 3px solid #000;
+      padding: 8px 0;
+      margin-top: 5px;
       background: #000;
       color: #fff;
     }
     .summary-row.due {
       font-weight: 900;
       color: #b91c1c;
-      border-bottom: none;
     }
 
-    /* --- TERMS / NOTES: full-width banner --- */
+    /* QR cell */
+    .qr-cell { text-align: center; }
+    .qr-cell img {
+      width: 130px;
+      height: 130px;
+      border: 3px solid #000;
+      padding: 3px;
+      background: #fff;
+    }
+    .qr-cell .qr-label {
+      font-size: 14px;
+      font-weight: 900;
+      margin-top: 5px;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      color: #b91c1c;
+    }
+    .qr-cell .sig {
+      margin-top: 6mm;
+      border-top: 3px solid #000;
+      padding-top: 3mm;
+      font-size: 14px;
+      font-weight: 900;
+    }
+    .qr-cell .sig small {
+      display: block;
+      font-size: 12px;
+      font-weight: 600;
+      margin-top: 2px;
+    }
+
+    /* --- TERMS / NOTES --- */
     .terms {
       width: 100%;
-      padding: 5mm 8mm;
+      padding: 4mm 8mm;
       border-bottom: 4px solid #000;
-      font-size: 20px;
+      font-size: 15px;
       line-height: 1.4;
       font-weight: 600;
     }
-    .terms strong { font-size: 22px; font-weight: 900; }
+    .terms strong { font-size: 17px; font-weight: 900; }
 
     /* --- E-INVOICE BLOCK --- */
     .einvoice-block {
       width: 100%;
-      padding: 5mm 8mm;
+      padding: 4mm 8mm;
       display: flex;
       justify-content: space-between;
       align-items: center;
       border-bottom: 4px solid #000;
       background: #f0fdf4;
     }
-    .einvoice-block h4 { font-size: 22px; margin-bottom: 6px; font-weight: 900; }
-    .einvoice-block .meta { font-size: 18px; line-height: 1.4; }
-
-    /* --- SIGNATURE + QR ROW --- */
-    .sig-row {
-      width: 100%;
-      display: grid;
-      grid-template-columns: 1fr 1fr 1fr;
-      align-items: end;
-      padding: 8mm 8mm 4mm 8mm;
-      border-bottom: 4px solid #000;
-    }
-    .sig-cell { text-align: center; }
-    .sig-cell.left  { text-align: left; }
-    .sig-cell.right { text-align: right; }
-
-    .qr-block {
-      text-align: center;
-    }
-    .qr-block img {
-      width: 140px;
-      height: 140px;
-      border: 3px solid #000;
-      padding: 4px;
-      background: #fff;
-    }
-    .qr-block .qr-label {
-      font-size: 18px;
-      font-weight: 900;
-      margin-top: 6px;
-      letter-spacing: 2px;
-      text-transform: uppercase;
-    }
-    .qr-block.upi .qr-label { color: #b91c1c; }
-
-    .signature-box {
-      display: inline-block;
-      text-align: center;
-      border-top: 4px solid #000;
-      padding-top: 4mm;
-      width: 60mm;
-    }
-    .signature-box p { font-size: 20px; font-weight: 900; }
-    .signature-box small { font-size: 16px; font-weight: 600; }
+    .einvoice-block h4 { font-size: 17px; margin-bottom: 4px; font-weight: 900; }
+    .einvoice-block .meta { font-size: 14px; line-height: 1.4; }
 
     /* --- FOOTER: SYSTEM TIMESTAMP --- */
     .footer {
       width: 100%;
-      padding: 6mm 8mm;
+      padding: 4mm 8mm;
       text-align: center;
       background: #000;
       color: #fff;
       font-weight: 700;
     }
-    .footer .line1 { font-size: 18px; margin-bottom: 4px; }
-    .footer .line2 { font-size: 18px; font-weight: 900; letter-spacing: 1px; }
+    .footer .line1 { font-size: 14px; margin-bottom: 3px; }
+    .footer .line2 { font-size: 14px; font-weight: 900; letter-spacing: 1px; }
     .footer .line2 .timestamp {
       display: inline-block;
-      padding: 4px 12px;
+      padding: 3px 10px;
       border: 2px solid #fff;
       font-family: 'Courier New', monospace;
-      letter-spacing: 2px;
-      margin-left: 6px;
+      letter-spacing: 1px;
+      margin-left: 5px;
     }
 
     @media print {
@@ -503,13 +402,8 @@ export async function GET(
       .summary-row.total,
       .footer,
       .meta-block .status-flag.PAID,
-      .meta-block .status-flag.PARTIAL {
-        -webkit-print-color-adjust: exact;
-        print-color-adjust: exact;
-      }
-      thead th {
-        background: #000 !important;
-        color: #fff !important;
+      .meta-block .status-flag.PARTIAL,
+      table.items thead th {
         -webkit-print-color-adjust: exact;
         print-color-adjust: exact;
       }
@@ -517,93 +411,58 @@ export async function GET(
 
     /* ====================================================================
        THERMAL PRINTER (80mm) — auto-detected by browser
-       Triggers when the selected printer/paper width is <= 90mm
        ==================================================================== */
     @media print and (max-width: 90mm) {
       @page { size: 80mm auto; margin: 2mm; }
-      html, body {
-        width: 76mm;
-        min-height: auto;
-        padding: 2mm;
-      }
+      html, body { width: 76mm; min-height: auto; padding: 2mm; }
       body { font-family: 'Courier New', monospace; display: block; }
 
       .title-banner { padding: 2mm; border-bottom: 2px solid #000; }
-      .title-banner h1 { font-size: 22px; letter-spacing: 2px; }
+      .title-banner h1 { font-size: 20px; letter-spacing: 2px; }
 
       .header-row { display: block; }
       .header-cell { padding: 2mm; }
       .header-cell.left { border-right: 0; border-bottom: 2px solid #000; }
 
-      .block-label { font-size: 11px; letter-spacing: 1px; margin-bottom: 2px; padding-bottom: 1px; }
-      .seller-block .field-name { font-size: 14px; margin-bottom: 2px; }
-      .seller-block .field { font-size: 11px; margin-bottom: 1px; }
-      .seller-block .field .lbl { font-size: 9px; }
+      .block-label { font-size: 10px; letter-spacing: 1px; margin-bottom: 2px; padding-bottom: 1px; }
+      .seller-block .field-name, .buyer-block .field-name { font-size: 13px; margin-bottom: 2px; }
+      .seller-block .field, .buyer-block .field { font-size: 10px; margin-bottom: 1px; }
+      .seller-block .field .lbl, .buyer-block .field .lbl { font-size: 8px; }
 
       .meta-block { text-align: center; padding-bottom: 2mm; margin-bottom: 2mm; border-bottom: 1px dashed #000; }
-      .meta-block .inv-no { font-size: 16px; letter-spacing: 1px; }
-      .meta-block .inv-date { font-size: 12px; margin-top: 2px; }
-      .meta-block .status-flag { font-size: 12px; padding: 2px 10px; margin-top: 4px; letter-spacing: 1px; }
+      .meta-block .inv-no { font-size: 14px; letter-spacing: 1px; }
+      .meta-block .inv-date { font-size: 11px; margin-top: 2px; }
+      .meta-block .status-flag { font-size: 11px; padding: 2px 8px; margin-top: 4px; letter-spacing: 1px; }
 
-      .buyer-block .field-name { font-size: 13px; margin-bottom: 2px; }
-      .buyer-block .field { font-size: 11px; margin-bottom: 1px; }
-      .buyer-block .field .lbl { font-size: 9px; }
+      .items-section { padding: 0 2mm; }
+      table.items thead th { padding: 2px 1px; font-size: 8px; letter-spacing: 0.5px; }
+      table.items tbody td { padding: 2px 1px; font-size: 9px; }
+      table.items .col-hsn { display: none; }   /* hide HSN column on thermal */
+      table.items thead .col-hsn { display: none; }
 
-      .items-section { padding: 2mm; }
+      .bottom-row { display: block; border-top: 2px solid #000; }
+      .bottom-cell.left, .bottom-cell.right { padding: 2mm; border-right: 0; border-bottom: 2px solid #000; }
 
-      .items-header { grid-template-columns: 5mm 1fr 16mm; padding: 2px 0; border-bottom: 2px solid #000; }
-      .items-header .col-no   { font-size: 9px; }
-      .items-header .col-item { font-size: 11px; letter-spacing: 1px; }
-      .items-header .col-hsn  { font-size: 11px; letter-spacing: 1px; }
-
-      .item-block {
-        grid-template-columns: 5mm 1fr 16mm;
-        padding: 2mm 0;
-        border-bottom: 2px solid #000;
-      }
-      .item-no { font-size: 10px; padding-top: 1mm; }
-      .item-detail { padding: 0 1mm; }
-      .item-name { font-size: 12px; margin-bottom: 2px; }
-      .item-row { padding: 1px 0; font-size: 10px; border-bottom: 1px dotted #ccc; }
-      .item-row .lbl { font-size: 8px; }
-      .item-row.total-row { padding-top: 2px; margin-top: 2px; }
-      .item-row.total-row .lbl { font-size: 9px; }
-      .item-row.total-row .val { font-size: 12px; }
-
-      .item-hsn {
-        border: 2px solid #000;
-        padding: 1mm 0.5mm;
-        margin-left: 1mm;
-        background: #fff;
-      }
-      .item-hsn .hsn-label { font-size: 8px; margin-bottom: 2px; padding-bottom: 1px; letter-spacing: 1px; }
-      .item-hsn .hsn-value { font-size: 11px; letter-spacing: 0.5px; }
-
-      .summary { padding: 2mm; }
-      .summary-row { padding: 2px 0; font-size: 11px; border-bottom: 1px dashed #000; }
-      .summary-row.total { font-size: 14px; padding: 3px 0; margin-top: 3px; }
+      .summary-row { padding: 1px 0; font-size: 11px; border-bottom: 1px dashed #000; }
+      .summary-row.total { font-size: 14px; padding: 2px 0; margin-top: 2px; }
       .summary-row.due { color: #b91c1c; }
+
+      .qr-cell img { width: 80px; height: 80px; }
+      .qr-cell .qr-label { font-size: 10px; margin-top: 3px; }
+      .qr-cell .sig { margin-top: 2mm; padding-top: 1mm; font-size: 11px; }
+      .qr-cell .sig small { font-size: 9px; }
 
       .terms { font-size: 10px; padding: 2mm; border-bottom: 2px solid #000; }
       .terms strong { font-size: 11px; }
 
       .einvoice-block { padding: 2mm; display: block; text-align: center; }
-      .einvoice-block h4 { font-size: 12px; }
-      .einvoice-block .meta { font-size: 10px; }
-
-      .sig-row { display: block; padding: 2mm; border-bottom: 2px solid #000; }
-      .sig-cell { text-align: center !important; margin-bottom: 3mm; }
-      .sig-cell.right { margin-bottom: 0; }
-      .qr-block img { width: 90px; height: 90px; }
-      .qr-block .qr-label { font-size: 11px; margin-top: 3px; letter-spacing: 1px; }
-      .signature-box { width: 100%; padding-top: 2mm; border-top: 1px solid #000; }
-      .signature-box p { font-size: 12px; }
-      .signature-box small { font-size: 10px; }
+      .einvoice-block h4 { font-size: 11px; }
+      .einvoice-block .meta { font-size: 9px; }
 
       .footer { padding: 2mm; }
-      .footer .line1 { font-size: 10px; margin-bottom: 2px; }
-      .footer .line2 { font-size: 10px; letter-spacing: 0.5px; }
-      .footer .line2 .timestamp { padding: 2px 6px; border: 1px solid #fff; letter-spacing: 1px; margin-left: 3px; }
+      .footer .line1 { font-size: 9px; margin-bottom: 1px; }
+      .footer .line2 { font-size: 9px; letter-spacing: 0.5px; }
+      .footer .line2 .timestamp { padding: 1px 5px; border: 1px solid #fff; letter-spacing: 0.5px; margin-left: 2px; }
     }
 
     /* === SCREEN PREVIEW — shows A4 layout in browser === */
@@ -646,14 +505,12 @@ export async function GET(
     <!-- RIGHT: METADATA + BUYER (nested) -->
     <div class="header-cell right">
 
-      <!-- Invoice metadata block -->
       <div class="meta-block">
         <div class="inv-no">#${invoiceNo}</div>
         <div class="inv-date">${invoiceDate}</div>
         <div class="status-flag ${statusFlag}">${statusFlag}</div>
       </div>
 
-      <!-- Buyer nested block -->
       <div class="buyer-block">
         <div class="block-label">Bill To</div>
         <div class="field-name">${buyerName}</div>
@@ -665,28 +522,45 @@ export async function GET(
   </div>
 
   <!-- ============================================================
-       ITEMIZED TABLE — MULTI-ITEM STACKED ARRAY LOOP
-       Each item is a grid block: details (left) + HSN vertical column (right)
+       ITEM TABLE — WIDE HORIZONTAL, 9 COLUMNS
        ============================================================ -->
   <div class="items-section">
-    <div class="items-header">
-      <div class="col-no">#</div>
-      <div class="col-item">Item</div>
-      <div class="col-hsn">HSN</div>
-    </div>
-    ${itemBlocks}
+    <table class="items">
+      <thead>
+        <tr>
+          <th class="col-no">#</th>
+          <th class="col-item">Item</th>
+          <th class="col-hsn">HSN</th>
+          <th class="col-qty num">Qty</th>
+          <th class="col-rate num">Rate</th>
+          <th class="col-disc num">Discount</th>
+          <th class="col-amt num">Amount</th>
+          <th class="col-tax num">Tax</th>
+          <th class="col-tot num">Total</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${itemRows}
+      </tbody>
+    </table>
   </div>
 
   <!-- ============================================================
-       SUMMARY / TOTALS BLOCK (full page width)
+       BOTTOM ROW: SUMMARY (left) + QR + SIGNATURE (right)
        ============================================================ -->
-  <div class="summary">
-    <div class="summary-box">
+  <div class="bottom-row">
+    <div class="bottom-cell left">
       <div class="summary-row"><span>Subtotal</span><span>${fmtCurrency(sale.subtotal)}</span></div>
       <div class="summary-row"><span>Tax / Duties</span><span>${fmtCurrency(sale.gstAmount)}</span></div>
       <div class="summary-row total"><span>GRAND TOTAL</span><span>${fmtCurrency(sale.totalAmount)}</span></div>
       <div class="summary-row"><span>Amount Received</span><span>${fmtCurrency(sale.amountReceived || sale.amountPaid)}</span></div>
       <div class="summary-row due"><span>Balance Due</span><span>${fmtCurrency(sale.totalAmount - (sale.amountReceived || sale.amountPaid))}</span></div>
+    </div>
+    <div class="bottom-cell right qr-cell">
+      ${upiQrCode
+        ? `<img src="${upiQrCode}" alt="UPI QR" /><div class="qr-label">Scan to Pay ${fmtCurrency(sale.upiAmount || 0)}</div>`
+        : `<div style="font-size:18px;font-weight:900;letter-spacing:2px;">QR CODE</div>`}
+      <div class="sig">Authorised Signatory<small>For ${sellerName}</small></div>
     </div>
   </div>
 
@@ -697,31 +571,11 @@ export async function GET(
     <div>
       <h4>E-INVOICE VERIFIED</h4>
       <div class="meta">IRN: <span style="font-family:monospace;word-break:break-all;">${sale.einvoiceIrn || ''}</span></div>
-      ${sale.einvoiceAckNo ? `<div class="meta" style="margin-top:4px;">Ack No: ${sale.einvoiceAckNo}</div>` : ''}
+      ${sale.einvoiceAckNo ? `<div class="meta" style="margin-top:3px;">Ack No: ${sale.einvoiceAckNo}</div>` : ''}
     </div>
-    ${sale.einvoiceQrCodeText ? `<div style="text-align:center;"><img src="https://api.qrserver.com/v1/create-qr-code/?size=110x110&data=${encodeURIComponent(sale.einvoiceQrCodeText)}" alt="QR" style="width:110px;height:110px;border:1px solid #ccc;" /></div>` : ''}
+    ${sale.einvoiceQrCodeText ? `<div style="text-align:center;"><img src="https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${encodeURIComponent(sale.einvoiceQrCodeText)}" alt="QR" style="width:100px;height:100px;border:1px solid #ccc;" /></div>` : ''}
   </div>
   ` : ''}
-
-  <!-- ============================================================
-       SIGNATURE + QR ROW
-       ============================================================ -->
-  <div class="sig-row">
-    <div class="sig-cell left"></div>
-    <div class="sig-cell">
-      ${upiQrCode ? `
-      <div class="qr-block upi">
-        <img src="${upiQrCode}" alt="UPI QR" />
-        <div class="qr-label">Scan to Pay ${fmtCurrency(sale.upiAmount || 0)}</div>
-      </div>` : `<div class="qr-block"><div style="font-size:18px;font-weight:900;letter-spacing:2px;">QR CODE</div></div>`}
-    </div>
-    <div class="sig-cell right">
-      <div class="signature-box">
-        <p>Authorised Signatory</p>
-        <small>For ${sellerName}</small>
-      </div>
-    </div>
-  </div>
 
   <!-- ============================================================
        FOOTER: AUTOMATED SYSTEM TIMESTAMP
