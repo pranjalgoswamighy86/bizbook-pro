@@ -151,7 +151,7 @@ export function DownloadForDesktop() {
         >
           <div
             ref={modalRef}
-            className="bg-card border rounded-xl shadow-2xl max-w-lg w-full p-6 relative max-h-[calc(100vh-6rem)] overflow-y-auto mx-auto mb-8"
+            className="bg-card border-2 border-emerald-500 rounded-xl shadow-2xl max-w-lg w-full p-6 relative mx-auto mb-8"
             onClick={(e) => e.stopPropagation()}
           >
             <button
@@ -167,7 +167,7 @@ export function DownloadForDesktop() {
             </p>
 
             {/* Platform download buttons */}
-            <div className="space-y-1.5 mb-3">
+            <div className="space-y-2 mb-4">
               {(Object.keys(PLATFORM_INFO) as Platform[]).map((plat) => {
                 const info = PLATFORM_INFO[plat]
                 const Icon = info.icon
@@ -176,10 +176,10 @@ export function DownloadForDesktop() {
                   <button
                     key={plat}
                     onClick={() => handleDownload(plat)}
-                    className={`w-full flex items-center gap-3 p-2.5 rounded-lg border-2 transition-colors text-left ${
+                    className={`w-full flex items-center gap-3 p-3 rounded-lg border-2 transition-colors text-left bg-white dark:bg-zinc-900 ${
                       isRecommended
                         ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/30'
-                        : 'border-border hover:border-emerald-300 hover:bg-accent'
+                        : 'border-gray-300 dark:border-zinc-700 hover:border-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/20'
                     }`}
                   >
                     <Icon className="h-5 w-5 flex-shrink-0" />
