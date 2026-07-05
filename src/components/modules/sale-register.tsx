@@ -567,14 +567,31 @@ export function SaleRegister() {
     }
   }
 
-  const handlePrintInvoice = (sale: Sale) => {
-    // v5.0: Single-click print. Paper size from localStorage (default A4).
-    // To switch paper: change `bizbook-paper-pref` in Settings (future)
-    // or call handlePrintInvoice(sale, 'thermal') explicitly.
-    // Hidden iframe — no new browser tab.
+  const handlePrintInvoice = async (sale: Sale) => {
+    // v5.7: Silent print in Electron, iframe fallback in browser
     const token = useAppStore.getState().sessionToken
     const paper = (typeof window !== 'undefined' && localStorage.getItem('bizbook-paper-pref')) || 'a4'
-    const url = `/invoice-print/${sale.id}?paper=${paper}&t=${Date.now()}${token ? '&token=' + encodeURIComponent(token) : ''}`
+    const relativeUrl = `/invoice-print/${sale.id}?paper=${paper}&t=${Date.now()}${token ? '&token=' + encodeURIComponent(token) : ''}`
+
+    // ---- SILENT PRINT VIA ELECTRON (desktop app) ----
+    const electronAPI = (window as any).electron
+    if (electronAPI?.printInvoiceSilent) {
+      try {
+        const origin = typeof window !== 'undefined' ? window.location.origin : ''
+        const absoluteUrl = origin + relativeUrl
+        const result = await electronAPI.printInvoiceSilent(absoluteUrl)
+        if (result?.ok) {
+          toast({ title: 'Printed', description: `Invoice sent to printer (${paper.toUpperCase()})` })
+          return
+        } else {
+          console.warn('[print] Electron silent print failed, falling back to iframe:', result?.error)
+        }
+      } catch (e) {
+        console.warn('[print] Electron API error, falling back to iframe:', e)
+      }
+    }
+
+    // ---- FALLBACK: HIDDEN IFRAME + BROWSER PRINT DIALOG ----
     let iframe = document.getElementById('bizbook-print-iframe') as HTMLIFrameElement | null
     if (!iframe) {
       iframe = document.createElement('iframe')
@@ -588,7 +605,7 @@ export function SaleRegister() {
       cw.focus()
       setTimeout(() => { try { cw.print() } catch (e) { console.error(e) } }, 400)
     }
-    iframe.src = url
+    iframe.src = relativeUrl
   }
 
 

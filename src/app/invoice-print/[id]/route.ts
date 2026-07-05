@@ -29,7 +29,8 @@ export async function GET(
   if (!saleId) return new NextResponse('Sale ID required', { status: 400 })
 
   const paper = (req.nextUrl.searchParams.get('paper') || 'a4').toLowerCase()
-  const isThermal = paper === 'thermal' || paper === '80mm'
+  const isThermal = paper === 'thermal' || paper === '80mm' || paper === '58mm'
+  const is58mm = paper === '58mm'
 
   // Auth: cookie OR token query param
   const cookie = req.cookies.get('bizbook_session')?.value
@@ -99,7 +100,12 @@ export async function GET(
     </tr>`).join('')
 
   // ---- CSS — pick ONE scope, no overlap ----
-  const css = isThermal ? CSS_THERMAL : CSS_A4
+  // v5.7: 58mm thermal printers (like Everycom-58-Series) use a narrower width
+  const thermalWidth = is58mm ? '58mm' : '80mm'
+  const thermalBodyWidth = is58mm ? '54mm' : '72mm'
+  const css = isThermal
+    ? CSS_THERMAL.replace(/80mm/g, thermalWidth).replace(/72mm/g, thermalBodyWidth)
+    : CSS_A4
 
   // ---- HTML — single template ----
   const html = `<!DOCTYPE html>
