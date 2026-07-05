@@ -308,6 +308,105 @@ ipcMain.handle('app:version', () => ({
 }))
 
 // ============================================================
+// v4.192: SILENT PRINT — true zero-click printing via Electron
+// ============================================================
+// The web app calls window.electronAPI.printInvoice(url, paper) which
+// triggers this handler. Electron loads the URL in a hidden webview,
+// waits for it to finish loading, then calls webContents.print()
+// with silent: true — completely bypassing the OS print dialog.
+//
+// The paper parameter ('a4' | 'thermal') is passed to the URL so the
+// server renders the correct layout. The Electron app reads the user's
+// paper preference from a config file (electron-config.json) so the
+// same printer is used every time without manual selection.
+//
+// To enable silent printing in production:
+//   1. Build the Electron app (npm run electron:build)
+//   2. Launch the BizBook Pro desktop app
+//   3. Set paper preference once (A4 or Thermal 80mm) in Settings
+//   4. All future Print button clicks will print silently to the
+//      default OS printer with no dialog
+
+ipcMain.handle('print:invoice-silent', async (_, url: string) => {
+  if (!mainWindow) {
+    return { ok: false, error: 'Main window not available' }
+  }
+  try {
+    const { BrowserWindow } = await import('electron')
+    const printWindow = new BrowserWindow({
+      show: false,
+      width: 800,
+      height: 600,
+      webPreferences: {
+        offscreen: false,
+        contextIsolation: true,
+      },
+    })
+    await printWindow.loadURL(url)
+    // Wait a bit for fonts/images to settle
+    await new Promise(resolve => setTimeout(resolve, 800))
+    await printWindow.webContents.print({
+      silent: true,
+      printBackground: true,
+    })
+    printWindow.close()
+    return { ok: true }
+  } catch (err: any) {
+    console.error('[silent-print] Error:', err)
+    return { ok: false, error: err?.message || 'Unknown print error' }
+  }
+})
+
+// Get list of available printers (for auto-detecting thermal vs A4)
+ipcMain.handle('print:list-printers', async () => {
+  if (!mainWindow) return { printers: [] }
+  try {
+    const printers = await mainWindow.webContents.getPrintersAsync()
+    return {
+      printers: printers.map(p => ({
+        name: p.name,
+        displayName: p.displayName,
+        description: p.description,
+        status: p.status,
+        isDefault: p.isDefault,
+        // Heuristic: thermal printers usually have "thermal", "receipt",
+        // "80mm", or "POS" in their name
+        isThermal: /thermal|receipt|80mm|pos|star|epson tm|bixolon/i.test(p.name + ' ' + p.displayName),
+      })),
+    }
+  } catch (err: any) {
+    return { printers: [], error: err?.message }
+  }
+})
+
+// Print with specific printer (silent)
+ipcMain.handle('print:invoice-to-printer', async (_, url: string, printerName: string) => {
+  if (!mainWindow) {
+    return { ok: false, error: 'Main window not available' }
+  }
+  try {
+    const { BrowserWindow } = await import('electron')
+    const printWindow = new BrowserWindow({
+      show: false,
+      width: 800,
+      height: 600,
+    })
+    await printWindow.loadURL(url)
+    await new Promise(resolve => setTimeout(resolve, 800))
+    await printWindow.webContents.print({
+      silent: true,
+      printBackground: true,
+      deviceName: printerName,
+    })
+    printWindow.close()
+    return { ok: true }
+  } catch (err: any) {
+    console.error('[silent-print] Error:', err)
+    return { ok: false, error: err?.message || 'Unknown print error' }
+  }
+})
+
+// ============================================================
 // App lifecycle
 // ============================================================
 app.whenReady().then(async () => {

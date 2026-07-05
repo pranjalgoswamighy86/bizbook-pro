@@ -3,7 +3,8 @@ import { db } from '@/lib/db-soft-delete'
 // ---- SECURITY PATCH v2 imports ----
 import { requireAuthAndTenant, writeAuditLog } from '@/lib/api-helpers'
 // -----------------------------------
-import ZAI from 'z-ai-web-dev-sdk'
+// v4.192: Dynamic ZAI SDK load — no static import (build fails on Railway)
+import { getZaiClient, isZaiAvailable } from '@/lib/zai-client'
 
 /**
  * Bank API — SECURITY-PATCHED (v2) reconcile action.

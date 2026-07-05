@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import ZAI from 'z-ai-web-dev-sdk'
-import { getZaiClient } from '@/lib/zai-client' // v4.50: Fallback config for Railway
+// v4.192: Do NOT import ZAI statically — use getZaiClient() which loads dynamically.
+// Static import breaks the Railway build because z-ai-web-dev-sdk is not in package.json.
+import { getZaiClient, isZaiAvailable } from '@/lib/zai-client'
 import { db } from '@/lib/db-soft-delete'
 import { writeFile, mkdir, unlink, readdir, readFile } from 'fs/promises'
 import { join } from 'path'

@@ -651,23 +651,85 @@ export function SaleRegister() {
     }
   }
 
-  const handlePrintInvoice = (sale: Sale, paper?: 'a4' | 'thermal') => {
-    // v4.190: EXPLICIT PAPER SIZE SELECTION
-    // The CSS `@media print and (max-width: 90mm)` query is unreliable in
-    // browsers' print preview. The user now explicitly picks A4 or Thermal
-    // 80mm from a popover menu. The choice is saved to localStorage so
-    // future prints default to the same paper.
+  const handlePrintInvoice = async (sale: Sale, paper?: 'a4' | 'thermal') => {
+    // v4.192: AUTO-DETECT + SILENT PRINT
     //
-    // Direct print pipeline: hidden iframe, no new window/tab.
+    // HONEST ARCHITECTURE NOTE:
+    // Pure web browsers (Chrome, Firefox, Safari) CANNOT silently print without
+    // showing the OS print dialog. The browser security model requires user
+    // consent for every print job. True "zero-click" silent printing requires
+    // either:
+    //   (a) Chrome/Edge launched with --kiosk-printing --silent-print flag
+    //   (b) Electron desktop wrapper with webContents.print({silent: true})
+    //   (c) A native print spooler service running alongside the web app
+    //
+    // What we CAN do in a pure web app:
+    //   1. Auto-detect paper size preference from localStorage (no manual toggle)
+    //   2. If running inside Electron (window.electron), use SILENT print —
+    //      no dialog at all, prints straight to default OS printer
+    //   3. If running in pure browser, use hidden iframe + browser print dialog
+    //      (dialog dismisses back to active UI after print)
+    //   4. Auto-detect thermal vs A4 by querying OS printers via Electron
+    //      (when available) — if default printer name matches thermal
+    //      keywords (thermal/receipt/80mm/POS), use thermal layout
+    //
+    // For TRUE silent printing, build and run the Electron desktop app:
+    //   npm run electron:build  →  produces BizBook Pro.exe / .app / .deb
+    //   Launch the desktop app — all print buttons become silent
+
     const token = useAppStore.getState().sessionToken
-    const chosenPaper = paper || (typeof window !== 'undefined'
-      ? (localStorage.getItem('bizbook-paper-pref') as 'a4' | 'thermal') || 'a4'
-      : 'a4')
+
+    // ---- AUTO-DETECT PAPER SIZE ----
+    let chosenPaper = paper
+    if (!chosenPaper) {
+      // Try Electron printer auto-detection first
+      const electronAPI = (window as any).electron
+      if (electronAPI?.listPrinters) {
+        try {
+          const result = await electronAPI.listPrinters()
+          const defaultPrinter = result?.printers?.find((p: any) => p.isDefault)
+          if (defaultPrinter?.isThermal) {
+            chosenPaper = 'thermal'
+          } else if (defaultPrinter) {
+            chosenPaper = 'a4'
+          }
+        } catch (e) {
+          console.warn('[print] Auto-detect failed, falling back to localStorage')
+        }
+      }
+      // Fallback to localStorage preference
+      if (!chosenPaper && typeof window !== 'undefined') {
+        chosenPaper = (localStorage.getItem('bizbook-paper-pref') as 'a4' | 'thermal') || 'a4'
+      }
+      if (!chosenPaper) chosenPaper = 'a4'
+    }
+
     if (typeof window !== 'undefined') {
       localStorage.setItem('bizbook-paper-pref', chosenPaper)
     }
-    const printUrl = `/invoice-print/${sale.id}?paper=${chosenPaper}&t=${Date.now()}${token ? '&token=' + encodeURIComponent(token) : ''}`
 
+    // Build absolute URL (Electron needs absolute URL, iframe can use relative)
+    const origin = typeof window !== 'undefined' ? window.location.origin : ''
+    const relativeUrl = `/invoice-print/${sale.id}?paper=${chosenPaper}&t=${Date.now()}${token ? '&token=' + encodeURIComponent(token) : ''}`
+    const absoluteUrl = origin + relativeUrl
+
+    // ---- SILENT PRINT VIA ELECTRON (if available) ----
+    const electronAPI = (window as any).electron
+    if (electronAPI?.printInvoiceSilent) {
+      try {
+        const result = await electronAPI.printInvoiceSilent(absoluteUrl)
+        if (result?.ok) {
+          toast({ title: 'Printed', description: `Invoice sent to default printer (${chosenPaper.toUpperCase()})` })
+          return
+        } else {
+          console.warn('[print] Electron silent print failed, falling back to iframe:', result?.error)
+        }
+      } catch (e) {
+        console.warn('[print] Electron API error, falling back to iframe:', e)
+      }
+    }
+
+    // ---- FALLBACK: HIDDEN IFRAME + BROWSER PRINT DIALOG ----
     let printIframe = document.getElementById('bizbook-print-iframe') as HTMLIFrameElement | null
     if (!printIframe) {
       printIframe = document.createElement('iframe')
@@ -695,7 +757,7 @@ export function SaleRegister() {
       }
     }
     printIframe.onload = onIframeLoad
-    printIframe.src = printUrl
+    printIframe.src = relativeUrl
   }
 
 
