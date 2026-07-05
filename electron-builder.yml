@@ -17,20 +17,7 @@
     "electron/fingerprint.js",
     "package.json"
   ],
-  "extraResources": [
-    {
-      "from": ".next/standalone",
-      "to": "app/.next/standalone"
-    },
-    {
-      "from": "public",
-      "to": "app/public"
-    },
-    {
-      "from": "package.json",
-      "to": "app/package.json"
-    }
-  ],
+  "extraResources": [],
   "win": {
     "icon": "public/bizbook-pro-logo.png",
     "target": [
