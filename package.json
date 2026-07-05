@@ -2,6 +2,9 @@
   "name": "bizbook-pro",
   "version": "2.0.0",
   "private": true,
+  "main": "electron/main.js",
+  "author": "Tahigo International",
+  "description": "Premium Business Software — GST billing, inventory, accounting, payroll for Indian SMEs",
   "scripts": {
     "dev": "next dev -p 3000 -H 0.0.0.0",
     "build": "next build && node postbuild.js",

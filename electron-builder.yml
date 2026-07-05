@@ -3,18 +3,18 @@
   "appId": "in.tahigo.bizbookpro",
   "productName": "BizBook Pro",
   "copyright": "Copyright © 2026 Tahigo International",
-  "author": "Tahigo International",
-  "description": "Premium Business Software — GST billing, inventory, accounting, payroll for Indian SMEs",
   "directories": {
     "output": "dist-electron",
     "buildResources": "electron/build"
   },
+  "asar": false,
   "files": [
     ".next/standalone/**/*",
     ".next/static/**/*",
     "public/**/*",
     "electron/main.js",
     "electron/preload.js",
+    "electron/fingerprint.js",
     "package.json"
   ],
   "extraResources": [

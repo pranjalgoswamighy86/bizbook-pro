@@ -98,8 +98,8 @@ function createWindow() {
     },
     // v4.153: Enable for fingerprint scanner hardware access
     // WebUSB and WebHID are available via these flags
-    webSecurity: true,
-    allowRunningInsecureContent: false,
+    // Note: webSecurity/allowRunningInsecureContent are not valid BrowserWindowConstructorOptions
+    // — webSecurity defaults to true, allowRunningInsecureContent defaults to false
   })
 
   // Load the app
@@ -126,7 +126,7 @@ function createWindow() {
   })
 
   // Build menu
-  const template: Electron.MenuTemplate = [
+  const template: any = [
     {
       label: 'File',
       submenu: [
@@ -445,7 +445,5 @@ app.on('before-quit', () => {
 
 // Security: prevent new-window creation (we use setWindowOpenHandler instead)
 app.on('web-contents-created', (_, contents) => {
-  contents.on('new-window', (event) => {
-    event.preventDefault()
-  })
+  contents.setWindowOpenHandler(() => ({ action: 'deny' }))
 })

@@ -183,7 +183,7 @@ export async function GET(
   <footer class="footer">
     <div>Computer-generated invoice from BizBook Pro</div>
     <div>by Tahigo International — <span class="ts">${systemTimestamp}</span></div>
-    <div class="ver">v5.0 · ${paper.toUpperCase()}</div>
+    <div class="ver">v5.1 · ${paper.toUpperCase()}</div>
   </footer>
 </body>
 </html>`
@@ -194,7 +194,7 @@ export async function GET(
       'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
       'Pragma': 'no-cache',
       'Expires': '0',
-      'X-BizBook-Version': 'v5.0',
+      'X-BizBook-Version': 'v5.1',
       'X-Frame-Options': 'ALLOWALL',
     },
   })
@@ -267,18 +267,16 @@ body {
 
 // =====================================================================
 // CSS — THERMAL 80mm LAYOUT (continuous roll)
-// - @page margin: 0 (edge-to-edge)
-// - body width: 80mm (full paper, browser doesn't shrink-to-fit)
-// - All elements page-break-inside: avoid (no fragmentation)
-// - HSN/Disc/Amt columns hidden (too narrow for 80mm)
-// - Larger fonts than v4.192 — readable without magnification
+// v5.1: @page size 80mm 9999mm — tricks browser into treating the entire
+//       document as ONE long page, no pagination. Removed all page-break
+//       rules so content flows continuously along the roll.
+//       For TRUE continuous-roll (no browser pagination at all), use the
+//       Electron desktop app which bypasses the browser print engine.
 // =====================================================================
 const CSS_THERMAL = `
-@page { size: 80mm auto; margin: 0; }
+@page { size: 80mm 9999mm; margin: 0; }
 * {
   margin: 0; padding: 0; box-sizing: border-box;
-  page-break-inside: avoid;
-  break-inside: avoid;
   -webkit-print-color-adjust: exact !important;
   print-color-adjust: exact !important;
 }
