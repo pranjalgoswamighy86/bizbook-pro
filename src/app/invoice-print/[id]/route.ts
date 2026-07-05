@@ -189,7 +189,7 @@ export async function GET(
   <footer class="footer">
     <div>Computer-generated invoice from BizBook Pro</div>
     <div>by Tahigo International — <span class="ts">${systemTimestamp}</span></div>
-    <div class="ver">v5.1 · ${paper.toUpperCase()}</div>
+    <div class="ver">v5.10 · ${paper.toUpperCase()}</div>
   </footer>
 </body>
 </html>`
@@ -200,7 +200,7 @@ export async function GET(
       'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
       'Pragma': 'no-cache',
       'Expires': '0',
-      'X-BizBook-Version': 'v5.1',
+      'X-BizBook-Version': 'v5.10',
       'X-Frame-Options': 'ALLOWALL',
     },
   })

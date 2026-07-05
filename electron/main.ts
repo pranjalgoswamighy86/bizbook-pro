@@ -416,8 +416,7 @@ ipcMain.handle('print:auto-detect-paper', async () => {
 })
 
 // Silent print — loads URL in hidden window, prints with no dialog
-// v5.9: Added deviceName to print to the DEFAULT printer specifically
-// and longer wait time for the page to fully render
+// v5.10: Improved silent print with better error handling
 ipcMain.handle('print:invoice-silent', async (_, url: string) => {
   if (!mainWindow) {
     return { ok: false, error: 'Main window not available' }
@@ -448,15 +447,22 @@ ipcMain.handle('print:invoice-silent', async (_, url: string) => {
     console.log('[silent-print] Waiting 2s for page to render...')
     await new Promise(resolve => setTimeout(resolve, 2000))
 
-    console.log('[silent-print] Calling webContents.print()...')
-    await printWindow.webContents.print({
-      silent: true,
-      printBackground: true,
-      deviceName: defaultPrinterName,
-    })
-    console.log('[silent-print] Print succeeded')
-    printWindow.close()
-    return { ok: true }
+    // Silent print with deviceName
+    console.log('[silent-print] Calling webContents.print({silent: true})...')
+    try {
+      await printWindow.webContents.print({
+        silent: true,
+        printBackground: true,
+        deviceName: defaultPrinterName,
+      })
+      console.log('[silent-print] Print call completed successfully')
+      printWindow.close()
+      return { ok: true }
+    } catch (printErr: any) {
+      console.error('[silent-print] Print failed:', printErr?.message)
+      printWindow.close()
+      return { ok: false, error: printErr?.message || 'Print failed' }
+    }
   } catch (err: any) {
     console.error('[silent-print] Error:', err)
     return { ok: false, error: err?.message || 'Unknown print error' }
