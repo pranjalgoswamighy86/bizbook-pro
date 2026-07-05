@@ -19,7 +19,7 @@
   ],
   "extraResources": [],
   "win": {
-    "icon": "public/bizbook-pro-logo.png",
+    "icon": "public/bizbook-pro-icon.png",
     "target": [
       {
         "target": "nsis",
@@ -37,9 +37,9 @@
     "oneClick": false,
     "perMachine": false,
     "allowToChangeInstallationDirectory": true,
-    "installerIcon": "public/bizbook-pro-logo.png",
-    "uninstallerIcon": "public/bizbook-pro-logo.png",
-    "installerHeaderIcon": "public/bizbook-pro-logo.png",
+    "installerIcon": "public/bizbook-pro-icon.png",
+    "uninstallerIcon": "public/bizbook-pro-icon.png",
+    "installerHeaderIcon": "public/bizbook-pro-icon.png",
     "createDesktopShortcut": true,
     "createStartMenuShortcut": true,
     "shortcutName": "BizBook Pro",
@@ -52,12 +52,12 @@
     "artifactName": "BizBookPro-Portable-${version}.exe"
   },
   "mac": {
-    "icon": "public/bizbook-pro-logo.png",
+    "icon": "public/bizbook-pro-icon.png",
     "category": "public.app-category.business",
     "target": ["dmg", "zip"]
   },
   "linux": {
-    "icon": "public/bizbook-pro-logo.png",
+    "icon": "public/bizbook-pro-icon.png",
     "target": ["AppImage", "deb"],
     "category": "Office",
     "maintainer": "Tahigo International <support@tahigo.in>"
