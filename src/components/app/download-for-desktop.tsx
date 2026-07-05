@@ -132,16 +132,16 @@ export function DownloadForDesktop() {
 
       {showModal && (
         <div
-          className="fixed inset-0 z-[200] flex items-start justify-center bg-black/50 p-4 overflow-y-auto"
+          className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 p-4"
           onClick={() => setShowModal(false)}
         >
           <div
-            className="bg-card border rounded-xl shadow-2xl max-w-lg w-full p-6 relative mt-20 mb-8 mx-auto"
+            className="bg-card border rounded-xl shadow-2xl max-w-lg w-full p-6 relative max-h-[calc(100vh-4rem)] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
             <button
               onClick={() => setShowModal(false)}
-              className="absolute top-3 right-3 text-muted-foreground hover:text-foreground"
+              className="absolute top-3 right-3 text-muted-foreground hover:text-foreground z-10"
             >
               <X className="h-5 w-5" />
             </button>
