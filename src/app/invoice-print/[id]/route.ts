@@ -98,11 +98,32 @@ export async function GET(
 
   if (isThermal) {
     // === THERMAL 80MM CONTINUOUS ROLL ===
+    // v4.191 ROOT CAUSE FIX:
+    // Browsers' print preview applies "shrink-to-fit" scaling when the page
+    // content is wider than the printable area. This shrinks the entire
+    // invoice into a tiny box centered on the paper, leaving 30%+ blank
+    // margins on each side.
+    //
+    // The fix is to use the THERMAL PRINTABLE WIDTH (72mm), NOT the paper
+    // width (80mm). 80mm thermal paper has ~4mm unprintable margins on each
+    // side, leaving 72mm of usable canvas. By setting html/body to exactly
+    // 72mm and @page margin to 0, the browser sees the content fits the
+    // printable area with no shrink-to-fit needed.
+    //
+    // Also: print-color-adjust: exact is set at root level (not nested in
+    // @media print) so it applies to ALL render contexts (screen + print).
     pageCss = `
       @page { size: 80mm auto; margin: 0; }
-      * { margin: 0; padding: 0; box-sizing: border-box; }
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+      }
       html, body {
-        width: 80mm;
+        width: 72mm;
+        max-width: 72mm;
         margin: 0;
         padding: 0;
       }
@@ -110,7 +131,9 @@ export async function GET(
         font-family: 'Courier New', monospace;
         color: #000;
         display: block;
-        width: 80mm;
+        width: 72mm;
+        max-width: 72mm;
+        background: #fff;
       }
       /* Continuous roll — NO pagination */
       * {
@@ -123,17 +146,17 @@ export async function GET(
       }
 
       .title-banner {
-        width: 80mm;
-        padding: 3mm 1mm 2mm 1mm;
+        width: 100%;
+        padding: 3mm 0 2mm 0;
         border-bottom: 2px solid #000;
         text-align: center;
       }
       .title-banner h1 { font-size: 26px; font-weight: 900; letter-spacing: 3px; line-height: 1.1; }
 
-      .header-row { display: block; width: 80mm; border-bottom: 0; }
+      .header-row { display: block; width: 100%; border-bottom: 0; }
       .header-cell {
-        width: 80mm;
-        padding: 2mm 1mm;
+        width: 100%;
+        padding: 2mm 0;
         border-bottom: 1px dashed #000;
       }
       .header-cell.left { border-right: 0; }
@@ -154,13 +177,15 @@ export async function GET(
         font-weight: 900;
         margin-bottom: 3px;
         line-height: 1.2;
+        word-break: break-word;
       }
       .seller-block .field,
       .buyer-block .field {
         font-size: 13px;
         margin-bottom: 2px;
         line-height: 1.35;
-        word-break: break-word;
+        word-break: break-all;
+        overflow-wrap: anywhere;
         font-weight: 600;
       }
       .seller-block .field .lbl,
@@ -176,7 +201,7 @@ export async function GET(
 
       .meta-block {
         text-align: center;
-        padding: 2mm 1mm;
+        padding: 2mm 0;
         margin: 0;
         border-bottom: 1px dashed #000;
       }
@@ -199,47 +224,56 @@ export async function GET(
         letter-spacing: 2px;
         border: 2px solid #000;
       }
-      .meta-block .status-flag.PAID    { background: #14532d; color: #fff; border-color: #14532d; }
-      .meta-block .status-flag.PENDING { background: #fff;    color: #b91c1c; border-color: #b91c1c; }
-      .meta-block .status-flag.PARTIAL { background: #1e3a8a; color: #fff; border-color: #1e3a8a; }
+      .meta-block .status-flag.PAID    { background: #14532d !important; color: #fff !important; border-color: #14532d !important; }
+      .meta-block .status-flag.PENDING { background: #fff !important;    color: #b91c1c !important; border-color: #b91c1c !important; }
+      .meta-block .status-flag.PARTIAL { background: #1e3a8a !important; color: #fff !important; border-color: #1e3a8a !important; }
 
       .items-section {
-        width: 80mm;
-        padding: 2mm 1mm;
+        width: 100%;
+        padding: 2mm 0;
       }
       table.items {
         width: 100%;
         border-collapse: collapse;
+        table-layout: fixed;
       }
+      table.items colgroup col.col-no   { width: 8%; }
+      table.items colgroup col.col-item { width: 47%; }
+      table.items colgroup col.col-qty  { width: 18%; }
+      table.items colgroup col.col-rate { width: 13%; }
+      table.items colgroup col.col-tax  { width: 13%; }
+      table.items colgroup col.col-tot  { width: 14%; }
       table.items thead th {
-        background: #000;
-        color: #fff;
+        background: #000 !important;
+        color: #fff !important;
         padding: 4px 2px;
-        font-size: 13px;
+        font-size: 12px;
         font-weight: 900;
         text-transform: uppercase;
-        letter-spacing: 1px;
+        letter-spacing: 0.5px;
         border: 1px solid #000;
         text-align: left;
       }
       table.items thead th.num { text-align: right; }
       table.items tbody td {
         padding: 4px 2px;
-        font-size: 14px;
+        font-size: 13px;
         border: 1px solid #000;
         vertical-align: top;
         word-break: break-word;
+        overflow-wrap: anywhere;
       }
       table.items tbody td.num {
         text-align: right;
         font-variant-numeric: tabular-nums;
         font-weight: 700;
         white-space: nowrap;
+        font-size: 12px;
       }
       table.items tbody td.col-tot { font-weight: 900; }
       table.items tbody td.col-item { font-weight: 700; }
       table.items tbody .svc {
-        font-size: 12px;
+        font-size: 11px;
         color: #b91c1c;
         font-weight: 900;
       }
@@ -250,13 +284,13 @@ export async function GET(
 
       .bottom-row {
         display: block;
-        width: 80mm;
+        width: 100%;
         border-top: 2px solid #000;
       }
       .bottom-cell.left,
       .bottom-cell.right {
-        width: 80mm;
-        padding: 2mm 1mm;
+        width: 100%;
+        padding: 2mm 0;
         border-right: 0;
         border-bottom: 2px solid #000;
       }
@@ -269,6 +303,16 @@ export async function GET(
         font-size: 15px;
         font-weight: 700;
         border-bottom: 1px dashed #000;
+        gap: 4px;
+      }
+      .summary-row > span:first-child {
+        flex: 0 1 auto;
+        word-break: break-word;
+      }
+      .summary-row > span:last-child {
+        flex: 0 0 auto;
+        white-space: nowrap;
+        font-variant-numeric: tabular-nums;
       }
       .summary-row:last-child { border-bottom: none; }
       .summary-row.total {
@@ -278,10 +322,10 @@ export async function GET(
         border-bottom: 2px solid #000;
         padding: 5px 0;
         margin-top: 4px;
-        background: #000;
-        color: #fff;
+        background: #000 !important;
+        color: #fff !important;
       }
-      .summary-row.due { font-weight: 900; color: #b91c1c; }
+      .summary-row.due { font-weight: 900; color: #b91c1c !important; }
 
       .qr-cell { text-align: center; }
       .qr-cell img {
@@ -298,6 +342,7 @@ export async function GET(
         letter-spacing: 1px;
         text-transform: uppercase;
         color: #b91c1c;
+        word-break: break-word;
       }
       .qr-cell .sig {
         margin-top: 3mm;
@@ -305,6 +350,7 @@ export async function GET(
         padding-top: 2mm;
         font-size: 14px;
         font-weight: 900;
+        word-break: break-word;
       }
       .qr-cell .sig small {
         display: block;
@@ -314,55 +360,59 @@ export async function GET(
       }
 
       .terms {
-        width: 80mm;
-        padding: 2mm 1mm;
+        width: 100%;
+        padding: 2mm 0;
         border-bottom: 2px solid #000;
         font-size: 13px;
         line-height: 1.4;
         font-weight: 600;
+        word-break: break-word;
       }
       .terms strong { font-size: 14px; font-weight: 900; }
 
       .einvoice-block {
-        width: 80mm;
-        padding: 2mm 1mm;
+        width: 100%;
+        padding: 2mm 0;
         display: flex;
         justify-content: space-between;
         align-items: center;
         border-bottom: 2px solid #000;
         background: #f0fdf4;
+        gap: 4px;
       }
       .einvoice-block h4 { font-size: 14px; margin-bottom: 4px; font-weight: 900; }
-      .einvoice-block .meta { font-size: 12px; line-height: 1.4; }
+      .einvoice-block .meta { font-size: 12px; line-height: 1.4; word-break: break-all; overflow-wrap: anywhere; }
 
       .footer {
-        width: 80mm;
-        padding: 3mm 1mm;
+        width: 100%;
+        padding: 3mm 0;
         text-align: center;
-        background: #000;
-        color: #fff;
+        background: #000 !important;
+        color: #fff !important;
         font-weight: 700;
       }
-      .footer .line1 { font-size: 12px; margin-bottom: 2px; }
-      .footer .line2 { font-size: 12px; font-weight: 900; letter-spacing: 0.5px; }
+      .footer .line1 {
+        font-size: 12px;
+        margin-bottom: 2px;
+        word-break: break-word;
+      }
+      .footer .line2 {
+        font-size: 12px;
+        font-weight: 900;
+        letter-spacing: 0.5px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 2px;
+      }
       .footer .line2 .timestamp {
         display: inline-block;
         padding: 2px 6px;
         border: 1px solid #fff;
         font-family: 'Courier New', monospace;
         letter-spacing: 0.5px;
-        margin-left: 3px;
-      }
-
-      @media print {
-        .summary-row.total,
-        .footer,
-        .meta-block .status-flag.PAID,
-        .meta-block .status-flag.PARTIAL,
-        table.items thead th {
-          -webkit-print-color-adjust: exact;
-          print-color-adjust: exact;
-        }
+        margin-top: 4px;
+        word-break: break-all;
       }
     `
   } else {
@@ -530,13 +580,13 @@ export async function GET(
 <html>
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="${isThermal ? 'width=72, initial-scale=1, maximum-scale=1' : 'width=device-width, initial-scale=1'}">
   <title>Invoice - ${invoiceNo}</title>
   <style>
     ${pageCss}
     @media screen {
       body {
-        max-width: ${isThermal ? '80mm' : '210mm'};
+        max-width: ${isThermal ? '72mm' : '210mm'};
         margin: 0 auto;
         background: #fff;
         box-shadow: 0 0 0 1px #ddd;
@@ -578,6 +628,17 @@ export async function GET(
 
   <div class="items-section">
     <table class="items">
+      <colgroup>
+        <col class="col-no">
+        <col class="col-item">
+        <col class="col-hsn">
+        <col class="col-qty">
+        <col class="col-rate">
+        <col class="col-disc">
+        <col class="col-amt">
+        <col class="col-tax">
+        <col class="col-tot">
+      </colgroup>
       <thead>
         <tr>
           <th class="col-no">#</th>
