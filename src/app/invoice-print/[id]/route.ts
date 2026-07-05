@@ -183,6 +183,7 @@ export async function GET(
   <footer class="footer">
     <div>Computer-generated invoice from BizBook Pro</div>
     <div>by Tahigo International — <span class="ts">${systemTimestamp}</span></div>
+    <div class="ver">v5.0 · ${paper.toUpperCase()}</div>
   </footer>
 </body>
 </html>`
@@ -190,7 +191,11 @@ export async function GET(
   return new NextResponse(html, {
     headers: {
       'Content-Type': 'text/html; charset=utf-8',
-      'Cache-Control': 'no-cache, no-store, must-revalidate',
+      'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
+      'Pragma': 'no-cache',
+      'Expires': '0',
+      'X-BizBook-Version': 'v5.0',
+      'X-Frame-Options': 'ALLOWALL',
     },
   })
 }
@@ -252,6 +257,7 @@ body {
 
 .footer { margin-top: 8mm; padding-top: 3mm; border-top: 2px solid #000; text-align: center; font-size: 9pt; color: #555; }
 .footer .ts { font-family: monospace; }
+.footer .ver { font-size: 7pt; color: #999; margin-top: 1mm; }
 
 @media print {
   .items th { background: #000 !important; color: #fff !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
@@ -337,4 +343,5 @@ body {
 
 .footer { margin-top: 3mm; padding-top: 2mm; border-top: 2px solid #000; text-align: center; font-size: 7pt; }
 .footer .ts { font-family: monospace; word-break: break-all; }
+.footer .ver { font-size: 6pt; color: #999; margin-top: 1mm; }
 `
