@@ -34,6 +34,14 @@ let nextServer: ChildProcess | null = null
 const isDev = !app.isPackaged
 const PORT = isDev ? 3000 : 3456  // different port in prod to avoid conflicts
 
+// v5.6: The desktop app loads the Railway web app directly instead of
+// running a local Next.js server. This fixes the blank window issue
+// (local server needed DATABASE_URL which wasn't available).
+// Silent thermal printing still works via Electron's webContents.print.
+const APP_URL = isDev
+  ? `http://localhost:${PORT}`
+  : 'https://carefree-success-production-7766.up.railway.app/'
+
 // ============================================================
 // v5.4: WINDOW SPAWN KILL SWITCH
 // ============================================================
@@ -68,62 +76,14 @@ function checkWindowSpawnLimit(): boolean {
 // Start Next.js server (production mode)
 // ============================================================
 async function startNextServer(): Promise<void> {
-  if (isDev) {
-    // In dev, Next.js dev server should be running separately (npm run dev)
+  // v5.6: In production, we load the Railway URL directly — no local server needed
+  if (!isDev) {
+    console.log('[Electron] Production mode — loading Railway URL directly, no local server')
     return
   }
 
-  const serverPath = path.join(process.resourcesPath, 'app', '.next', 'standalone', 'server.js')
-  const publicDir = path.join(process.resourcesPath, 'app', 'public')
-  const standaloneDir = path.join(process.resourcesPath, 'app', '.next', 'standalone')
-
-  console.log('[Electron] Starting Next.js server from:', serverPath)
-  console.log('[Electron] Standalone dir:', standaloneDir)
-  console.log('[Electron] Public dir:', publicDir)
-
-  return new Promise((resolve, reject) => {
-    nextServer = spawn(process.execPath, [serverPath], {
-      cwd: standaloneDir,
-      env: {
-        ...process.env,
-        PORT: String(PORT),
-        HOSTNAME: '127.0.0.1',
-        NODE_ENV: 'production',
-        NEXT_PUBLIC_ELECTRON: 'true',
-        // v5.5: DATABASE_URL — try Railway env first, then local fallback
-        // The desktop app connects to the same Railway PostgreSQL database
-        // as the web app, so users see their real data
-        DATABASE_URL: process.env.DATABASE_URL || process.env.POSTGRES_URL || '',
-        // Public dir for static assets
-        NEXT_PUBLIC_DIR: publicDir,
-      },
-      stdio: ['ignore', 'pipe', 'pipe'],
-    })
-
-    nextServer.stdout?.on('data', (data) => {
-      const text = data.toString().trim()
-      console.log(`[Next.js] ${text}`)
-      if (text.includes('Ready in') || text.includes('started server on')) resolve()
-    })
-
-    nextServer.stderr?.on('data', (data) => {
-      const text = data.toString().trim()
-      console.error(`[Next.js err] ${text}`)
-    })
-
-    nextServer.on('error', (err) => {
-      console.error('Failed to start Next.js server:', err)
-      reject(err)
-    })
-
-    nextServer.on('exit', (code, signal) => {
-      console.log(`[Next.js] Server exited with code ${code} signal ${signal}`)
-    })
-
-    // Resolve after 15s timeout if "Ready in" not detected
-    // (server may still be starting up)
-    setTimeout(resolve, 15000)
-  })
+  // In dev, Next.js dev server should be running separately (npm run dev)
+  return
 }
 
 // ============================================================
@@ -157,7 +117,8 @@ function createWindow() {
   })
 
   // Load the app with retry logic
-  const url = `http://127.0.0.1:${PORT}`
+  // v5.6: In production, load the Railway URL directly (no local server)
+  const url = APP_URL
   let loadAttempts = 0
   const maxAttempts = 10
 
@@ -177,8 +138,8 @@ function createWindow() {
     }
   })
 
-  // Initial load attempt (with small delay to let server start)
-  setTimeout(tryLoadUrl, 2000)
+  // Initial load attempt (with small delay to let server start in dev mode)
+  setTimeout(tryLoadUrl, isDev ? 2000 : 500)
 
   // v5.4: HARD DENY all new windows — no exceptions
   // This is the critical fix for the window spawn loop crash.
@@ -187,7 +148,12 @@ function createWindow() {
   // External links open in the user's default browser.
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     console.log('[Window Open Blocked]', url)
-    if (!url.startsWith('http://localhost') && !url.startsWith('https://localhost') && !url.startsWith('http://127.0.0.1')) {
+    // Allow internal navigation (Railway app + localhost dev)
+    const isInternal = url.startsWith('http://localhost') ||
+                       url.startsWith('https://localhost') ||
+                       url.startsWith('http://127.0.0.1') ||
+                       url.includes('carefree-success-production-7766.up.railway.app')
+    if (!isInternal) {
       shell.openExternal(url).catch(() => {})
     }
     return { action: 'deny' }
@@ -195,7 +161,10 @@ function createWindow() {
 
   // Handle links inside the app
   mainWindow.webContents.on('will-navigate', (event, url) => {
-    if (url.startsWith('http://localhost') || url.startsWith('http://127.0.0.1')) return
+    const isInternal = url.startsWith('http://localhost') ||
+                       url.startsWith('http://127.0.0.1') ||
+                       url.includes('carefree-success-production-7766.up.railway.app')
+    if (isInternal) return
     event.preventDefault()
     shell.openExternal(url)
   })
