@@ -75,14 +75,25 @@ async function startNextServer(): Promise<void> {
 
   const serverPath = path.join(process.resourcesPath, 'app', '.next', 'standalone', 'server.js')
   const publicDir = path.join(process.resourcesPath, 'app', 'public')
+  const standaloneDir = path.join(process.resourcesPath, 'app', '.next', 'standalone')
+
+  console.log('[Electron] Starting Next.js server from:', serverPath)
+  console.log('[Electron] Standalone dir:', standaloneDir)
+  console.log('[Electron] Public dir:', publicDir)
 
   return new Promise((resolve, reject) => {
     nextServer = spawn(process.execPath, [serverPath], {
+      cwd: standaloneDir,
       env: {
         ...process.env,
         PORT: String(PORT),
+        HOSTNAME: '127.0.0.1',
         NODE_ENV: 'production',
         NEXT_PUBLIC_ELECTRON: 'true',
+        // v5.5: DATABASE_URL — try Railway env first, then local fallback
+        // The desktop app connects to the same Railway PostgreSQL database
+        // as the web app, so users see their real data
+        DATABASE_URL: process.env.DATABASE_URL || process.env.POSTGRES_URL || '',
         // Public dir for static assets
         NEXT_PUBLIC_DIR: publicDir,
       },
@@ -90,12 +101,14 @@ async function startNextServer(): Promise<void> {
     })
 
     nextServer.stdout?.on('data', (data) => {
-      console.log(`[Next.js] ${data.toString().trim()}`)
-      if (data.toString().includes('Ready in')) resolve()
+      const text = data.toString().trim()
+      console.log(`[Next.js] ${text}`)
+      if (text.includes('Ready in') || text.includes('started server on')) resolve()
     })
 
     nextServer.stderr?.on('data', (data) => {
-      console.error(`[Next.js err] ${data.toString().trim()}`)
+      const text = data.toString().trim()
+      console.error(`[Next.js err] ${text}`)
     })
 
     nextServer.on('error', (err) => {
@@ -103,8 +116,13 @@ async function startNextServer(): Promise<void> {
       reject(err)
     })
 
-    // Resolve after 10s timeout if "Ready in" not detected
-    setTimeout(resolve, 10000)
+    nextServer.on('exit', (code, signal) => {
+      console.log(`[Next.js] Server exited with code ${code} signal ${signal}`)
+    })
+
+    // Resolve after 15s timeout if "Ready in" not detected
+    // (server may still be starting up)
+    setTimeout(resolve, 15000)
   })
 }
 
@@ -138,9 +156,29 @@ function createWindow() {
     },
   })
 
-  // Load the app
-  const url = `http://localhost:${PORT}`
-  mainWindow.loadURL(url)
+  // Load the app with retry logic
+  const url = `http://127.0.0.1:${PORT}`
+  let loadAttempts = 0
+  const maxAttempts = 10
+
+  const tryLoadUrl = () => {
+    loadAttempts++
+    console.log(`[Electron] Load attempt ${loadAttempts}/${maxAttempts} → ${url}`)
+    mainWindow?.loadURL(url).catch((err) => {
+      console.error(`[Electron] Load failed (attempt ${loadAttempts}):`, err.message)
+    })
+  }
+
+  // Retry loading if the server isn't ready yet
+  mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription) => {
+    console.log(`[Electron] did-fail-load: ${errorCode} ${errorDescription}`)
+    if (loadAttempts < maxAttempts) {
+      setTimeout(tryLoadUrl, 1500)
+    }
+  })
+
+  // Initial load attempt (with small delay to let server start)
+  setTimeout(tryLoadUrl, 2000)
 
   // v5.4: HARD DENY all new windows — no exceptions
   // This is the critical fix for the window spawn loop crash.
@@ -149,7 +187,7 @@ function createWindow() {
   // External links open in the user's default browser.
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     console.log('[Window Open Blocked]', url)
-    if (!url.startsWith('http://localhost') && !url.startsWith('https://localhost')) {
+    if (!url.startsWith('http://localhost') && !url.startsWith('https://localhost') && !url.startsWith('http://127.0.0.1')) {
       shell.openExternal(url).catch(() => {})
     }
     return { action: 'deny' }
@@ -157,7 +195,7 @@ function createWindow() {
 
   // Handle links inside the app
   mainWindow.webContents.on('will-navigate', (event, url) => {
-    if (url.startsWith('http://localhost')) return
+    if (url.startsWith('http://localhost') || url.startsWith('http://127.0.0.1')) return
     event.preventDefault()
     shell.openExternal(url)
   })
@@ -385,7 +423,7 @@ app.on('before-quit', () => {
 app.on('web-contents-created', (_, contents) => {
   contents.setWindowOpenHandler(({ url }) => {
     console.log('[Global Window Open Blocked]', url)
-    if (!url.startsWith('http://localhost') && !url.startsWith('https://localhost')) {
+    if (!url.startsWith('http://localhost') && !url.startsWith('https://localhost') && !url.startsWith('http://127.0.0.1')) {
       shell.openExternal(url).catch(() => {})
     }
     return { action: 'deny' }
