@@ -72,8 +72,14 @@ export function DownloadForDesktop() {
 
   // Scroll modal to top when it opens
   useEffect(() => {
-    if (showModal && modalRef.current) {
-      modalRef.current.scrollTop = 0
+    if (showModal) {
+      // Use setTimeout to ensure the modal is rendered before scrolling
+      const timer = setTimeout(() => {
+        if (modalRef.current) {
+          modalRef.current.scrollTop = 0
+        }
+      }, 0)
+      return () => clearTimeout(timer)
     }
   }, [showModal])
 
@@ -140,12 +146,12 @@ export function DownloadForDesktop() {
 
       {showModal && (
         <div
-          className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 p-4"
+          className="fixed inset-0 z-[200] flex items-start justify-center bg-black/50 p-4 pt-20 overflow-y-auto"
           onClick={() => setShowModal(false)}
         >
           <div
             ref={modalRef}
-            className="bg-card border rounded-xl shadow-2xl max-w-lg w-full p-6 relative max-h-[calc(100vh-4rem)] overflow-y-auto"
+            className="bg-card border rounded-xl shadow-2xl max-w-lg w-full p-6 relative max-h-[calc(100vh-6rem)] overflow-y-auto mx-auto mb-8"
             onClick={(e) => e.stopPropagation()}
           >
             <button
