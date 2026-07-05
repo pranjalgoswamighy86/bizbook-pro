@@ -146,12 +146,12 @@ export function DownloadForDesktop() {
 
       {showModal && (
         <div
-          className="fixed inset-0 z-[200] flex items-start justify-center bg-black/50 p-4 pt-20 overflow-y-auto"
+          className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 p-4"
           onClick={() => setShowModal(false)}
         >
           <div
             ref={modalRef}
-            className="bg-card border-2 border-emerald-500 rounded-xl shadow-2xl max-w-lg w-full p-6 relative mx-auto mb-8"
+            className="bg-card border-2 border-emerald-500 rounded-xl shadow-2xl max-w-lg w-full p-6 relative mx-auto my-auto max-h-[85vh] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
             <button
