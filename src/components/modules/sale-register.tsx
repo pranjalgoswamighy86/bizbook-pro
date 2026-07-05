@@ -79,6 +79,90 @@ const SALE_ITEM_TYPE_LABELS: Record<NonNullable<SaleItem['saleItemType']>, strin
   SERVICE: 'Service',
 }
 
+// v4.190: PrintMenu — popover with A4 / Thermal 80mm paper size options.
+// Replaces the single-click Print icon. Saves choice to localStorage so
+// future prints default to the same paper.
+function PrintMenu({ sale, onPrint, variant = 'icon' }: {
+  sale: Sale
+  onPrint: (sale: Sale, paper: 'a4' | 'thermal') => void
+  variant?: 'icon' | 'outline' | 'primary'
+}) {
+  const [open, setOpen] = useState(false)
+  const [paperPref, setPaperPref] = useState<'a4' | 'thermal'>(() => {
+    if (typeof window === 'undefined') return 'a4'
+    return (localStorage.getItem('bizbook-paper-pref') as 'a4' | 'thermal') || 'a4'
+  })
+
+  const handlePick = (paper: 'a4' | 'thermal') => {
+    setPaperPref(paper)
+    localStorage.setItem('bizbook-paper-pref', paper)
+    setOpen(false)
+    onPrint(sale, paper)
+  }
+
+  const trigger = (() => {
+    if (variant === 'icon') {
+      return (
+        <Button variant="ghost" size="icon" className="h-8 w-8" title="Print Invoice">
+          <Printer className="h-4 w-4" />
+        </Button>
+      )
+    }
+    if (variant === 'primary') {
+      return (
+        <Button variant="default">
+          <Printer className="h-4 w-4 mr-1" />Print
+          <ChevronDown className="h-3 w-3 ml-1" />
+        </Button>
+      )
+    }
+    return (
+      <Button variant="outline" size="sm" className="ml-2">
+        <Printer className="h-4 w-4 mr-1" />Print
+        <ChevronDown className="h-3 w-3 ml-1" />
+      </Button>
+    )
+  })()
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        {trigger}
+      </PopoverTrigger>
+      <PopoverContent className="w-56 p-2" align="end">
+        <div className="text-xs font-bold uppercase tracking-wider text-muted-foreground px-2 py-1.5">
+          Paper Size
+        </div>
+        <button
+          type="button"
+          onClick={() => handlePick('a4')}
+          className="flex w-full items-center justify-between rounded-md px-2 py-2 text-sm hover:bg-accent transition-colors"
+        >
+          <span className="flex items-center gap-2">
+            <span className="font-medium">A4 Sheet</span>
+            <span className="text-[10px] text-muted-foreground">210mm × 297mm</span>
+          </span>
+          {paperPref === 'a4' && <CheckCircle2 className="h-4 w-4 text-emerald-600" />}
+        </button>
+        <button
+          type="button"
+          onClick={() => handlePick('thermal')}
+          className="flex w-full items-center justify-between rounded-md px-2 py-2 text-sm hover:bg-accent transition-colors"
+        >
+          <span className="flex items-center gap-2">
+            <span className="font-medium">Thermal 80mm</span>
+            <span className="text-[10px] text-muted-foreground">Roll receipt</span>
+          </span>
+          {paperPref === 'thermal' && <CheckCircle2 className="h-4 w-4 text-emerald-600" />}
+        </button>
+        <div className="border-t mt-1 pt-1.5 px-2 text-[10px] text-muted-foreground">
+          Choice saved for future prints
+        </div>
+      </PopoverContent>
+    </Popover>
+  )
+}
+
 export function SaleRegister() {
   const { tenant, user, dateFilter, searchQuery, setView } = useAppStore()
   const isAuthenticated = useAppStore(s => s.isAuthenticated)
@@ -567,21 +651,23 @@ export function SaleRegister() {
     }
   }
 
-  const handlePrintInvoice = (sale: Sale) => {
-    // v4.189: DIRECT PRINT PIPELINE — hidden iframe, no new window/tab
-    // The invoice HTML is loaded into a hidden iframe on the current page.
-    // When the iframe finishes loading, we call iframe.contentWindow.print()
-    // which routes the job straight to the OS print queue.
-    // The browser's native print dialog still appears (so the user can pick
-    // paper size / printer), but NO extra tab is opened and NO manual close
-    // step is needed — the dialog dismisses back to the active software UI.
+  const handlePrintInvoice = (sale: Sale, paper?: 'a4' | 'thermal') => {
+    // v4.190: EXPLICIT PAPER SIZE SELECTION
+    // The CSS `@media print and (max-width: 90mm)` query is unreliable in
+    // browsers' print preview. The user now explicitly picks A4 or Thermal
+    // 80mm from a popover menu. The choice is saved to localStorage so
+    // future prints default to the same paper.
     //
-    // CSS @media print and (max-width: 90mm) inside the iframe auto-detects
-    // thermal 80mm printers and switches to the continuous-roll layout.
+    // Direct print pipeline: hidden iframe, no new window/tab.
     const token = useAppStore.getState().sessionToken
-    const printUrl = `/invoice-print/${sale.id}?t=${Date.now()}${token ? '&token=' + encodeURIComponent(token) : ''}`
+    const chosenPaper = paper || (typeof window !== 'undefined'
+      ? (localStorage.getItem('bizbook-paper-pref') as 'a4' | 'thermal') || 'a4'
+      : 'a4')
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('bizbook-paper-pref', chosenPaper)
+    }
+    const printUrl = `/invoice-print/${sale.id}?paper=${chosenPaper}&t=${Date.now()}${token ? '&token=' + encodeURIComponent(token) : ''}`
 
-    // Reuse a single hidden iframe so repeat prints don't accumulate DOM nodes
     let printIframe = document.getElementById('bizbook-print-iframe') as HTMLIFrameElement | null
     if (!printIframe) {
       printIframe = document.createElement('iframe')
@@ -596,20 +682,13 @@ export function SaleRegister() {
       document.body.appendChild(printIframe)
     }
 
-    // When the iframe finishes loading the invoice HTML, trigger print directly.
-    // The browser's print dialog opens ON TOP of the current tab — no new tab.
     const onIframeLoad = () => {
       try {
         const cw = printIframe!.contentWindow
         if (!cw) return
-        // Small delay to let fonts/images settle
         cw.focus()
         setTimeout(() => {
-          try {
-            cw.print()
-          } catch (e) {
-            console.error('[print] iframe.print() failed', e)
-          }
+          try { cw.print() } catch (e) { console.error('[print] iframe.print() failed', e) }
         }, 400)
       } catch (e) {
         console.error('[print] iframe load handler error', e)
@@ -693,7 +772,7 @@ export function SaleRegister() {
                       <TableCell>{statusBadge(s.paymentStatus)}</TableCell>
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-1">
-                          <Button variant="ghost" size="icon" className="h-8 w-8" title="Print Invoice" onClick={() => handlePrintInvoice(s)}><Printer className="h-4 w-4" /></Button>
+                          <PrintMenu sale={s} onPrint={handlePrintInvoice} variant="icon" />
                           {s.partyGst && <Button variant="ghost" size="icon" className="h-8 w-8" title="Generate E-Invoice" onClick={() => handleGenerateEinvoice(s)}><FileCheck className="h-4 w-4" /></Button>}
                           <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setViewItem(s)}><Eye className="h-4 w-4" /></Button>
                           {/* v4.106: Show Confirm button for Quotation sales */}
@@ -1251,7 +1330,7 @@ export function SaleRegister() {
           <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
             <DialogHeader><DialogTitle className="flex items-center justify-between">
               <span>Sale Invoice - {viewItem?.invoiceNumber}</span>
-              {viewItem && <Button variant="outline" size="sm" className="ml-2" onClick={() => handlePrintInvoice(viewItem)}><Printer className="h-4 w-4 mr-1" />Print</Button>}
+              {viewItem && <PrintMenu sale={viewItem} onPrint={handlePrintInvoice} variant="outline" />}
             </DialogTitle></DialogHeader>
             {viewItem && (
               <div className="space-y-3 text-sm">
@@ -1342,9 +1421,7 @@ export function SaleRegister() {
             </div>
             <DialogFooter className="flex gap-2 sm:gap-2">
               <Button variant="outline" onClick={() => setJustSavedSale(null)}>Close</Button>
-              <Button variant="outline" onClick={() => { if (justSavedSale) handlePrintInvoice(justSavedSale); setJustSavedSale(null) }}>
-                <Printer className="h-4 w-4 mr-2" /> Print Quotation
-              </Button>
+              {justSavedSale && <PrintMenu sale={justSavedSale} onPrint={(s, p) => { handlePrintInvoice(s, p); setJustSavedSale(null) }} variant="primary" />}
               <Button className="bg-emerald-600 hover:bg-emerald-700" onClick={async () => {
                 if (!justSavedSale || !tenant) return
                 // v4.160: Cash customer rule — block confirmation
