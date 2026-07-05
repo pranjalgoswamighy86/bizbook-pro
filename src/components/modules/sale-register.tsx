@@ -601,23 +601,39 @@ export function SaleRegister() {
     const relativeUrl = `/invoice-print/${sale.id}?paper=${paper}&t=${Date.now()}${token ? '&token=' + encodeURIComponent(token) : ''}`
 
     // ---- SILENT PRINT VIA ELECTRON (desktop app) ----
+    // v5.9: If Electron is available, ONLY use silent print — never fall back to iframe
+    // The iframe shows the OS print dialog which we want to avoid
     if (electronAPI?.printInvoiceSilent) {
       try {
         const origin = typeof window !== 'undefined' ? window.location.origin : ''
         const absoluteUrl = origin + relativeUrl
+        toast({ title: 'Printing...', description: `Sending to printer (${paper.toUpperCase()})` })
         const result = await electronAPI.printInvoiceSilent(absoluteUrl)
         if (result?.ok) {
           toast({ title: 'Printed', description: `Invoice sent to printer (${paper.toUpperCase()})` })
           return
         } else {
-          console.warn('[print] Electron silent print failed, falling back to iframe:', result?.error)
+          console.error('[print] Electron silent print failed:', result?.error)
+          toast({
+            title: 'Print failed',
+            description: `Silent print error: ${result?.error || 'Unknown'}. Check console for details.`,
+            variant: 'destructive',
+          })
+          return
         }
-      } catch (e) {
-        console.warn('[print] Electron API error, falling back to iframe:', e)
+      } catch (e: any) {
+        console.error('[print] Electron API error:', e)
+        toast({
+          title: 'Print failed',
+          description: `Electron API error: ${e?.message || 'Unknown'}`,
+          variant: 'destructive',
+        })
+        return
       }
     }
 
     // ---- FALLBACK: HIDDEN IFRAME + BROWSER PRINT DIALOG ----
+    // Only runs in pure browser (no Electron)
     let iframe = document.getElementById('bizbook-print-iframe') as HTMLIFrameElement | null
     if (!iframe) {
       iframe = document.createElement('iframe')

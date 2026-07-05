@@ -416,11 +416,24 @@ ipcMain.handle('print:auto-detect-paper', async () => {
 })
 
 // Silent print — loads URL in hidden window, prints with no dialog
+// v5.9: Added deviceName to print to the DEFAULT printer specifically
+// and longer wait time for the page to fully render
 ipcMain.handle('print:invoice-silent', async (_, url: string) => {
   if (!mainWindow) {
     return { ok: false, error: 'Main window not available' }
   }
   try {
+    // Get the default printer name
+    let defaultPrinterName: string | undefined
+    try {
+      const printers = await mainWindow.webContents.getPrintersAsync()
+      const defaultPrinter = printers.find(p => p.isDefault)
+      defaultPrinterName = defaultPrinter?.name
+      console.log('[silent-print] Default printer:', defaultPrinterName)
+    } catch (e) {
+      console.warn('[silent-print] Could not get default printer:', e)
+    }
+
     const printWindow = new BrowserWindow({
       show: false,
       width: 800,
@@ -429,13 +442,19 @@ ipcMain.handle('print:invoice-silent', async (_, url: string) => {
         contextIsolation: true,
       },
     })
+    console.log('[silent-print] Loading URL:', url)
     await printWindow.loadURL(url)
-    // Wait for fonts/images to settle
-    await new Promise(resolve => setTimeout(resolve, 1000))
+    // Wait for fonts/images to settle (longer for thermal)
+    console.log('[silent-print] Waiting 2s for page to render...')
+    await new Promise(resolve => setTimeout(resolve, 2000))
+
+    console.log('[silent-print] Calling webContents.print()...')
     await printWindow.webContents.print({
       silent: true,
       printBackground: true,
+      deviceName: defaultPrinterName,
     })
+    console.log('[silent-print] Print succeeded')
     printWindow.close()
     return { ok: true }
   } catch (err: any) {
