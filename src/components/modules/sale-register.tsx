@@ -606,49 +606,49 @@ export function SaleRegister() {
   <title>Invoice - ${sale.invoiceNumber}</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    @page { size: 80mm auto; margin: 2mm; }
-    body { font-family: 'Courier New', monospace; color: #000; width: 76mm; padding: 2mm; margin: 0 auto; }
-    .header { text-align: center; margin-bottom: 3mm; border-bottom: 2px solid #000; padding-bottom: 2mm; }
-    .header h1 { font-size: 18px; font-weight: 900; color: #000; }
-    .header p { font-size: 10px; color: #000; margin-top: 2px; font-weight: 700; }
+    @page { margin: 5%; }
+    body { font-family: 'Courier New', monospace; color: #000; width: 90%; margin: 0 auto; padding: 2mm; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .header { text-align: center; margin-bottom: 3mm; border-bottom: 3px solid #000; padding-bottom: 2mm; }
+    .header h1 { font-size: 20px; font-weight: 900; color: #000; }
+    .header p { font-size: 11px; color: #000; margin-top: 2px; font-weight: 700; }
     .inv-meta { text-align: center; margin-bottom: 3mm; }
-    .inv-meta .inv-no { font-size: 14px; font-weight: 900; color: #000; }
-    .inv-meta .inv-date { font-size: 11px; color: #000; font-weight: 700; }
-    .inv-meta .badge { display: inline-block; padding: 2px 8px; border: 2px solid #000; font-size: 10px; font-weight: 900; color: #000; margin-top: 2px; }
+    .inv-meta .inv-no { font-size: 16px; font-weight: 900; color: #000; }
+    .inv-meta .inv-date { font-size: 12px; color: #000; font-weight: 700; }
+    .inv-meta .badge { display: inline-block; padding: 3px 10px; border: 2px solid #000; font-size: 11px; font-weight: 900; color: #000; margin-top: 2px; }
     .parties { margin-bottom: 3mm; }
     .party { margin-bottom: 2mm; }
-    .party .lbl { font-size: 9px; text-transform: uppercase; color: #000; font-weight: 900; border-bottom: 1px solid #000; padding-bottom: 1px; margin-bottom: 2px; }
-    .party .name { font-size: 13px; font-weight: 900; color: #000; }
-    .party .detail { font-size: 10px; color: #000; font-weight: 700; word-break: break-word; }
+    .party .lbl { font-size: 10px; text-transform: uppercase; color: #000; font-weight: 900; border-bottom: 1px solid #000; padding-bottom: 1px; margin-bottom: 2px; }
+    .party .name { font-size: 14px; font-weight: 900; color: #000; }
+    .party .detail { font-size: 11px; color: #000; font-weight: 700; word-break: break-word; }
     .items-section { margin-bottom: 3mm; }
     .items-header { display: flex; border-bottom: 2px solid #000; padding-bottom: 2px; margin-bottom: 2px; }
-    .items-header .col-no { width: 8%; font-size: 9px; font-weight: 900; color: #000; text-transform: uppercase; }
-    .items-header .col-item { width: 54%; font-size: 9px; font-weight: 900; color: #000; text-transform: uppercase; }
-    .items-header .col-hsn { width: 20%; font-size: 9px; font-weight: 900; color: #000; text-transform: uppercase; text-align: center; }
-    .items-header .col-qty { width: 18%; font-size: 9px; font-weight: 900; color: #000; text-transform: uppercase; text-align: right; }
-    .item-row { display: flex; border-bottom: 1px dashed #000; padding: 3px 0; }
-    .item-row .col-no { width: 8%; font-size: 10px; font-weight: 700; color: #000; }
-    .item-row .col-item { width: 54%; font-size: 10px; font-weight: 700; color: #000; word-break: break-word; }
+    .items-header .col-no { width: 8%; font-size: 10px; font-weight: 900; color: #000; text-transform: uppercase; }
+    .items-header .col-item { width: 54%; font-size: 10px; font-weight: 900; color: #000; text-transform: uppercase; }
+    .items-header .col-hsn { width: 20%; font-size: 10px; font-weight: 900; color: #000; text-transform: uppercase; text-align: center; }
+    .items-header .col-qty { width: 18%; font-size: 10px; font-weight: 900; color: #000; text-transform: uppercase; text-align: right; }
+    .item-row { display: flex; border-bottom: 1px solid #000; padding: 3px 0; }
+    .item-row .col-no { width: 8%; font-size: 11px; font-weight: 700; color: #000; }
+    .item-row .col-item { width: 54%; font-size: 11px; font-weight: 700; color: #000; word-break: break-word; }
     .item-row .col-item .item-name { font-weight: 900; }
-    .item-row .col-item .item-details { font-size: 9px; margin-top: 1px; }
-    .item-row .col-hsn { width: 20%; font-size: 10px; font-weight: 700; color: #000; text-align: center; border: 1px solid #000; margin: 0 2px; }
-    .item-row .col-qty { width: 18%; font-size: 10px; font-weight: 700; color: #000; text-align: right; }
+    .item-row .col-item .item-details { font-size: 10px; margin-top: 1px; font-weight: 700; }
+    .item-row .col-hsn { width: 20%; font-size: 11px; font-weight: 700; color: #000; text-align: center; border: 1px solid #000; margin: 0 2px; }
+    .item-row .col-qty { width: 18%; font-size: 11px; font-weight: 700; color: #000; text-align: right; }
     .totals { margin-bottom: 3mm; }
-    .totals .row { display: flex; justify-content: space-between; padding: 2px 0; font-size: 11px; color: #000; border-bottom: 1px dashed #000; font-weight: 700; }
-    .totals .grand { font-size: 14px; font-weight: 900; border-top: 2px solid #000; border-bottom: 2px solid #000; padding: 4px 0; margin-top: 2px; color: #000; }
+    .totals .row { display: flex; justify-content: space-between; padding: 3px 0; font-size: 12px; color: #000; border-bottom: 1px solid #000; font-weight: 700; }
+    .totals .grand { font-size: 15px; font-weight: 900; border-top: 3px solid #000; border-bottom: 3px solid #000; padding: 5px 0; margin-top: 2px; color: #000; }
     .totals .due { color: #000; font-weight: 900; }
-    .notes { margin: 2mm 0; padding: 2mm; border: 1px solid #000; font-size: 10px; color: #000; font-weight: 700; word-break: break-word; }
+    .notes { margin: 2mm 0; padding: 2mm; border: 2px solid #000; font-size: 11px; color: #000; font-weight: 700; word-break: break-word; }
     .qr { text-align: center; margin: 2mm 0; }
-    .qr img { width: 80px; height: 80px; border: 1px solid #000; }
-    .qr .label { font-size: 10px; font-weight: 900; color: #000; margin-top: 2px; }
+    .qr img { width: 80px; height: 80px; border: 2px solid #000; }
+    .qr .label { font-size: 11px; font-weight: 900; color: #000; margin-top: 2px; }
     .sig { margin-top: 4mm; text-align: center; }
-    .sig .line { border-top: 1px solid #000; width: 60%; margin: 0 auto 2px; }
-    .sig p { font-size: 10px; font-weight: 900; color: #000; }
-    .sig small { font-size: 9px; color: #000; font-weight: 700; }
-    .footer { margin-top: 4mm; padding-top: 2mm; border-top: 1px solid #000; text-align: center; font-size: 9px; color: #000; font-weight: 700; }
+    .sig .line { border-top: 2px solid #000; width: 60%; margin: 0 auto 2px; }
+    .sig p { font-size: 11px; font-weight: 900; color: #000; }
+    .sig small { font-size: 10px; color: #000; font-weight: 700; }
+    .footer { margin-top: 4mm; padding-top: 2mm; border-top: 2px solid #000; text-align: center; font-size: 10px; color: #000; font-weight: 700; }
     @media print {
-      @page { size: 80mm auto; margin: 2mm; }
-      body { width: 76mm; padding: 0; }
+      @page { margin: 5%; }
+      body { width: 90%; padding: 0; }
     }
   </style>
 </head>
