@@ -83,3 +83,4 @@ tsconfig.tsbuildinfo
 dist-electron/
 download/
 electron/*.js
+.z-ai-config
