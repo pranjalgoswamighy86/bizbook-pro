@@ -605,12 +605,12 @@ export function SaleRegister() {
 <head>
   <title>Invoice - ${sale.invoiceNumber}</title>
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
+    * { margin: 0; padding: 0; box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     @page { margin: 5%; }
-    body { font-family: 'Courier New', monospace; color: #000; width: 90%; margin: 0 auto; padding: 2mm; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    body { font-family: 'Courier New', monospace; color: #000; width: 90%; margin: 0 auto; padding: 2mm; font-weight: 900; }
     .header { text-align: center; margin-bottom: 3mm; border-bottom: 3px solid #000; padding-bottom: 2mm; }
     .header h1 { font-size: 20px; font-weight: 900; color: #000; }
-    .header p { font-size: 11px; color: #000; margin-top: 2px; font-weight: 700; }
+    .header p { font-size: 11px; color: #000; margin-top: 2px; font-weight: 900; }
     .inv-meta { text-align: center; margin-bottom: 3mm; }
     .inv-meta .inv-no { font-size: 16px; font-weight: 900; color: #000; }
     .inv-meta .inv-date { font-size: 12px; color: #000; font-weight: 700; }
