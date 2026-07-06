@@ -606,37 +606,48 @@ export function SaleRegister() {
   <title>Invoice - ${sale.invoiceNumber}</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: 'Courier New', monospace; color: #000; padding: 20px; max-width: 800px; margin: 0 auto; }
-    .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; border-bottom: 3px solid #000; padding-bottom: 15px; }
-    .brand h1 { font-size: 28px; font-weight: 900; color: #000; }
-    .brand p { font-size: 14px; color: #000; margin-top: 4px; font-weight: 700; }
+    @page { size: A4; margin: 10mm; }
+    body { font-family: 'Courier New', monospace; color: #000; padding: 15px; width: 100%; max-width: 100%; margin: 0; overflow: hidden; }
+    .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 15px; border-bottom: 3px solid #000; padding-bottom: 10px; }
+    .brand h1 { font-size: 24px; font-weight: 900; color: #000; }
+    .brand p { font-size: 12px; color: #000; margin-top: 3px; font-weight: 700; }
     .invoice-title { text-align: right; }
-    .invoice-title h2 { font-size: 36px; font-weight: 900; color: #000; }
-    .invoice-title p { font-size: 16px; color: #000; margin-top: 4px; font-weight: 700; }
-    .parties { display: flex; justify-content: space-between; margin-bottom: 20px; gap: 15px; }
-    .party-box { width: 48%; padding: 10px; border: 2px solid #000; }
-    .party-box h3 { font-size: 12px; text-transform: uppercase; color: #000; letter-spacing: 1px; margin-bottom: 6px; font-weight: 900; border-bottom: 1px solid #000; padding-bottom: 3px; }
-    .party-box .name { font-size: 18px; font-weight: 900; color: #000; }
-    .party-box .detail { font-size: 14px; color: #000; margin-top: 3px; font-weight: 700; }
-    table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
-    thead th { background: #000; color: #fff; padding: 8px 6px; text-align: left; font-size: 13px; text-transform: uppercase; font-weight: 900; border: 2px solid #000; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .invoice-title h2 { font-size: 30px; font-weight: 900; color: #000; }
+    .invoice-title p { font-size: 14px; color: #000; margin-top: 3px; font-weight: 700; }
+    .parties { display: flex; justify-content: space-between; margin-bottom: 15px; gap: 10px; }
+    .party-box { width: 48%; padding: 8px; border: 2px solid #000; word-break: break-word; }
+    .party-box h3 { font-size: 11px; text-transform: uppercase; color: #000; letter-spacing: 1px; margin-bottom: 5px; font-weight: 900; border-bottom: 1px solid #000; padding-bottom: 2px; }
+    .party-box .name { font-size: 16px; font-weight: 900; color: #000; word-break: break-word; }
+    .party-box .detail { font-size: 12px; color: #000; margin-top: 2px; font-weight: 700; word-break: break-word; }
+    table { width: 100%; border-collapse: collapse; margin-bottom: 15px; table-layout: fixed; }
+    colgroup col.c-no { width: 4%; }
+    colgroup col.c-item { width: 28%; }
+    colgroup col.c-hsn { width: 10%; }
+    colgroup col.c-qty { width: 10%; }
+    colgroup col.c-rate { width: 11%; }
+    colgroup col.c-disc { width: 10%; }
+    colgroup col.c-amt { width: 11%; }
+    colgroup col.c-tax { width: 8%; }
+    colgroup col.c-tot { width: 8%; }
+    thead th { background: #000; color: #fff; padding: 6px 3px; text-align: left; font-size: 10px; text-transform: uppercase; font-weight: 900; border: 1px solid #000; -webkit-print-color-adjust: exact; print-color-adjust: exact; word-break: break-word; }
     thead th.right { text-align: right; }
-    tbody td { padding: 6px 6px; font-size: 14px; color: #000; border: 1px solid #000; font-weight: 700; }
-    tbody td.right { text-align: right; }
-    .summary { display: flex; justify-content: flex-end; margin-bottom: 15px; }
-    .summary-box { width: 300px; }
-    .summary-row { display: flex; justify-content: space-between; padding: 5px 0; font-size: 16px; color: #000; border-bottom: 1px dashed #000; font-weight: 700; }
-    .summary-row.total { font-size: 22px; font-weight: 900; border-top: 3px solid #000; border-bottom: 3px solid #000; padding: 8px 0; margin-top: 5px; color: #000; }
+    tbody td { padding: 5px 3px; font-size: 11px; color: #000; border: 1px solid #000; font-weight: 700; word-break: break-word; overflow: hidden; }
+    tbody td.right { text-align: right; white-space: nowrap; }
+    .summary { display: flex; justify-content: flex-end; margin-bottom: 10px; }
+    .summary-box { width: 280px; }
+    .summary-row { display: flex; justify-content: space-between; padding: 4px 0; font-size: 14px; color: #000; border-bottom: 1px dashed #000; font-weight: 700; }
+    .summary-row.total { font-size: 18px; font-weight: 900; border-top: 3px solid #000; border-bottom: 3px solid #000; padding: 6px 0; margin-top: 4px; color: #000; }
     .summary-row.due { color: #000; font-weight: 900; }
-    .badge { display: inline-block; padding: 3px 12px; border: 2px solid #000; font-size: 13px; font-weight: 900; color: #000; }
-    .terms { margin-top: 15px; padding: 10px; border: 2px solid #000; font-size: 13px; color: #000; font-weight: 700; }
-    .signature { margin-top: 30px; display: flex; justify-content: flex-end; }
-    .signature-box { text-align: center; border-top: 2px solid #000; padding-top: 8px; width: 200px; }
-    .signature-box p { font-size: 14px; font-weight: 900; color: #000; }
-    .signature-box small { font-size: 12px; color: #000; font-weight: 700; }
-    .footer { margin-top: 30px; padding-top: 10px; border-top: 2px solid #000; font-size: 12px; color: #000; text-align: center; font-weight: 700; }
+    .badge { display: inline-block; padding: 3px 10px; border: 2px solid #000; font-size: 12px; font-weight: 900; color: #000; }
+    .terms { margin-top: 10px; padding: 8px; border: 2px solid #000; font-size: 12px; color: #000; font-weight: 700; word-break: break-word; }
+    .signature { margin-top: 20px; display: flex; justify-content: flex-end; }
+    .signature-box { text-align: center; border-top: 2px solid #000; padding-top: 6px; width: 180px; }
+    .signature-box p { font-size: 13px; font-weight: 900; color: #000; }
+    .signature-box small { font-size: 11px; color: #000; font-weight: 700; }
+    .footer { margin-top: 20px; padding-top: 8px; border-top: 2px solid #000; font-size: 11px; color: #000; text-align: center; font-weight: 700; }
     @media print {
-      body { padding: 10px; }
+      @page { size: A4; margin: 8mm; }
+      body { padding: 0; width: 100%; max-width: 100%; }
       thead th { background: #000 !important; color: #fff !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     }
   </style>
@@ -674,6 +685,17 @@ export function SaleRegister() {
   </div>
 
   <table>
+    <colgroup>
+      <col class="c-no">
+      <col class="c-item">
+      <col class="c-hsn">
+      <col class="c-qty">
+      <col class="c-rate">
+      <col class="c-disc">
+      <col class="c-amt">
+      <col class="c-tax">
+      <col class="c-tot">
+    </colgroup>
     <thead>
       <tr>
         <th>#</th>
@@ -681,7 +703,7 @@ export function SaleRegister() {
         <th>HSN</th>
         <th class="right">Qty</th>
         <th class="right">Rate</th>
-        <th class="right">Discount</th>
+        <th class="right">Disc</th>
         <th class="right">Amount</th>
         <th class="right">Tax</th>
         <th class="right">Total</th>
