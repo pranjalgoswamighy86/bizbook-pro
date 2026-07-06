@@ -84,3 +84,34 @@ dist-electron/
 download/
 electron/*.js
 .z-ai-config
+
+# === SECURITY: Sensitive files ===
+worklog.md
+*.pem
+*.p12
+*.key
+*.cert
+.z-ai-config
+credentials.json
+service-account.json
+*.secret
+secrets/
+
+# === Development artifacts ===
+dist-electron/
+download/
+electron/*.js
+.dockerignore
+Dockerfile.render
+fly.toml
+Caddyfile
+bizbook.db
+db/*.db
+db/*.db-shm
+db/*.db-wal
+uploaded-invoices/
+temp/
+.next/cache/
+*.log
+*.tsbuildinfo
+tsconfig.tsbuildinfo

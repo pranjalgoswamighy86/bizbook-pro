@@ -83,9 +83,9 @@ TWOFACTOR_TEMPLATE_NAME=BizBook Pro OTP
 ### 4. Razorpay (already configured ✅)
 
 ```
-RAZORPAY_KEY_ID=rzp_live_T7MZNVB6eOvAUR
-RAZORPAY_KEY_SECRET=VLfHu53F8sM2azuM2fBmoYrA
-NEXT_PUBLIC_RAZORPAY_KEY_ID=rzp_live_T7MZNVB6eOvAUR
+RAZORPAY_KEY_ID=rzp_live_xxxxxxxxxxxxxxxx
+RAZORPAY_KEY_SECRET=xxxxxxxxxxxxxxxxxxxxxxxxxx
+NEXT_PUBLIC_RAZORPAY_KEY_ID=rzp_live_xxxxxxxxxxxxxxxx
 ```
 
 ---
