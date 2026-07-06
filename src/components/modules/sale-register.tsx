@@ -606,148 +606,121 @@ export function SaleRegister() {
   <title>Invoice - ${sale.invoiceNumber}</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    @page { size: A4; margin: 10mm; }
-    body { font-family: 'Courier New', monospace; color: #000; padding: 15px; width: 100%; max-width: 100%; margin: 0; overflow: hidden; }
-    .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 15px; border-bottom: 3px solid #000; padding-bottom: 10px; }
-    .brand h1 { font-size: 24px; font-weight: 900; color: #000; }
-    .brand p { font-size: 12px; color: #000; margin-top: 3px; font-weight: 700; }
-    .invoice-title { text-align: right; }
-    .invoice-title h2 { font-size: 30px; font-weight: 900; color: #000; }
-    .invoice-title p { font-size: 14px; color: #000; margin-top: 3px; font-weight: 700; }
-    .parties { display: flex; justify-content: space-between; margin-bottom: 15px; gap: 10px; }
-    .party-box { width: 48%; padding: 8px; border: 2px solid #000; word-break: break-word; }
-    .party-box h3 { font-size: 11px; text-transform: uppercase; color: #000; letter-spacing: 1px; margin-bottom: 5px; font-weight: 900; border-bottom: 1px solid #000; padding-bottom: 2px; }
-    .party-box .name { font-size: 16px; font-weight: 900; color: #000; word-break: break-word; }
-    .party-box .detail { font-size: 12px; color: #000; margin-top: 2px; font-weight: 700; word-break: break-word; }
-    table { width: 100%; border-collapse: collapse; margin-bottom: 15px; table-layout: fixed; }
-    colgroup col.c-no { width: 4%; }
-    colgroup col.c-item { width: 28%; }
-    colgroup col.c-hsn { width: 10%; }
-    colgroup col.c-qty { width: 10%; }
-    colgroup col.c-rate { width: 11%; }
-    colgroup col.c-disc { width: 10%; }
-    colgroup col.c-amt { width: 11%; }
-    colgroup col.c-tax { width: 8%; }
-    colgroup col.c-tot { width: 8%; }
-    thead th { background: #000; color: #fff; padding: 6px 3px; text-align: left; font-size: 10px; text-transform: uppercase; font-weight: 900; border: 1px solid #000; -webkit-print-color-adjust: exact; print-color-adjust: exact; word-break: break-word; }
-    thead th.right { text-align: right; }
-    tbody td { padding: 5px 3px; font-size: 11px; color: #000; border: 1px solid #000; font-weight: 700; word-break: break-word; overflow: hidden; }
-    tbody td.right { text-align: right; white-space: nowrap; }
-    .summary { display: flex; justify-content: flex-end; margin-bottom: 10px; }
-    .summary-box { width: 280px; }
-    .summary-row { display: flex; justify-content: space-between; padding: 4px 0; font-size: 14px; color: #000; border-bottom: 1px dashed #000; font-weight: 700; }
-    .summary-row.total { font-size: 18px; font-weight: 900; border-top: 3px solid #000; border-bottom: 3px solid #000; padding: 6px 0; margin-top: 4px; color: #000; }
-    .summary-row.due { color: #000; font-weight: 900; }
-    .badge { display: inline-block; padding: 3px 10px; border: 2px solid #000; font-size: 12px; font-weight: 900; color: #000; }
-    .terms { margin-top: 10px; padding: 8px; border: 2px solid #000; font-size: 12px; color: #000; font-weight: 700; word-break: break-word; }
-    .signature { margin-top: 20px; display: flex; justify-content: flex-end; }
-    .signature-box { text-align: center; border-top: 2px solid #000; padding-top: 6px; width: 180px; }
-    .signature-box p { font-size: 13px; font-weight: 900; color: #000; }
-    .signature-box small { font-size: 11px; color: #000; font-weight: 700; }
-    .footer { margin-top: 20px; padding-top: 8px; border-top: 2px solid #000; font-size: 11px; color: #000; text-align: center; font-weight: 700; }
+    @page { size: 80mm auto; margin: 2mm; }
+    body { font-family: 'Courier New', monospace; color: #000; width: 76mm; padding: 2mm; margin: 0 auto; }
+    .header { text-align: center; margin-bottom: 3mm; border-bottom: 2px solid #000; padding-bottom: 2mm; }
+    .header h1 { font-size: 18px; font-weight: 900; color: #000; }
+    .header p { font-size: 10px; color: #000; margin-top: 2px; font-weight: 700; }
+    .inv-meta { text-align: center; margin-bottom: 3mm; }
+    .inv-meta .inv-no { font-size: 14px; font-weight: 900; color: #000; }
+    .inv-meta .inv-date { font-size: 11px; color: #000; font-weight: 700; }
+    .inv-meta .badge { display: inline-block; padding: 2px 8px; border: 2px solid #000; font-size: 10px; font-weight: 900; color: #000; margin-top: 2px; }
+    .parties { margin-bottom: 3mm; }
+    .party { margin-bottom: 2mm; }
+    .party .lbl { font-size: 9px; text-transform: uppercase; color: #000; font-weight: 900; border-bottom: 1px solid #000; padding-bottom: 1px; margin-bottom: 2px; }
+    .party .name { font-size: 13px; font-weight: 900; color: #000; }
+    .party .detail { font-size: 10px; color: #000; font-weight: 700; word-break: break-word; }
+    .items-section { margin-bottom: 3mm; }
+    .items-header { display: flex; border-bottom: 2px solid #000; padding-bottom: 2px; margin-bottom: 2px; }
+    .items-header .col-no { width: 8%; font-size: 9px; font-weight: 900; color: #000; text-transform: uppercase; }
+    .items-header .col-item { width: 54%; font-size: 9px; font-weight: 900; color: #000; text-transform: uppercase; }
+    .items-header .col-hsn { width: 20%; font-size: 9px; font-weight: 900; color: #000; text-transform: uppercase; text-align: center; }
+    .items-header .col-qty { width: 18%; font-size: 9px; font-weight: 900; color: #000; text-transform: uppercase; text-align: right; }
+    .item-row { display: flex; border-bottom: 1px dashed #000; padding: 3px 0; }
+    .item-row .col-no { width: 8%; font-size: 10px; font-weight: 700; color: #000; }
+    .item-row .col-item { width: 54%; font-size: 10px; font-weight: 700; color: #000; word-break: break-word; }
+    .item-row .col-item .item-name { font-weight: 900; }
+    .item-row .col-item .item-details { font-size: 9px; margin-top: 1px; }
+    .item-row .col-hsn { width: 20%; font-size: 10px; font-weight: 700; color: #000; text-align: center; border: 1px solid #000; margin: 0 2px; }
+    .item-row .col-qty { width: 18%; font-size: 10px; font-weight: 700; color: #000; text-align: right; }
+    .totals { margin-bottom: 3mm; }
+    .totals .row { display: flex; justify-content: space-between; padding: 2px 0; font-size: 11px; color: #000; border-bottom: 1px dashed #000; font-weight: 700; }
+    .totals .grand { font-size: 14px; font-weight: 900; border-top: 2px solid #000; border-bottom: 2px solid #000; padding: 4px 0; margin-top: 2px; color: #000; }
+    .totals .due { color: #000; font-weight: 900; }
+    .notes { margin: 2mm 0; padding: 2mm; border: 1px solid #000; font-size: 10px; color: #000; font-weight: 700; word-break: break-word; }
+    .qr { text-align: center; margin: 2mm 0; }
+    .qr img { width: 80px; height: 80px; border: 1px solid #000; }
+    .qr .label { font-size: 10px; font-weight: 900; color: #000; margin-top: 2px; }
+    .sig { margin-top: 4mm; text-align: center; }
+    .sig .line { border-top: 1px solid #000; width: 60%; margin: 0 auto 2px; }
+    .sig p { font-size: 10px; font-weight: 900; color: #000; }
+    .sig small { font-size: 9px; color: #000; font-weight: 700; }
+    .footer { margin-top: 4mm; padding-top: 2mm; border-top: 1px solid #000; text-align: center; font-size: 9px; color: #000; font-weight: 700; }
     @media print {
-      @page { size: A4; margin: 8mm; }
-      body { padding: 0; width: 100%; max-width: 100%; }
-      thead th { background: #000 !important; color: #fff !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      @page { size: 80mm auto; margin: 2mm; }
+      body { width: 76mm; padding: 0; }
     }
   </style>
 </head>
 <body>
   <div class="header">
-    <div class="brand">
-      <h1>${tenant?.name || 'BizBook Pro'}</h1>
-      ${tenant?.address ? `<p>${tenant.address}</p>` : ''}
-      ${tenant?.phone ? `<p>Phone: ${tenant.phone}</p>` : ''}
-      ${tenant?.email ? `<p>Email: ${tenant.email}</p>` : ''}
-      ${tenant?.gstNumber ? `<p>GSTIN: ${tenant.gstNumber}</p>` : ''}
-    </div>
-    <div class="invoice-title">
-      <h2>INVOICE</h2>
-      <p>#${sale.invoiceNumber}</p>
-      <p>${fmtDate(new Date(sale.date))}</p>
-      <p><span class="badge">${statusLabel(sale.paymentStatus)}</span></p>
-    </div>
+    <h1>${tenant?.name || 'BizBook Pro'}</h1>
+    ${tenant?.address ? `<p>${tenant.address}</p>` : ''}
+    ${tenant?.phone ? `<p>Ph: ${tenant.phone}</p>` : ''}
+    ${tenant?.gstNumber ? `<p>GSTIN: ${tenant.gstNumber}</p>` : ''}
+  </div>
+
+  <div class="inv-meta">
+    <div class="inv-no">#${sale.invoiceNumber}</div>
+    <div class="inv-date">${fmtDate(new Date(sale.date))}</div>
+    <div class="badge">${statusLabel(sale.paymentStatus)}</div>
   </div>
 
   <div class="parties">
-    <div class="party-box">
-      <h3>From</h3>
+    <div class="party">
+      <div class="lbl">Seller</div>
       <div class="name">${tenant?.name || 'Business'}</div>
       ${tenant?.address ? `<div class="detail">${tenant.address}</div>` : ''}
       ${tenant?.gstNumber ? `<div class="detail">GSTIN: ${tenant.gstNumber}</div>` : ''}
     </div>
-    <div class="party-box">
-      <h3>Bill To</h3>
+    <div class="party">
+      <div class="lbl">Bill To</div>
       <div class="name">${sale.partyName}</div>
       ${sale.partyAddress ? `<div class="detail">${sale.partyAddress}</div>` : ''}
       ${sale.partyGst ? `<div class="detail">GSTIN: ${sale.partyGst}</div>` : ''}
     </div>
   </div>
 
-  <table>
-    <colgroup>
-      <col class="c-no">
-      <col class="c-item">
-      <col class="c-hsn">
-      <col class="c-qty">
-      <col class="c-rate">
-      <col class="c-disc">
-      <col class="c-amt">
-      <col class="c-tax">
-      <col class="c-tot">
-    </colgroup>
-    <thead>
-      <tr>
-        <th>#</th>
-        <th>Item</th>
-        <th>HSN</th>
-        <th class="right">Qty</th>
-        <th class="right">Rate</th>
-        <th class="right">Disc</th>
-        <th class="right">Amount</th>
-        <th class="right">Tax</th>
-        <th class="right">Total</th>
-      </tr>
-    </thead>
-    <tbody>
-      ${parsedItems.map((item, i) => `
-      <tr>
-        <td>${i + 1}</td>
-        <td>${item.name}${item.saleItemType === 'SERVICE' ? ' [SERVICE]' : ''}</td>
-        <td>${item.hsn || '-'}</td>
-        <td class="right">${item.qty} ${item.unit || ''}</td>
-        <td class="right">${fmtCurrency(item.rate)}</td>
-        <td class="right">${item.discount > 0 ? fmtCurrency(item.discount) : '-'}</td>
-        <td class="right">${fmtCurrency(item.amount)}</td>
-        <td class="right">${fmtCurrency(item.totalTax)}</td>
-        <td class="right">${fmtCurrency(item.total)}</td>
-      </tr>`).join('')}
-    </tbody>
-  </table>
-
-  <div class="summary">
-    <div class="summary-box">
-      <div class="summary-row"><span>Subtotal</span><span>${fmtCurrency(sale.subtotal)}</span></div>
-      <div class="summary-row"><span>Tax / Duties</span><span>${fmtCurrency(sale.gstAmount)}</span></div>
-      <div class="summary-row total"><span>GRAND TOTAL</span><span>${fmtCurrency(sale.totalAmount)}</span></div>
-      <div class="summary-row"><span>Amount Received</span><span>${fmtCurrency(sale.amountReceived || sale.amountPaid)}</span></div>
-      <div class="summary-row due"><span>Balance Due</span><span>${fmtCurrency(sale.totalAmount - (sale.amountReceived || sale.amountPaid))}</span></div>
+  <div class="items-section">
+    <div class="items-header">
+      <div class="col-no">#</div>
+      <div class="col-item">Item</div>
+      <div class="col-hsn">HSN</div>
+      <div class="col-qty">Qty</div>
     </div>
+    ${parsedItems.map((item, i) => `
+    <div class="item-row">
+      <div class="col-no">${i + 1}</div>
+      <div class="col-item">
+        <div class="item-name">${item.name}${item.saleItemType === 'SERVICE' ? ' [SVC]' : ''}</div>
+        <div class="item-details">Rate: ${fmtCurrency(item.rate)} | Disc: ${item.discount > 0 ? fmtCurrency(item.discount) : '-'} | Amt: ${fmtCurrency(item.amount)} | Tax: ${fmtCurrency(item.totalTax)}</div>
+        <div class="item-details" style="font-weight:900;">Total: ${fmtCurrency(item.total)}</div>
+      </div>
+      <div class="col-hsn">${item.hsn || '-'}</div>
+      <div class="col-qty">${item.qty} ${item.unit || ''}</div>
+    </div>`).join('')}
   </div>
 
-  ${sale.notes ? `<div class="terms"><strong>Notes:</strong> ${sale.notes}</div>` : ''}
+  <div class="totals">
+    <div class="row"><span>Subtotal</span><span>${fmtCurrency(sale.subtotal)}</span></div>
+    <div class="row"><span>Tax</span><span>${fmtCurrency(sale.gstAmount)}</span></div>
+    <div class="row grand"><span>GRAND TOTAL</span><span>${fmtCurrency(sale.totalAmount)}</span></div>
+    <div class="row"><span>Received</span><span>${fmtCurrency(sale.amountReceived || sale.amountPaid)}</span></div>
+    <div class="row due"><span>Balance Due</span><span>${fmtCurrency(sale.totalAmount - (sale.amountReceived || sale.amountPaid))}</span></div>
+  </div>
 
-  ${upiQrCode ? `<div style="text-align:center;margin:15px 0;"><img src="${upiQrCode}" alt="UPI QR" style="width:150px;height:150px;border:1px solid #000;" /><div style="font-size:14px;font-weight:900;margin-top:5px;">Scan to Pay ${fmtCurrency(sale.upiAmount || 0)}</div></div>` : ''}
+  ${sale.notes ? `<div class="notes"><strong>Notes:</strong> ${sale.notes}</div>` : ''}
 
-  <div class="signature">
-    <div class="signature-box">
-      <p>Authorised Signatory</p>
-      <small>For ${tenant?.name || 'Business'}</small>
-    </div>
+  ${upiQrCode ? `<div class="qr"><img src="${upiQrCode}" alt="UPI QR" /><div class="label">Scan to Pay ${fmtCurrency(sale.upiAmount || 0)}</div></div>` : ''}
+
+  <div class="sig">
+    <div class="line"></div>
+    <p>Authorised Signatory</p>
+    <small>For ${tenant?.name || 'Business'}</small>
   </div>
 
   <div class="footer">
-    Computer-generated invoice from BizBook Pro by Tahigo International · ${new Date().toLocaleString('en-IN')}
+    Computer-generated by BizBook Pro · Tahigo International · ${new Date().toLocaleString('en-IN')}
   </div>
 
 <script>window.onload = function() { setTimeout(function() { window.print(); }, 300); };</script>
