@@ -755,7 +755,7 @@ export function SaleRegister() {
     <div>
       <AppHeader title="Sale Register" data={exportData} exportFileName="sales-register" exportSheetName="Sales" />
       <div className="p-4 sm:p-6 pb-8 space-y-4">
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap items-center">
           {(user ? canEdit(user.role) : isAuthenticated) && (
             <Button onClick={() => { resetForm(); setShowForm(true) }} className="bg-emerald-600 hover:bg-emerald-700">
               <Plus className="h-4 w-4 mr-2" /> New Sale
@@ -764,6 +764,22 @@ export function SaleRegister() {
           <Button variant="outline" onClick={() => setView('ai-import')} className="border-violet-300 text-violet-700 hover:bg-violet-50">
             <Sparkles className="h-4 w-4 mr-2" /> AI Smart Import
           </Button>
+          <div className="flex items-center gap-2 ml-auto">
+            <span className="text-xs text-muted-foreground">Print Paper:</span>
+            <select
+              value={typeof window !== 'undefined' ? (localStorage.getItem('bizbook-paper-pref') || 'a4') : 'a4'}
+              onChange={(e) => {
+                localStorage.setItem('bizbook-paper-pref', e.target.value)
+                toast({ title: 'Paper size changed', description: `Now using ${e.target.value.toUpperCase()} for printing` })
+              }}
+              className="text-xs border rounded px-2 py-1 bg-background"
+              title="Select paper size for printing"
+            >
+              <option value="a4">A4 Sheet</option>
+              <option value="58mm">58mm Thermal</option>
+              <option value="80mm">80mm Thermal</option>
+            </select>
+          </div>
         </div>
 
         <Card className="border-0 shadow-sm">

@@ -116,6 +116,28 @@ export async function GET(
   <style>${css}</style>
 </head>
 <body>
+  ${isThermal ? `
+  <div id="paper-instruction" style="
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    background: #fef3c7;
+    border-bottom: 2px solid #f59e0b;
+    padding: 8px 12px;
+    font-family: Arial, sans-serif;
+    font-size: 12px;
+    font-weight: bold;
+    color: #92400e;
+    text-align: center;
+    z-index: 9999;
+    display: block;
+  ">
+    ⚠️ THERMAL PRINT: In the print dialog, change "Paper size" from A4 to <strong>${is58mm ? '58mm' : '80mm'}</strong> (or "Roll Paper"). Then click Print.
+    <br><span style="font-weight: normal; font-size: 11px;">This message will NOT appear on the printed receipt.</span>
+  </div>
+  <style>
+    @media print { #paper-instruction { display: none !important; } }
+  </style>
+  ` : ''}
   <header class="title">
     <h1>INVOICE</h1>
   </header>
@@ -189,7 +211,7 @@ export async function GET(
   <footer class="footer">
     <div>Computer-generated invoice from BizBook Pro</div>
     <div>by Tahigo International — <span class="ts">${systemTimestamp}</span></div>
-    <div class="ver">v5.11 · ${paper.toUpperCase()}</div>
+    <div class="ver">v5.14 · ${paper.toUpperCase()}</div>
   </footer>
 </body>
 </html>`
