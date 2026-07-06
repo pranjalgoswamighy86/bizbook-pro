@@ -567,159 +567,194 @@ export function SaleRegister() {
     }
   }
 
-  const handlePrintInvoice = async (sale: Sale) => {
-    // v5.12: ESC/POS DIRECT PRINTING for thermal printers
-    // This BYPASSES the browser print engine entirely — sends raw
-    // ESC/POS commands to the printer via USB. No A4 layout, no dialog.
-    const token = useAppStore.getState().sessionToken
-    const electronAPI = (window as any).electron
-    const { tenant } = useAppStore.getState()
+  const handlePrintInvoice = (sale: Sale) => {
+    // v6.0: REVERTED to the working client-side HTML generation (v4.174 style)
+    // This was WORKING before all the thermal printer / invoice-print route changes.
+    // The only issue was print darkness — fixed below with bold black text.
+    // No separate route, no CSS @page tricks, no media queries.
+    // Just generate clean HTML, open in a new window, and call print().
 
-    let paper: string | null = null
+    const parsedItems: SaleItem[] = (() => {
+      try { return JSON.parse(sale.items) as SaleItem[] }
+      catch { return [] }
+    })()
 
-    // ---- AUTO-DETECT FROM DEFAULT PRINTER (Electron desktop app) ----
-    if (electronAPI?.autoDetectPaper) {
-      try {
-        const result = await electronAPI.autoDetectPaper()
-        if (result?.paper) {
-          paper = result.paper
-          console.log('[print] Auto-detected paper:', paper, 'from printer:', result.printerName)
-          if (typeof window !== 'undefined' && paper) {
-            localStorage.setItem('bizbook-paper-pref', paper)
-          }
-        }
-      } catch (e) {
-        console.warn('[print] Auto-detect failed:', e)
+    const upiId = tenant?.upiId
+    const upiQrCode = upiId
+      ? 'https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=' + encodeURIComponent('upi://pay?pa=' + upiId + '&pn=' + (tenant?.name || 'Business') + '&am=' + (sale.upiAmount || 0) + '&cu=INR&tn=Invoice ' + sale.invoiceNumber)
+      : null
+
+    const fmtCurrency = (amt: number) => '₹' + Number(amt || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    const fmtDate = (dt: Date) => new Date(dt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+    const normalizeStatus = (s: string) => {
+      const u = (s || '').toUpperCase()
+      if (u === 'PAID' || u === 'RECEIVED') return 'RECEIVED'
+      if (u === 'UNPAID' || u === 'PENDING') return 'PENDING'
+      if (u === 'PARTIAL') return 'PARTIAL'
+      return u
+    }
+    const statusLabel = (s: string) => {
+      const n = normalizeStatus(s)
+      if (n === 'RECEIVED') return 'PAID'
+      if (n === 'PENDING') return 'UNPAID'
+      return n
+    }
+
+    const printHtml = `<!DOCTYPE html>
+<html>
+<head>
+  <title>Invoice - ${sale.invoiceNumber}</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Courier New', monospace; color: #000; padding: 20px; max-width: 800px; margin: 0 auto; }
+    .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; border-bottom: 3px solid #000; padding-bottom: 15px; }
+    .brand h1 { font-size: 28px; font-weight: 900; color: #000; }
+    .brand p { font-size: 14px; color: #000; margin-top: 4px; font-weight: 700; }
+    .invoice-title { text-align: right; }
+    .invoice-title h2 { font-size: 36px; font-weight: 900; color: #000; }
+    .invoice-title p { font-size: 16px; color: #000; margin-top: 4px; font-weight: 700; }
+    .parties { display: flex; justify-content: space-between; margin-bottom: 20px; gap: 15px; }
+    .party-box { width: 48%; padding: 10px; border: 2px solid #000; }
+    .party-box h3 { font-size: 12px; text-transform: uppercase; color: #000; letter-spacing: 1px; margin-bottom: 6px; font-weight: 900; border-bottom: 1px solid #000; padding-bottom: 3px; }
+    .party-box .name { font-size: 18px; font-weight: 900; color: #000; }
+    .party-box .detail { font-size: 14px; color: #000; margin-top: 3px; font-weight: 700; }
+    table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+    thead th { background: #000; color: #fff; padding: 8px 6px; text-align: left; font-size: 13px; text-transform: uppercase; font-weight: 900; border: 2px solid #000; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    thead th.right { text-align: right; }
+    tbody td { padding: 6px 6px; font-size: 14px; color: #000; border: 1px solid #000; font-weight: 700; }
+    tbody td.right { text-align: right; }
+    .summary { display: flex; justify-content: flex-end; margin-bottom: 15px; }
+    .summary-box { width: 300px; }
+    .summary-row { display: flex; justify-content: space-between; padding: 5px 0; font-size: 16px; color: #000; border-bottom: 1px dashed #000; font-weight: 700; }
+    .summary-row.total { font-size: 22px; font-weight: 900; border-top: 3px solid #000; border-bottom: 3px solid #000; padding: 8px 0; margin-top: 5px; color: #000; }
+    .summary-row.due { color: #000; font-weight: 900; }
+    .badge { display: inline-block; padding: 3px 12px; border: 2px solid #000; font-size: 13px; font-weight: 900; color: #000; }
+    .terms { margin-top: 15px; padding: 10px; border: 2px solid #000; font-size: 13px; color: #000; font-weight: 700; }
+    .signature { margin-top: 30px; display: flex; justify-content: flex-end; }
+    .signature-box { text-align: center; border-top: 2px solid #000; padding-top: 8px; width: 200px; }
+    .signature-box p { font-size: 14px; font-weight: 900; color: #000; }
+    .signature-box small { font-size: 12px; color: #000; font-weight: 700; }
+    .footer { margin-top: 30px; padding-top: 10px; border-top: 2px solid #000; font-size: 12px; color: #000; text-align: center; font-weight: 700; }
+    @media print {
+      body { padding: 10px; }
+      thead th { background: #000 !important; color: #fff !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="brand">
+      <h1>${tenant?.name || 'BizBook Pro'}</h1>
+      ${tenant?.address ? `<p>${tenant.address}</p>` : ''}
+      ${tenant?.phone ? `<p>Phone: ${tenant.phone}</p>` : ''}
+      ${tenant?.email ? `<p>Email: ${tenant.email}</p>` : ''}
+      ${tenant?.gstNumber ? `<p>GSTIN: ${tenant.gstNumber}</p>` : ''}
+    </div>
+    <div class="invoice-title">
+      <h2>INVOICE</h2>
+      <p>#${sale.invoiceNumber}</p>
+      <p>${fmtDate(new Date(sale.date))}</p>
+      <p><span class="badge">${statusLabel(sale.paymentStatus)}</span></p>
+    </div>
+  </div>
+
+  <div class="parties">
+    <div class="party-box">
+      <h3>From</h3>
+      <div class="name">${tenant?.name || 'Business'}</div>
+      ${tenant?.address ? `<div class="detail">${tenant.address}</div>` : ''}
+      ${tenant?.gstNumber ? `<div class="detail">GSTIN: ${tenant.gstNumber}</div>` : ''}
+    </div>
+    <div class="party-box">
+      <h3>Bill To</h3>
+      <div class="name">${sale.partyName}</div>
+      ${sale.partyAddress ? `<div class="detail">${sale.partyAddress}</div>` : ''}
+      ${sale.partyGst ? `<div class="detail">GSTIN: ${sale.partyGst}</div>` : ''}
+    </div>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Item</th>
+        <th>HSN</th>
+        <th class="right">Qty</th>
+        <th class="right">Rate</th>
+        <th class="right">Discount</th>
+        <th class="right">Amount</th>
+        <th class="right">Tax</th>
+        <th class="right">Total</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${parsedItems.map((item, i) => `
+      <tr>
+        <td>${i + 1}</td>
+        <td>${item.name}${item.saleItemType === 'SERVICE' ? ' [SERVICE]' : ''}</td>
+        <td>${item.hsn || '-'}</td>
+        <td class="right">${item.qty} ${item.unit || ''}</td>
+        <td class="right">${fmtCurrency(item.rate)}</td>
+        <td class="right">${item.discount > 0 ? fmtCurrency(item.discount) : '-'}</td>
+        <td class="right">${fmtCurrency(item.amount)}</td>
+        <td class="right">${fmtCurrency(item.totalTax)}</td>
+        <td class="right">${fmtCurrency(item.total)}</td>
+      </tr>`).join('')}
+    </tbody>
+  </table>
+
+  <div class="summary">
+    <div class="summary-box">
+      <div class="summary-row"><span>Subtotal</span><span>${fmtCurrency(sale.subtotal)}</span></div>
+      <div class="summary-row"><span>Tax / Duties</span><span>${fmtCurrency(sale.gstAmount)}</span></div>
+      <div class="summary-row total"><span>GRAND TOTAL</span><span>${fmtCurrency(sale.totalAmount)}</span></div>
+      <div class="summary-row"><span>Amount Received</span><span>${fmtCurrency(sale.amountReceived || sale.amountPaid)}</span></div>
+      <div class="summary-row due"><span>Balance Due</span><span>${fmtCurrency(sale.totalAmount - (sale.amountReceived || sale.amountPaid))}</span></div>
+    </div>
+  </div>
+
+  ${sale.notes ? `<div class="terms"><strong>Notes:</strong> ${sale.notes}</div>` : ''}
+
+  ${upiQrCode ? `<div style="text-align:center;margin:15px 0;"><img src="${upiQrCode}" alt="UPI QR" style="width:150px;height:150px;border:1px solid #000;" /><div style="font-size:14px;font-weight:900;margin-top:5px;">Scan to Pay ${fmtCurrency(sale.upiAmount || 0)}</div></div>` : ''}
+
+  <div class="signature">
+    <div class="signature-box">
+      <p>Authorised Signatory</p>
+      <small>For ${tenant?.name || 'Business'}</small>
+    </div>
+  </div>
+
+  <div class="footer">
+    Computer-generated invoice from BizBook Pro by Tahigo International · ${new Date().toLocaleString('en-IN')}
+  </div>
+
+<script>window.onload = function() { setTimeout(function() { window.print(); }, 300); };</script>
+</body>
+</html>`
+
+    const printWindow = window.open('', '_blank', 'width=900,height=700')
+    if (printWindow) {
+      printWindow.document.write(printHtml)
+      printWindow.document.close()
+    } else {
+      // Popup blocked — use iframe fallback
+      let iframe = document.getElementById('bizbook-print-iframe') as HTMLIFrameElement | null
+      if (!iframe) {
+        iframe = document.createElement('iframe')
+        iframe.id = 'bizbook-print-iframe'
+        iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden;'
+        document.body.appendChild(iframe)
       }
-    }
-
-    // ---- FALLBACK: localStorage preference ----
-    if (!paper && typeof window !== 'undefined') {
-      paper = localStorage.getItem('bizbook-paper-pref') || 'a4'
-    }
-    if (!paper) paper = 'a4'
-
-    // ============================================================
-    // ESC/POS DIRECT PRINT — for thermal printers (58mm/80mm)
-    // ============================================================
-    // This is the REAL fix. Instead of loading HTML and using the
-    // browser print engine (which forces A4), we send raw ESC/POS
-    // commands directly to the printer via USB.
-    if (electronAPI?.printEscpos && (paper === '58mm' || paper === '80mm' || paper === 'thermal')) {
-      try {
-        toast({ title: 'Printing...', description: `Sending to thermal printer (${paper.toUpperCase()})` })
-
-        // Parse sale items
-        let items: any[] = []
-        try { items = JSON.parse(sale.items || '[]') } catch { items = [] }
-
-        const escposData = {
-          sellerName: tenant?.name || 'BizBook Pro',
-          sellerAddr: tenant?.address || '',
-          sellerPhone: tenant?.phone || '',
-          sellerGst: tenant?.gstNumber || '',
-          buyerName: sale.partyName || '',
-          buyerAddr: sale.partyAddress || '',
-          invNo: sale.invoiceNumber || '',
-          invDate: new Date(sale.date).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: '2-digit' }),
-          status: (() => {
-            const u = (sale.paymentStatus || '').toUpperCase()
-            if (u === 'PAID' || u === 'RECEIVED') return 'PAID'
-            if (u === 'PARTIAL') return 'PARTIAL'
-            return 'PENDING'
-          })(),
-          items: items.map((it: any) => ({
-            name: it.name || '',
-            qty: it.qty || 0,
-            unit: it.unit || '',
-            rate: it.rate || 0,
-            total: it.total || 0,
-          })),
-          subtotal: sale.subtotal || 0,
-          taxAmount: sale.gstAmount || 0,
-          totalAmount: sale.totalAmount || 0,
-          amountReceived: sale.amountReceived || sale.amountPaid || 0,
-          balanceDue: (sale.totalAmount || 0) - (sale.amountReceived || sale.amountPaid || 0),
-          paperWidth: paper,
-        }
-
-        console.log('[print] Using ESC/POS direct printing:', paper)
-        const result = await electronAPI.printEscpos(escposData)
-
-        if (result?.ok) {
-          toast({ title: 'Printed', description: `Receipt printed (${paper.toUpperCase()})` })
-          return
-        } else {
-          console.error('[print] ESC/POS failed:', result?.error)
-          toast({
-            title: 'ESC/POS print failed',
-            description: `${result?.error || 'Unknown error'}. Falling back to HTML print.`,
-            variant: 'destructive',
-          })
-          // Fall through to HTML print below
-        }
-      } catch (e: any) {
-        console.error('[print] ESC/POS error:', e)
-        toast({
-          title: 'ESC/POS error',
-          description: `${e?.message || 'Unknown'}. Falling back to HTML print.`,
-          variant: 'destructive',
-        })
-        // Fall through to HTML print below
+      iframe.onload = () => {
+        const cw = iframe!.contentWindow
+        if (!cw) return
+        cw.document.write(printHtml)
+        cw.document.close()
+        cw.focus()
+        setTimeout(() => { try { cw.print() } catch (e) { console.error(e) } }, 400)
       }
+      iframe.src = 'about:blank'
     }
-
-    // ============================================================
-    // HTML PRINT — for A4 or ESC/POS fallback
-    // ============================================================
-    const relativeUrl = `/invoice-print/${sale.id}?paper=${paper}&t=${Date.now()}${token ? '&token=' + encodeURIComponent(token) : ''}`
-
-    // ---- SILENT PRINT VIA ELECTRON (desktop app, A4) ----
-    if (electronAPI?.printInvoiceSilent) {
-      try {
-        const origin = typeof window !== 'undefined' ? window.location.origin : ''
-        const absoluteUrl = origin + relativeUrl
-        toast({ title: 'Printing...', description: `Sending to printer (${paper.toUpperCase()})` })
-        const result = await electronAPI.printInvoiceSilent(absoluteUrl)
-        if (result?.ok) {
-          toast({ title: 'Printed', description: `Invoice sent to printer (${paper.toUpperCase()})` })
-          return
-        } else {
-          console.error('[print] Silent print failed:', result?.error)
-          toast({
-            title: 'Print failed',
-            description: `Error: ${result?.error || 'Unknown'}`,
-            variant: 'destructive',
-          })
-          return
-        }
-      } catch (e: any) {
-        console.error('[print] Electron API error:', e)
-        toast({
-          title: 'Print failed',
-          description: `Error: ${e?.message || 'Unknown'}`,
-          variant: 'destructive',
-        })
-        return
-      }
-    }
-
-    // ---- FALLBACK: HIDDEN IFRAME + BROWSER PRINT DIALOG ----
-    // Only runs in pure browser (no Electron)
-    let iframe = document.getElementById('bizbook-print-iframe') as HTMLIFrameElement | null
-    if (!iframe) {
-      iframe = document.createElement('iframe')
-      iframe.id = 'bizbook-print-iframe'
-      iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden;'
-      document.body.appendChild(iframe)
-    }
-    iframe.onload = () => {
-      const cw = iframe!.contentWindow
-      if (!cw) return
-      cw.focus()
-      setTimeout(() => { try { cw.print() } catch (e) { console.error(e) } }, 400)
-    }
-    iframe.src = relativeUrl
   }
 
 
@@ -764,22 +799,6 @@ export function SaleRegister() {
           <Button variant="outline" onClick={() => setView('ai-import')} className="border-violet-300 text-violet-700 hover:bg-violet-50">
             <Sparkles className="h-4 w-4 mr-2" /> AI Smart Import
           </Button>
-          <div className="flex items-center gap-2 ml-auto">
-            <span className="text-xs text-muted-foreground">Print Paper:</span>
-            <select
-              value={typeof window !== 'undefined' ? (localStorage.getItem('bizbook-paper-pref') || 'a4') : 'a4'}
-              onChange={(e) => {
-                localStorage.setItem('bizbook-paper-pref', e.target.value)
-                toast({ title: 'Paper size changed', description: `Now using ${e.target.value.toUpperCase()} for printing` })
-              }}
-              className="text-xs border rounded px-2 py-1 bg-background"
-              title="Select paper size for printing"
-            >
-              <option value="a4">A4 Sheet</option>
-              <option value="58mm">58mm Thermal</option>
-              <option value="80mm">80mm Thermal</option>
-            </select>
-          </div>
         </div>
 
         <Card className="border-0 shadow-sm">
