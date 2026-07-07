@@ -888,11 +888,21 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'Email already exists' }, { status: 400 })
       }
 
-      // v6.6: GLOBAL user limit validation — count non-view users across ALL companies
-      // owned by the same tenant owner. The first 3 IDs are free (1 main admin +
-      // 1 junior admin + 1 data entry). Any additional non-view IDs require payment
-      // of ₹149 per ID. View-only users are UNLIMITED and free.
+      // v6.8: SECURITY — MAIN_ADMIN is unique per tenant account (per owner)
+      // Only the original tenant owner can be MAIN_ADMIN. No other user can
+      // be assigned MAIN_ADMIN role — not via add-user, not via edit-user.
+      // This prevents:
+      //   1. Creating duplicate main admins across companies
+      //   2. Transferring main admin authority to another user
+      //   3. Assigning main admin role at the company level
       const targetRole = role || 'DATA_ENTRY'
+      if (targetRole === 'MAIN_ADMIN') {
+        return NextResponse.json({
+          error: 'Cannot add a new Main Admin. The Main Admin role is unique to the tenant owner and cannot be duplicated or transferred. Only Junior Admin, Data Entry, and View Only roles can be assigned to new users.',
+          code: 'MAIN_ADMIN_UNIQUE_VIOLATION',
+        }, { status: 403 })
+      }
+
       if (targetRole !== 'VIEW_ONLY') {
         // v6.6: Find ALL companies owned by this user (the main admin adding the user)
         const allUserTenants = await db.userTenant.findMany({
@@ -1055,6 +1065,16 @@ export async function POST(req: NextRequest) {
       const validRoles = ['MAIN_ADMIN', 'JUNIOR_ADMIN', 'DATA_ENTRY', 'VIEW_ONLY']
       if (!validRoles.includes(role)) {
         return NextResponse.json({ error: `Invalid role. Must be one of: ${validRoles.join(', ')}` }, { status: 400 })
+      }
+
+      // v6.8: SECURITY — Cannot assign MAIN_ADMIN role to anyone
+      // The Main Admin is unique to the tenant owner. No other user
+      // can be promoted to Main Admin — not via add-user, not via edit-user.
+      if (role === 'MAIN_ADMIN') {
+        return NextResponse.json({
+          error: 'Cannot assign Main Admin role. The Main Admin is unique to the tenant owner and cannot be transferred or duplicated. You can only assign Junior Admin, Data Entry, or View Only roles.',
+          code: 'MAIN_ADMIN_UNIQUE_VIOLATION',
+        }, { status: 403 })
       }
 
       // Verify target user belongs to this tenant

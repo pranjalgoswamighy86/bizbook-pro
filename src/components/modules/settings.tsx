@@ -1255,7 +1255,6 @@ export function SettingsPage() {
                     <SelectItem value="VIEW_ONLY">View Only — can view reports only</SelectItem>
                     <SelectItem value="DATA_ENTRY">Data Entry — can create new records</SelectItem>
                     <SelectItem value="JUNIOR_ADMIN">Junior Admin — can edit/delete records</SelectItem>
-                    <SelectItem value="MAIN_ADMIN">Main Admin — full control</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
