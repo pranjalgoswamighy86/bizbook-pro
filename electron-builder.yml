@@ -7,7 +7,12 @@
     "output": "dist-electron",
     "buildResources": "electron/build"
   },
-  "asar": false,
+  "asar": true,
+  "asarUnpack": [
+    "electron/main.js",
+    "electron/preload.js",
+    "electron/fingerprint.js"
+  ],
   "files": [
     ".next/standalone/**/*",
     ".next/static/**/*",
