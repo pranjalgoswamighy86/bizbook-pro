@@ -1,26 +1,14 @@
 'use client'
 
 /**
- * Download for Desktop — v5.1 COMPLETE REWRITE
- * =================================================
- * Old version (v4.43) showed a PWA install hint modal. User explicitly
- * requested this button offer the actual .exe / .AppImage / .dmg installer
- * files for the Electron desktop app.
- *
- * New behavior:
- * - Button opens a dropdown modal with platform options
- * - Each platform links to its installer download URL
- * - Auto-detects user's OS from navigator.userAgent
- * - Also offers "Install as PWA" as a secondary option
- *
- * Installer hosting:
- * - Linux AppImage is built and hosted at /api/desktop-download?platform=linux
- * - Windows .exe and Mac .dmg are built via GitHub Actions and hosted on
- *   GitHub Releases — the button links to the releases page
+ * Download for Desktop — v6.14.3
+ * Uses createPortal to render modals on document.body,
+ * escaping the top bar's sticky stacking context.
  */
 
 import { useState, useEffect, useRef } from 'react'
-import { Download, Monitor, Apple, Terminal, X, ChevronDown } from 'lucide-react'
+import { createPortal } from 'react-dom'
+import { Download, Monitor, Apple, Terminal, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
 interface BeforeInstallPromptEvent extends Event {
@@ -151,7 +139,7 @@ export function DownloadForDesktop() {
         <span className="sm:hidden">Desktop</span>
       </Button>
 
-      {showModal && (
+      {showModal && typeof document !== 'undefined' && createPortal(
         <div
           className="fixed inset-0 z-[9998] flex items-center justify-center bg-black/50 p-4"
           style={{ zIndex: 9998 }}
@@ -234,11 +222,10 @@ export function DownloadForDesktop() {
               </ul>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
-
-      {/* v6.13: Installation Guide Modal — shown after platform selection */}
-      {showGuide && selectedPlatform && (
+      {showGuide && selectedPlatform && typeof document !== 'undefined' && createPortal(
         <div
           className="fixed inset-0 z-[9999] flex items-start justify-center bg-black/60 p-4 overflow-y-auto"
           style={{ zIndex: 9999 }}
@@ -335,7 +322,8 @@ export function DownloadForDesktop() {
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </>
   )

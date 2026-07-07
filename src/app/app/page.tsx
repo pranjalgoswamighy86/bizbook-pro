@@ -229,11 +229,48 @@ export default function Home() {
         setView('help-support-management')
       }
     }
-    window.addEventListener('keydown', handleF1)
+
+    // v6.14.3: ALL keyboard shortcuts (work in web + old Electron v2.1.4)
+    const handleKeydown = (e: KeyboardEvent) => {
+      // Skip if typing in an input/textarea
+      const target = e.target as HTMLElement
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) return
+
+      if (e.key === 'F1') {
+        e.preventDefault()
+        setView('help-support-management')
+      } else if ((e.ctrlKey || e.metaKey) && e.key === 'n' && !e.shiftKey) {
+        e.preventDefault()
+        setView('sales')
+      } else if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'N') {
+        e.preventDefault()
+        setView('purchases')
+      } else if ((e.ctrlKey || e.metaKey) && e.key === 'e') {
+        e.preventDefault()
+        setView('backup')
+      } else if ((e.ctrlKey || e.metaKey) && e.key === '1') {
+        e.preventDefault()
+        setView('dashboard')
+      } else if ((e.ctrlKey || e.metaKey) && e.key === '2') {
+        e.preventDefault()
+        setView('sales')
+      } else if ((e.ctrlKey || e.metaKey) && e.key === '3') {
+        e.preventDefault()
+        setView('purchases')
+      } else if ((e.ctrlKey || e.metaKey) && e.key === '4') {
+        e.preventDefault()
+        setView('inventory')
+      } else if ((e.ctrlKey || e.metaKey) && e.key === '5') {
+        e.preventDefault()
+        setView('gst-reports')
+      }
+    }
+
+    window.addEventListener('keydown', handleKeydown)
 
     return () => {
       delete (window as any).__bizbookMenuAction
-      window.removeEventListener('keydown', handleF1)
+      window.removeEventListener('keydown', handleKeydown)
     }
   }, [hydrated, isAuthenticated, setView, toast])
 
