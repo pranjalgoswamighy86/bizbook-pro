@@ -133,19 +133,145 @@ try {
     }
     await prisma.$disconnect();
     runTenantProtectionCheck();
-    runStartupBackup(); // v4.115: auto-backup all tenants on every startup
+    runAutoRepair(); // v6.12: Auto-repair corrupted owner roles + consolidate wallets
+    runStartupBackup();
     startServer();
   }).catch((err) => {
     console.log('⚠️ Seed check failed:', err.message);
     runTenantProtectionCheck();
+    runAutoRepair();
     runStartupBackup();
     startServer();
   });
 } catch (e) {
   console.log('⚠️ Prisma error:', e.message);
   runTenantProtectionCheck();
+  runAutoRepair();
   runStartupBackup();
   startServer();
+}
+
+// === v6.12: Auto-Repair Corrupted Data ===
+// Runs on every startup. Fixes:
+// 1. Owners (isOwner=true) with role != MAIN_ADMIN → restore to MAIN_ADMIN
+// 2. Multiple subscription records for the same owner → consolidate into ONE wallet
+// 3. Owner's User.role set to VIEW_ONLY when hours remain → restore to MAIN_ADMIN
+function runAutoRepair() {
+  console.log('[AUTO-REPAIR] Starting automatic data repair...');
+  try {
+    const { PrismaClient } = require('@prisma/client');
+    const prisma = new PrismaClient({ datasources: { db: { url: process.env.DATABASE_URL } } });
+
+    prisma.userTenant.findMany({
+      where: { isOwner: true, role: { not: 'MAIN_ADMIN' } },
+      include: { user: true, tenant: true },
+    }).then(async (corruptedOwners) => {
+      let fixedCount = 0;
+
+      // 1. Fix corrupted owner roles
+      for (const ut of corruptedOwners) {
+        await prisma.userTenant.update({
+          where: { id: ut.id },
+          data: { role: 'MAIN_ADMIN' },
+        });
+
+        // Fix User.role too (if they have hours remaining)
+        const sub = await prisma.subscription.findFirst({
+          where: { tenantId: ut.tenantId },
+        }).catch(() => null);
+        const hasHours = sub && sub.remainingSeconds > 0;
+        if (hasHours) {
+          await prisma.user.update({
+            where: { id: ut.userId },
+            data: { role: 'MAIN_ADMIN' },
+          });
+        }
+        console.log(`[AUTO-REPAIR] Fixed owner ${ut.user.email} in ${ut.tenant.name}: ${ut.role} → MAIN_ADMIN`);
+        fixedCount++;
+      }
+
+      // 2. Consolidate wallets: for each owner with multiple subscriptions,
+      // sum all hours into the FIRST subscription and zero out the rest
+      const allOwners = await prisma.userTenant.findMany({
+        where: { isOwner: true, role: 'MAIN_ADMIN' },
+        select: { userId: true, tenantId: true },
+      });
+
+      // Group by userId
+      const ownerMap = {};
+      for (const o of allOwners) {
+        if (!ownerMap[o.userId]) ownerMap[o.userId] = [];
+        ownerMap[o.userId].push(o.tenantId);
+      }
+
+      let walletsConsolidated = 0;
+      for (const [userId, tenantIds] of Object.entries(ownerMap)) {
+        if (tenantIds.length < 2) continue; // Only one company, no consolidation needed
+
+        const subs = await prisma.subscription.findMany({
+          where: { tenantId: { in: tenantIds } },
+          orderBy: { createdAt: 'asc' },
+        });
+
+        if (subs.length < 2) continue;
+
+        const totalRemaining = subs.reduce((sum, s) => sum + s.remainingSeconds, 0);
+        const totalSeconds = subs.reduce((sum, s) => sum + s.totalSeconds, 0);
+
+        // Give ALL hours to the FIRST subscription (the wallet)
+        await prisma.subscription.update({
+          where: { id: subs[0].id },
+          data: {
+            remainingSeconds: totalRemaining,
+            totalSeconds: totalSeconds,
+            status: totalRemaining > 0 ? 'ACTIVE' : 'CONVERTED_TO_VIEW_ONLY',
+          },
+        });
+
+        // Zero out the rest
+        for (let i = 1; i < subs.length; i++) {
+          await prisma.subscription.update({
+            where: { id: subs[i].id },
+            data: {
+              remainingSeconds: 0,
+              status: 'CONVERTED_TO_VIEW_ONLY',
+            },
+          });
+        }
+
+        console.log(`[AUTO-REPAIR] Consolidated ${subs.length} subscriptions for user ${userId}: ${totalRemaining}s → wallet (first sub)`);
+        walletsConsolidated++;
+      }
+
+      // 3. Fix owners whose User.role is VIEW_ONLY but should be MAIN_ADMIN
+      // (only if wallet has hours)
+      for (const [userId, tenantIds] of Object.entries(ownerMap)) {
+        const walletSub = await prisma.subscription.findFirst({
+          where: { tenantId: { in: tenantIds } },
+          orderBy: { createdAt: 'asc' },
+        }).catch(() => null);
+
+        if (walletSub && walletSub.remainingSeconds > 0) {
+          const userRecord = await prisma.user.findUnique({ where: { id: userId } }).catch(() => null);
+          if (userRecord && userRecord.role === 'VIEW_ONLY') {
+            await prisma.user.update({
+              where: { id: userId },
+              data: { role: 'MAIN_ADMIN' },
+            });
+            console.log(`[AUTO-REPAIR] Restored owner ${userRecord.email}: User.role VIEW_ONLY → MAIN_ADMIN (hours available)`);
+            fixedCount++;
+          }
+        }
+      }
+
+      console.log(`[AUTO-REPAIR] ✅ Complete. Fixed ${fixedCount} owner role(s), consolidated ${walletsConsolidated} wallet(s).`);
+      await prisma.$disconnect();
+    }).catch((err) => {
+      console.log('[AUTO-REPAIR] ⚠️ Error:', err.message);
+    });
+  } catch (e) {
+    console.log('[AUTO-REPAIR] ⚠️ Failed:', e.message);
+  }
 }
 
 // === Tenant Protection Check ===

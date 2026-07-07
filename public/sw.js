@@ -21,7 +21,7 @@
  * UPDATE MODAL: src/components/app/sw-update-modal.tsx
  */
 
-const CACHE_VERSION = 'bizbook-pro-v6.11.0-2026-07-07';
+const CACHE_VERSION = 'bizbook-pro-v6.12.0-2026-07-07';
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 const API_CACHE = `${CACHE_VERSION}-api`;
