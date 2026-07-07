@@ -186,45 +186,48 @@ export default function Home() {
   // v6.14: Electron menu actions + keyboard shortcuts
   useEffect(() => {
     if (!hydrated || !isAuthenticated) return
-    const electronAPI = (window as any).electron
-    if (!electronAPI?.onMenuAction) return
 
-    electronAPI.onMenuAction((action: string) => {
-      console.log('[Electron Menu]', action)
+    const handleMenuAction = (action: string) => {
+      console.log('[Menu Action]', action)
       switch (action) {
-        case 'new-sale':
-          setView('sales')
-          break
-        case 'new-purchase':
-          setView('purchases')
-          break
-        case 'export-backup':
-          setView('backup')
-          break
-        case 'navigate-dashboard':
-          setView('dashboard')
-          break
-        case 'navigate-sales':
-          setView('sales')
-          break
-        case 'navigate-purchases':
-          setView('purchases')
-          break
-        case 'navigate-inventory':
-          setView('inventory')
-          break
-        case 'navigate-gst':
-          setView('gst-reports')
-          break
-        case 'help-chat':
-          setView('help-support-management')
-          break
+        case 'new-sale': setView('sales'); break
+        case 'new-purchase': setView('purchases'); break
+        case 'export-backup': setView('backup'); break
+        case 'navigate-dashboard': setView('dashboard'); break
+        case 'navigate-sales': setView('sales'); break
+        case 'navigate-purchases': setView('purchases'); break
+        case 'navigate-inventory': setView('inventory'); break
+        case 'navigate-gst': setView('gst-reports'); break
+        case 'help-chat': setView('help-support-management'); break
         case 'check-updates':
           toast({ title: 'Updates', description: 'BizBook Pro updates automatically when you restart the app.' })
           break
       }
-    })
-  }, [hydrated, isAuthenticated, setView])
+    }
+
+    // v6.14.1: Register global handler for Electron fallback (executeJavaScript)
+    ;(window as any).__bizbookMenuAction = handleMenuAction
+
+    // v6.14.1: Also listen for IPC menu actions (primary method)
+    const electronAPI = (window as any).electron
+    if (electronAPI?.onMenuAction) {
+      electronAPI.onMenuAction(handleMenuAction)
+    }
+
+    // v6.14.1: F1 keyboard shortcut (works in both web and Electron)
+    const handleF1 = (e: KeyboardEvent) => {
+      if (e.key === 'F1') {
+        e.preventDefault()
+        setView('help-support-management')
+      }
+    }
+    window.addEventListener('keydown', handleF1)
+
+    return () => {
+      delete (window as any).__bizbookMenuAction
+      window.removeEventListener('keydown', handleF1)
+    }
+  }, [hydrated, isAuthenticated, setView, toast])
 
   if (!hydrated) {
     return (

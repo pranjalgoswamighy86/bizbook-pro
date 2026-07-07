@@ -281,7 +281,24 @@ function createWindow() {
         {
           label: 'AI Support Chat',
           accelerator: 'F1',
-          click: () => mainWindow?.webContents.send('menu-action', 'help-chat'),
+          click: () => {
+            // v6.14.1: Send menu action + execute JS directly as backup
+            mainWindow?.webContents.send('menu-action', 'help-chat')
+            // Also try direct JS injection as fallback
+            mainWindow?.webContents.executeJavaScript(`
+              if (window.__bizbookMenuAction) {
+                window.__bizbookMenuAction('help-chat');
+              } else {
+                // Fallback: try to navigate to help view via store
+                try {
+                  const store = window.__NEXT_DATA__?.props?.pageProps;
+                  if (window.useAppStore) {
+                    window.useAppStore.getState().setView('help-support-management');
+                  }
+                } catch(e) { console.log('Menu action fallback failed:', e); }
+              }
+            `).catch(() => {})
+          },
         },
         {
           label: 'Keyboard Shortcuts',

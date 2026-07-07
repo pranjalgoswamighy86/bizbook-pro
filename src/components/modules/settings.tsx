@@ -15,6 +15,7 @@ import { Settings, Users, Building2, Crown, KeyRound, Loader2, ArrowLeft, Eye, E
 import { useToast } from '@/hooks/use-toast'
 import { formatDate } from '@/lib/formulas'
 import { authFetch } from '@/lib/auth-fetch'
+import { APP_VERSION, APP_BUILD_DATE } from '@/lib/version'
 
 interface UserRecord {
   id: string; email: string; name: string; role: string; isActive: boolean; createdAt: string
@@ -1060,8 +1061,8 @@ export function SettingsPage() {
                   </div>
                   <div className="bg-muted/50 p-3 rounded-lg">
                     <p className="text-xs text-muted-foreground">Version</p>
-                    <p className="font-semibold">v6.13.1</p>
-                    <p className="text-xs text-muted-foreground">Built with Next.js 16 + Prisma + PostgreSQL</p>
+                    <p className="font-semibold">{APP_VERSION}</p>
+                    <p className="text-xs text-muted-foreground">Built {APP_BUILD_DATE} · Next.js 16 + Prisma + PostgreSQL</p>
                     <p className="text-[10px] text-muted-foreground mt-1">A Product by Tahigo International</p>
                   </div>
                   <div className="bg-muted/50 p-3 rounded-lg">
