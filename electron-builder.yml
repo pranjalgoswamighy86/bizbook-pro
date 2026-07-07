@@ -51,7 +51,6 @@
     "createStartMenuShortcut": true,
     "shortcutName": "BizBook Pro",
     "license": "LICENSE",
-    "instructions": "INSTALLATION_GUIDE.md",
     "deleteAppDataOnUninstall": false,
     "displayLanguageSelector": false,
     "language": "1033"
