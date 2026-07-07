@@ -147,15 +147,27 @@ export async function POST(req: NextRequest) {
       const actualExtraIds = Math.max(0, actualNonViewOnlyCount - DEFAULT_NON_VIEW_ONLY_USERS)
       const hasExtraUsers = actualNonViewOnlyCount > DEFAULT_NON_VIEW_ONLY_USERS
 
+      // v6.9.1: Calculate POOLED hours across ALL companies owned by this user
+      const allSubsForPooling = await db.subscription.findMany({
+        where: { tenantId: { in: allOwnerTenantIds.length > 0 ? allOwnerTenantIds : [tenantId] } },
+        select: { remainingSeconds: true, status: true },
+      })
+      const pooledRemainingSeconds = allSubsForPooling.reduce((sum, sub) => sum + sub.remainingSeconds, 0)
+      const anyActive = allSubsForPooling.some(s => s.status !== 'CONVERTED_TO_VIEW_ONLY')
+      const pooledStatus = pooledRemainingSeconds > 0 ? 'ACTIVE' : 'CONVERTED_TO_VIEW_ONLY'
+
       return NextResponse.json({
         subscription: {
           id: subscription.id,
           planHours: subscription.planHours,
           planName: subscription.planName,
-          remainingHours: Math.floor(subscription.remainingSeconds / 3600),
-          remainingMinutes: Math.floor((subscription.remainingSeconds % 3600) / 60),
-          remainingSeconds: subscription.remainingSeconds,
-          status: subscription.status,
+          // v6.9.1: Show POOLED hours (across all companies), not per-company
+          remainingHours: Math.floor(pooledRemainingSeconds / 3600),
+          remainingMinutes: Math.floor((pooledRemainingSeconds % 3600) / 60),
+          remainingSeconds: pooledRemainingSeconds,
+          pooledRemainingSeconds: pooledRemainingSeconds,
+          pooledRemainingHours: Math.floor(pooledRemainingSeconds / 3600),
+          status: pooledStatus,
           isFreeTier: subscription.isFreeTier,
           freeTierHours: subscription.freeTierHours,
           mainAdminHours: subscription.mainAdminHours,
