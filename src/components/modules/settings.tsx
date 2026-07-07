@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Settings, Users, Building2, Crown, KeyRound, Loader2, ArrowLeft, Eye, EyeOff, RefreshCw, Database, Info, Trash2, Download, Activity, AlertTriangle, ShieldCheck } from 'lucide-react'
+import { Settings, Users, Building2, Crown, KeyRound, Loader2, ArrowLeft, Eye, EyeOff, RefreshCw, Database, Info, Trash2, Download, Activity, AlertTriangle, ShieldCheck, Clock } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import { formatDate } from '@/lib/formulas'
 import { authFetch } from '@/lib/auth-fetch'
@@ -35,6 +35,10 @@ export function SettingsPage() {
   const [editUserRole, setEditUserRole] = useState<string>('DATA_ENTRY')
   const [editUserLoading, setEditUserLoading] = useState(false)
   const [newUser, setNewUser] = useState({ name: '', email: '', password: '', role: 'DATA_ENTRY', tenantId: '' })
+  // v6.11: Usage Limits state
+  const [usageLimits, setUsageLimits] = useState<any[]>([])
+  const [usageLimitsLoading, setUsageLimitsLoading] = useState(false)
+  const [limitInput, setLimitInput] = useState<Record<string, string>>({}) // userId -> hours string
   // v4.66: Staff Activity state
   const [activityLogs, setActivityLogs] = useState<any[]>([])
   const [activityUsers, setActivityUsers] = useState<Array<{ id: string; name: string | null; email: string }>>([])
@@ -94,6 +98,56 @@ export function SettingsPage() {
       setUsersLoading(false)
     }
   }, [tenant, toast])
+
+  // v6.11: Load usage limits + per-user hours tracking
+  const loadUsageLimits = useCallback(async () => {
+    if (!tenant) return
+    setUsageLimitsLoading(true)
+    try {
+      const res = await authFetch('/api/staff', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'get-usage-limits', tenantId: tenant.id }),
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setUsageLimits(data.users || [])
+        // Initialize limit input fields
+        const inputs: Record<string, string> = {}
+        for (const u of data.users || []) {
+          inputs[u.userId] = u.maxSecondsPerMonth ? String(Math.floor(u.maxSecondsPerMonth / 3600)) : ''
+        }
+        setLimitInput(inputs)
+      }
+    } catch {
+      toast({ title: 'Error', description: 'Failed to load usage limits', variant: 'destructive' })
+    } finally {
+      setUsageLimitsLoading(false)
+    }
+  }, [tenant, toast])
+
+  // v6.11: Save usage limit for a user
+  const handleSaveLimit = async (userId: string) => {
+    if (!tenant) return
+    const hoursStr = limitInput[userId] || ''
+    const hours = parseInt(hoursStr, 10)
+    const maxSeconds = isNaN(hours) || hours <= 0 ? null : hours * 3600
+
+    try {
+      const res = await authFetch('/api/staff', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'set-usage-limit', tenantId: tenant.id, targetUserId: userId, maxSecondsPerMonth: maxSeconds }),
+      })
+      if (res.ok) {
+        toast({ title: 'Limit saved', description: maxSeconds ? `Set to ${hours}h/month` : 'Limit removed (unlimited)' })
+        loadUsageLimits() // Refresh
+      } else {
+        const err = await res.json().catch(() => ({}))
+        toast({ title: 'Error', description: err.error || 'Failed to save limit', variant: 'destructive' })
+      }
+    } catch {
+      toast({ title: 'Error', description: 'Network error', variant: 'destructive' })
+    }
+  }
 
   // v4.66: Load staff activity (company-wise, MAIN_ADMIN only)
   const loadActivity = useCallback(async () => {
@@ -502,9 +556,10 @@ export function SettingsPage() {
       <h2 className="text-lg font-semibold flex items-center gap-2"><Settings className="h-5 w-5" />Settings</h2>
 
       <Tabs defaultValue="company" className="space-y-4">
-        <TabsList className="grid w-full grid-cols-5 max-w-2xl">
+        <TabsList className="grid w-full grid-cols-6 max-w-2xl">
           <TabsTrigger value="company" className="text-xs sm:text-sm">Company</TabsTrigger>
           <TabsTrigger value="users" className="text-xs sm:text-sm">Users</TabsTrigger>
+          <TabsTrigger value="limits" className="text-xs sm:text-sm">Usage Limits</TabsTrigger>
           <TabsTrigger value="activity" className="text-xs sm:text-sm">Staff Activity</TabsTrigger>
           <TabsTrigger value="data" className="text-xs sm:text-sm">Data</TabsTrigger>
           <TabsTrigger value="about" className="text-xs sm:text-sm">About</TabsTrigger>
@@ -649,6 +704,93 @@ export function SettingsPage() {
                   </Table>
                 </div>
               )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ==================== Usage Limits Tab (v6.11 — MAIN_ADMIN only) ==================== */}
+        <TabsContent value="limits" className="space-y-4">
+          <Card className="border-0 shadow-sm">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm flex items-center gap-2"><Clock className="h-4 w-4" />User Usage Limits & Hours Tracking</CardTitle>
+              <p className="text-xs text-muted-foreground">Set monthly hour limits for each user. Track how many hours they've used this month.</p>
+            </CardHeader>
+            <CardContent className="p-0">
+              <div className="p-4 border-b flex items-center justify-between">
+                <p className="text-xs text-muted-foreground">Showing all non-view-only users across all companies</p>
+                <Button size="sm" variant="outline" onClick={loadUsageLimits} disabled={usageLimitsLoading}>
+                  {usageLimitsLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Refresh'}
+                </Button>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b bg-muted/50">
+                      <th className="text-left p-3 font-medium">User</th>
+                      <th className="text-left p-3 font-medium">Role</th>
+                      <th className="text-right p-3 font-medium">Used This Month</th>
+                      <th className="text-right p-3 font-medium">Monthly Limit (hrs)</th>
+                      <th className="text-center p-3 font-medium">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {usageLimits.length === 0 && !usageLimitsLoading ? (
+                      <tr><td colSpan={5} className="text-center text-muted-foreground py-8">Click "Refresh" to load user usage data</td></tr>
+                    ) : usageLimitsLoading ? (
+                      <tr><td colSpan={5} className="text-center py-8"><Loader2 className="h-5 w-5 animate-spin mx-auto" /></td></tr>
+                    ) : (
+                      usageLimits.map((u) => {
+                        const usedHours = Math.floor((u.usedThisMonth || 0) / 3600)
+                        const usedMins = Math.floor(((u.usedThisMonth || 0) % 3600) / 60)
+                        const limitHours = u.maxSecondsPerMonth ? Math.floor(u.maxSecondsPerMonth / 3600) : null
+                        const isOverLimit = limitHours !== null && usedHours >= limitHours
+                        return (
+                          <tr key={u.userId} className="border-b hover:bg-muted/30">
+                            <td className="p-3">
+                              <div className="font-medium">{u.userName || 'Unknown'}</div>
+                              <div className="text-xs text-muted-foreground">{u.email}</div>
+                            </td>
+                            <td className="p-3">
+                              <Badge variant="outline" className="text-xs">
+                                {u.role === 'MAIN_ADMIN' ? 'Main Admin' : u.role === 'JUNIOR_ADMIN' ? 'Junior Admin' : u.role === 'DATA_ENTRY' ? 'Data Entry' : u.role}
+                              </Badge>
+                            </td>
+                            <td className="p-3 text-right">
+                              <span className={isOverLimit ? 'text-red-600 font-bold' : 'font-medium'}>
+                                {usedHours}h {usedMins}m
+                              </span>
+                              {isOverLimit && <span className="text-xs text-red-600 block">Limit exceeded</span>}
+                            </td>
+                            <td className="p-3 text-right">
+                              <input
+                                type="number"
+                                min="0"
+                                value={limitInput[u.userId] || ''}
+                                onChange={(e) => setLimitInput({ ...limitInput, [u.userId]: e.target.value })}
+                                placeholder="Unlimited"
+                                className="w-20 text-right text-sm border rounded px-2 py-1 bg-background"
+                                disabled={u.role === 'MAIN_ADMIN'}
+                              />
+                              {u.role === 'MAIN_ADMIN' && <span className="text-xs text-muted-foreground block">No limit</span>}
+                            </td>
+                            <td className="p-3 text-center">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handleSaveLimit(u.userId)}
+                                disabled={u.role === 'MAIN_ADMIN'}
+                                className="text-xs h-7"
+                              >
+                                Save
+                              </Button>
+                            </td>
+                          </tr>
+                        )
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
