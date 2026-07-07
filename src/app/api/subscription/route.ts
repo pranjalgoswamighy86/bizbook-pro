@@ -84,12 +84,24 @@ export async function POST(req: NextRequest) {
       const access = await requireAuthAndTenant(req, tenantId)
       if (access instanceof NextResponse) return access
 
-      let subscription = await db.subscription.findUnique({
-        where: { tenantId },
+      // v6.10: TENANT-LEVEL WALLET — find the OWNER's subscription (not this company's)
+      // The tenant (owner) has ONE wallet. All companies read from the SAME wallet.
+      // If user is in Company B, we find the OWNER's original company (Company A)
+      // and read the subscription from THERE.
+      const ownerUserTenants = await db.userTenant.findMany({
+        where: { userId: access.userId, role: 'MAIN_ADMIN', isOwner: true },
+        select: { tenantId: true },
+      })
+      const allOwnerTenantIds = ownerUserTenants.map(ut => ut.tenantId)
+
+      // v6.10: Find subscription from ANY of the owner's companies
+      // Use the FIRST one that has a subscription (this is the "wallet")
+      let subscription = await db.subscription.findFirst({
+        where: { tenantId: { in: allOwnerTenantIds.length > 0 ? allOwnerTenantIds : [tenantId] } },
         include: { recharges: { orderBy: { createdAt: 'desc' }, take: 10 } },
       })
 
-      // If no subscription exists, create a free tier one
+      // If no subscription exists, create ONE for this tenant (the wallet)
       if (!subscription) {
         const totalUsers = await db.user.count()
         const freeHours = getFreeTierHours(totalUsers)
@@ -97,10 +109,10 @@ export async function POST(req: NextRequest) {
 
         subscription = await db.subscription.create({
           data: {
-            tenantId,
+            tenantId, // Create on current company, but all companies read from it
             planHours: freeHours,
             planName: `${freeHours}Hrs Free Plan`,
-            mrp: 0, // Free
+            mrp: 0,
             discountPercent: 100,
             discountAmount: 0,
             totalSeconds: freeHours * 3600,
@@ -116,24 +128,20 @@ export async function POST(req: NextRequest) {
           include: { recharges: true },
         })
 
-        console.log(`[SUBSCRIPTION] Created free tier (${freeHours}Hrs) for tenant ${tenantId}`)
+        console.log(`[SUBSCRIPTION] Created free tier (${freeHours}Hrs) — TENANT WALLET for tenant ${tenantId}`)
       }
 
+      // v6.10: The wallet is the subscription we just found.
+      // ALL companies see the SAME remainingSeconds from this wallet.
+      // No per-company splitting. No summing. Just ONE number.
+      const walletRemainingSeconds = subscription.remainingSeconds
+      const walletStatus = subscription.status
+
       // v6.6: Count ACTUAL non-view-only users GLOBALLY across ALL companies
-      // owned by the same user. The first 3 IDs are free. Any additional IDs
-      // incur 15% surcharge on recharge.
+      // (reuse allOwnerTenantIds from the wallet lookup above)
       const { rawDb } = await import('@/lib/db-soft-delete')
 
-      // v6.6: Find ALL companies owned by this user
-      const ownerUserTenants = await db.userTenant.findMany({
-        where: { userId: access.userId, role: 'MAIN_ADMIN', isOwner: true },
-        select: { tenantId: true },
-      })
-      const allOwnerTenantIds = ownerUserTenants.map(ut => ut.tenantId)
-
       // Count ALL UNIQUE non-view-only users across ALL companies
-      // v6.9: Count UNIQUE userIds — the main admin appears in UserTenant
-      // for each company, but should only be counted ONCE.
       const allNonViewUserTenants = await rawDb.userTenant.findMany({
         where: {
           tenantId: { in: allOwnerTenantIds.length > 0 ? allOwnerTenantIds : [tenantId] },
@@ -147,27 +155,16 @@ export async function POST(req: NextRequest) {
       const actualExtraIds = Math.max(0, actualNonViewOnlyCount - DEFAULT_NON_VIEW_ONLY_USERS)
       const hasExtraUsers = actualNonViewOnlyCount > DEFAULT_NON_VIEW_ONLY_USERS
 
-      // v6.9.1: Calculate POOLED hours across ALL companies owned by this user
-      const allSubsForPooling = await db.subscription.findMany({
-        where: { tenantId: { in: allOwnerTenantIds.length > 0 ? allOwnerTenantIds : [tenantId] } },
-        select: { remainingSeconds: true, status: true },
-      })
-      const pooledRemainingSeconds = allSubsForPooling.reduce((sum, sub) => sum + sub.remainingSeconds, 0)
-      const anyActive = allSubsForPooling.some(s => s.status !== 'CONVERTED_TO_VIEW_ONLY')
-      const pooledStatus = pooledRemainingSeconds > 0 ? 'ACTIVE' : 'CONVERTED_TO_VIEW_ONLY'
-
       return NextResponse.json({
         subscription: {
           id: subscription.id,
           planHours: subscription.planHours,
           planName: subscription.planName,
-          // v6.9.1: Show POOLED hours (across all companies), not per-company
-          remainingHours: Math.floor(pooledRemainingSeconds / 3600),
-          remainingMinutes: Math.floor((pooledRemainingSeconds % 3600) / 60),
-          remainingSeconds: pooledRemainingSeconds,
-          pooledRemainingSeconds: pooledRemainingSeconds,
-          pooledRemainingHours: Math.floor(pooledRemainingSeconds / 3600),
-          status: pooledStatus,
+          // v6.10: ALL companies see the SAME wallet balance
+          remainingHours: Math.floor(walletRemainingSeconds / 3600),
+          remainingMinutes: Math.floor((walletRemainingSeconds % 3600) / 60),
+          remainingSeconds: walletRemainingSeconds,
+          status: walletStatus,
           isFreeTier: subscription.isFreeTier,
           freeTierHours: subscription.freeTierHours,
           mainAdminHours: subscription.mainAdminHours,
@@ -176,11 +173,9 @@ export async function POST(req: NextRequest) {
           viewOnlyHours: subscription.viewOnlyHours,
           startDate: subscription.startDate.toISOString(),
           endDate: subscription.endDate?.toISOString() || null,
-          // v4.96: Extra ID info
           extraJuniorAdminSlots: (subscription as any).extraJuniorAdminSlots || 0,
           extraDataEntrySlots: (subscription as any).extraDataEntrySlots || 0,
           maxUsersAllowed: (subscription as any).maxUsersAllowed || null,
-          // v4.160: Actual user counts for surcharge calculation
           actualNonViewOnlyCount,
           actualExtraIds,
           hasExtraUsers,
@@ -227,22 +222,23 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'Invalid plan. Choose from: 50, 100, 200, 500, 1000' }, { status: 400 })
       }
 
-      let subscription = await db.subscription.findUnique({ where: { tenantId } })
-      if (!subscription) {
-        return NextResponse.json({ error: 'No subscription found. Please refresh.' }, { status: 404 })
-      }
-
-      // v6.6: Calculate 15% surcharge based on GLOBAL non-view-only user count
-      // across ALL companies owned by the same user. The first 3 IDs are free.
-      // Any additional IDs incur 15% surcharge on recharge.
-      const { rawDb: rawDb2 } = await import('@/lib/db-soft-delete')
-
-      // v6.6: Find ALL companies owned by this user (global count)
+      // v6.10: Find the TENANT WALLET (not per-company subscription)
+      // The wallet is the first subscription found across ALL owner's companies
       const rechargeOwnerTenants = await db.userTenant.findMany({
         where: { userId: access.userId, role: 'MAIN_ADMIN', isOwner: true },
         select: { tenantId: true },
       })
       const rechargeAllTenantIds = rechargeOwnerTenants.map(ut => ut.tenantId)
+
+      let subscription = await db.subscription.findFirst({
+        where: { tenantId: { in: rechargeAllTenantIds.length > 0 ? rechargeAllTenantIds : [tenantId] } },
+      })
+      if (!subscription) {
+        return NextResponse.json({ error: 'No subscription found. Please refresh.' }, { status: 404 })
+      }
+
+      // v6.6: Calculate 15% surcharge based on GLOBAL non-view-only user count
+      const { rawDb: rawDb2 } = await import('@/lib/db-soft-delete')
 
       // v6.9: Count UNIQUE non-view-only users (not per-company entries)
       const allNonViewUserTenantsRecharge = await rawDb2.userTenant.findMany({
@@ -345,59 +341,50 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ success: true, message: 'View Only users are free' })
       }
 
-      // v6.5: Find ALL tenants owned by this user (pooled hours)
-      const allUserTenants = await db.userTenant.findMany({
-        where: { userId: access.userId },
-        select: { tenantId: true, role: true, isOwner: true },
+      // v6.10: Find the TENANT WALLET (single subscription, not per-company)
+      // The wallet is ONE subscription record. All companies read/write to it.
+      const walletOwnerTenants = await db.userTenant.findMany({
+        where: { userId: access.userId, role: 'MAIN_ADMIN', isOwner: true },
+        select: { tenantId: true },
+      })
+      const walletTenantIds = walletOwnerTenants.map(ut => ut.tenantId)
+
+      const walletSubscription = await db.subscription.findFirst({
+        where: { tenantId: { in: walletTenantIds.length > 0 ? walletTenantIds : [tenantId] } },
       })
 
-      // Get all subscriptions for these tenants
-      const allSubscriptions = await db.subscription.findMany({
-        where: { tenantId: { in: allUserTenants.map(ut => ut.tenantId) } },
-      })
-
-      if (allSubscriptions.length === 0) {
+      if (!walletSubscription) {
         return NextResponse.json({ error: 'No subscription found' }, { status: 404 })
       }
 
-      // v6.5: Calculate POOLED remaining seconds across all companies
-      const pooledRemaining = allSubscriptions.reduce((sum, sub) => sum + sub.remainingSeconds, 0)
-      const newPooledRemaining = Math.max(0, pooledRemaining - secondsUsed)
-      const wasAnyActive = allSubscriptions.some(s => s.status !== 'CONVERTED_TO_VIEW_ONLY')
-      const isNowExhausted = newPooledRemaining === 0
+      // v6.10: Deduct from the SINGLE wallet (not per-company)
+      const walletRemaining = walletSubscription.remainingSeconds
+      const newRemaining = Math.max(0, walletRemaining - secondsUsed)
+      const wasActive = walletSubscription.status !== 'CONVERTED_TO_VIEW_ONLY'
+      const isNowExhausted = newRemaining === 0
+      const newStatus = isNowExhausted ? 'CONVERTED_TO_VIEW_ONLY' : walletSubscription.status
 
-      // v6.5: Distribute the deduction across all subscriptions proportionally
-      // The deduction is taken from the pool — update all subscriptions
-      const totalSecondsToDeduct = secondsUsed
-      let remainingToDeduct = totalSecondsToDeduct
+      // Update the wallet
+      await db.subscription.update({
+        where: { id: walletSubscription.id },
+        data: {
+          remainingSeconds: newRemaining,
+          status: newStatus,
+        },
+      })
 
-      for (const sub of allSubscriptions) {
-        if (remainingToDeduct <= 0) break
-        const deductFromThis = Math.min(sub.remainingSeconds, remainingToDeduct)
-        const newRemaining = Math.max(0, sub.remainingSeconds - deductFromThis)
-        const newStatus = isNowExhausted ? 'CONVERTED_TO_VIEW_ONLY' : sub.status
+      // Log usage
+      await db.usageLog.create({
+        data: {
+          subscriptionId: walletSubscription.id,
+          userId: access.userId,
+          userRole,
+          secondsUsed,
+          remainingAfter: newRemaining,
+        },
+      })
 
-        await db.subscription.update({
-          where: { id: sub.id },
-          data: {
-            remainingSeconds: newRemaining,
-            status: newStatus,
-          },
-        })
-
-        // Log usage for each subscription
-        await db.usageLog.create({
-          data: {
-            subscriptionId: sub.id,
-            userId: access.userId,
-            userRole,
-            secondsUsed: deductFromThis,
-            remainingAfter: newRemaining,
-          },
-        })
-
-        remainingToDeduct -= deductFromThis
-      }
+      console.log(`[WALLET] Tenant used ${secondsUsed}s. Wallet: ${walletRemaining} → ${newRemaining}`)
 
       // v6.5: Check usage limit (maxSecondsPerMonth) for this user in this tenant
       const userTenant = await db.userTenant.findUnique({
@@ -428,58 +415,46 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // v6.9: Auto-convert non-VIEW_ONLY users to VIEW_ONLY when pooled hours exhausted
-      // EXCEPT the owner (isOwner: true) — the owner stays MAIN_ADMIN even when hours expire.
-      // The owner's User.role is downgraded to VIEW_ONLY (for middleware checks) but
-      // their UserTenant.role stays MAIN_ADMIN (for company access).
-      if (isNowExhausted && wasAnyActive) {
-        console.log(`[SUBSCRIPTION] Pooled hours exhausted for user ${access.userId}. Auto-converting non-owner users to VIEW_ONLY.`)
-        for (const ut of allUserTenants) {
-          // v6.9: Convert ALL non-view users EXCEPT the owner to VIEW_ONLY
-          // The owner keeps their role but the User.role is set to VIEW_ONLY
-          // for middleware/hour-tracking purposes
+      // v6.10: Auto-convert when WALLET is exhausted
+      if (isNowExhausted && wasActive) {
+        console.log(`[WALLET] Hours exhausted for user ${access.userId}. Auto-converting non-owner users to VIEW_ONLY.`)
+        // Convert across ALL companies owned by this user
+        for (const wt of walletOwnerTenants) {
           const usersToConvert = await db.userTenant.findMany({
             where: {
-              tenantId: ut.tenantId,
+              tenantId: wt.tenantId,
               role: { not: 'VIEW_ONLY' },
-              isOwner: false, // v6.9: Don't convert the owner
+              isOwner: false,
             },
             select: { userId: true },
           })
 
-          // Update UserTenant roles
           await db.userTenant.updateMany({
             where: {
-              tenantId: ut.tenantId,
+              tenantId: wt.tenantId,
               role: { not: 'VIEW_ONLY' },
               isOwner: false,
             },
             data: { role: 'VIEW_ONLY' },
           })
 
-          // Update User roles for middleware
           if (usersToConvert.length > 0) {
             await db.user.updateMany({
-              where: {
-                id: { in: usersToConvert.map(u => u.userId) },
-              },
+              where: { id: { in: usersToConvert.map(u => u.userId) } },
               data: { role: 'VIEW_ONLY' },
             })
           }
 
-          // v6.9: The owner's User.role is set to VIEW_ONLY (for hour tracking)
-          // but their UserTenant.role stays MAIN_ADMIN (for company access)
+          // Owner: User.role = VIEW_ONLY, UserTenant.role stays MAIN_ADMIN
           const owner = await db.userTenant.findFirst({
-            where: { tenantId: ut.tenantId, isOwner: true },
+            where: { tenantId: wt.tenantId, isOwner: true },
             select: { userId: true },
           })
           if (owner) {
             await db.user.update({
               where: { id: owner.userId },
-              data: { role: 'VIEW_ONLY' }, // User.role = VIEW_ONLY for middleware
+              data: { role: 'VIEW_ONLY' },
             })
-            // UserTenant.role stays MAIN_ADMIN — owner retains full access
-            console.log(`[SUBSCRIPTION] Owner ${owner.userId} User.role set to VIEW_ONLY (hours exhausted), UserTenant.role stays MAIN_ADMIN`)
           }
         }
         // Audit log the auto-conversion
@@ -499,9 +474,10 @@ export async function POST(req: NextRequest) {
 
       return NextResponse.json({
         success: true,
-        pooledRemainingSeconds: newPooledRemaining,
-        pooledRemainingHours: Math.floor(newPooledRemaining / 3600),
-        remainingSeconds: newPooledRemaining,
+        remainingSeconds: newRemaining,
+        remainingHours: Math.floor(newRemaining / 3600),
+        status: newStatus,
+        autoConverted: isNowExhausted && wasActive,
       })
     }
 
