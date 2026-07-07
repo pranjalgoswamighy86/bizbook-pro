@@ -20,7 +20,7 @@
  */
 
 import { useState, useEffect, useRef } from 'react'
-import { Download, Monitor, Apple, Terminal, X } from 'lucide-react'
+import { Download, Monitor, Apple, Terminal, X, ChevronDown } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
 interface BeforeInstallPromptEvent extends Event {
@@ -65,6 +65,8 @@ const PLATFORM_INFO = {
 
 export function DownloadForDesktop() {
   const [showModal, setShowModal] = useState(false)
+  const [showGuide, setShowGuide] = useState(false)
+  const [selectedPlatform, setSelectedPlatform] = useState<Platform | null>(null)
   const [platform, setPlatform] = useState<Platform>('unknown')
   const [isDesktop, setIsDesktop] = useState(false)
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null)
@@ -106,18 +108,23 @@ export function DownloadForDesktop() {
   if (!isDesktop) return null
 
   const handleDownload = (plat: Platform) => {
-    // Route to the download API which serves the installer file
-    // For Windows/Mac, redirect to GitHub Releases (built via CI)
-    // For Linux, serve the AppImage from the server
+    // v6.13: Show installation guide first, then proceed to download
+    setSelectedPlatform(plat)
+    setShowGuide(true)
+  }
+
+  const handleProceedToDownload = () => {
+    if (!selectedPlatform) return
     const baseUrl = typeof window !== 'undefined' ? window.location.origin : ''
-    if (plat === 'linux') {
-      // Linux AppImage is served directly from the server
+    if (selectedPlatform === 'linux') {
       window.open(`${baseUrl}/api/desktop-download?platform=linux`, '_blank')
     } else {
       // Windows .exe and Mac .dmg are hosted on GitHub Releases
       window.open('https://github.com/pranjalgoswamighy86/bizbook-pro/releases/latest', '_blank')
     }
+    setShowGuide(false)
     setShowModal(false)
+    setSelectedPlatform(null)
   }
 
   const handlePWAInstall = async () => {
@@ -223,6 +230,105 @@ export function DownloadForDesktop() {
                 <li>Offline mode with auto-sync</li>
                 <li>Auto-detects thermal vs A4 printer</li>
               </ul>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* v6.13: Installation Guide Modal — shown after platform selection */}
+      {showGuide && selectedPlatform && (
+        <div
+          className="fixed inset-0 z-[300] flex items-start justify-center bg-black/50 p-4 overflow-y-auto"
+          onClick={() => { setShowGuide(false); setSelectedPlatform(null) }}
+        >
+          <div
+            className="bg-card border-2 border-emerald-500 rounded-xl shadow-2xl max-w-2xl w-full p-6 relative mt-8 mb-8 mx-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              onClick={() => { setShowGuide(false); setSelectedPlatform(null) }}
+              className="absolute top-3 right-3 text-muted-foreground hover:text-foreground z-10"
+            >
+              <X className="h-5 w-5" />
+            </button>
+
+            <h2 className="text-lg font-bold mb-2 flex items-center gap-2">
+              <Download className="h-5 w-5 text-emerald-600" />
+              Installation Guide — {PLATFORM_INFO[selectedPlatform].label}
+            </h2>
+            <p className="text-xs text-muted-foreground mb-4">
+              Please read these instructions carefully before downloading. Scroll down to proceed.
+            </p>
+
+            {/* Installation Guide Content */}
+            <div className="prose prose-sm max-w-none text-sm space-y-3 mb-6">
+              <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 rounded-lg p-3">
+                <p className="font-bold text-amber-800 dark:text-amber-200 text-xs uppercase tracking-wide mb-1">⚠️ Important: Unblock Before Running</p>
+                <p className="text-xs text-amber-700 dark:text-amber-300">
+                  Windows blocks downloaded .exe files by default. You MUST unblock the file before running it:
+                </p>
+                <ol className="text-xs text-amber-700 dark:text-amber-300 list-decimal list-inside mt-1 space-y-0.5">
+                  <li>Right-click the downloaded .exe file</li>
+                  <li>Click <strong>Properties</strong></li>
+                  <li>Check the <strong>"Unblock"</strong> checkbox at the bottom</li>
+                  <li>Click <strong>Apply</strong> → <strong>OK</strong></li>
+                </ol>
+              </div>
+
+              <div>
+                <h3 className="font-bold text-sm mb-1">Step 1: Download</h3>
+                <p className="text-xs text-muted-foreground">Click the "Proceed to Download" button at the bottom of this guide. You'll be taken to GitHub Releases. Download the {PLATFORM_INFO[selectedPlatform].ext} file for your platform.</p>
+              </div>
+
+              <div>
+                <h3 className="font-bold text-sm mb-1">Step 2: Unblock & Install</h3>
+                <p className="text-xs text-muted-foreground">
+                  Unblock the file (see yellow box above), then double-click to run. If SmartScreen appears, click <strong>"More info"</strong> → <strong>"Run anyway"</strong>. Follow the setup wizard.
+                </p>
+              </div>
+
+              <div>
+                <h3 className="font-bold text-sm mb-1">Step 3: Launch & Log In</h3>
+                <p className="text-xs text-muted-foreground">
+                  Find "BizBook Pro" in your Start Menu. Launch it and log in with your existing email and password.
+                </p>
+              </div>
+
+              <div>
+                <h3 className="font-bold text-sm mb-1">Step 4: Printer Setup</h3>
+                <p className="text-xs text-muted-foreground">
+                  For thermal printers: Set your printer as the default in Windows Settings. In BizBook Pro, go to any Sale → click Print → select your thermal printer → change paper size to 58mm (or Roll Paper) → click Print.
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  For A4 printers: Just click Print — the layout adapts automatically.
+                </p>
+              </div>
+
+              <div className="bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900 rounded-lg p-3">
+                <p className="font-bold text-blue-800 dark:text-blue-200 text-xs uppercase tracking-wide mb-1">💡 Did You Know?</p>
+                <ul className="text-xs text-blue-700 dark:text-blue-300 list-disc list-inside space-y-0.5">
+                  <li>Your data is synced with the cloud — no data loss on reinstall</li>
+                  <li>The desktop app updates automatically when we push new features</li>
+                  <li>Press F1 inside the app for AI Support Chat</li>
+                </ul>
+              </div>
+            </div>
+
+            {/* Proceed to Download Button */}
+            <div className="border-t pt-4 flex flex-col items-center gap-2">
+              <button
+                onClick={handleProceedToDownload}
+                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 px-6 rounded-lg flex items-center justify-center gap-2 transition-colors text-sm"
+              >
+                <Download className="h-4 w-4" />
+                Proceed to Download — {PLATFORM_INFO[selectedPlatform].label} ({PLATFORM_INFO[selectedPlatform].ext})
+              </button>
+              <button
+                onClick={() => { setShowGuide(false); setSelectedPlatform(null) }}
+                className="text-xs text-muted-foreground hover:text-foreground"
+              >
+                Cancel
+              </button>
             </div>
           </div>
         </div>
