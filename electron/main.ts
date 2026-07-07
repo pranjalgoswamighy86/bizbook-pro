@@ -144,21 +144,43 @@ function createWindow() {
   // Initial load attempt (with small delay to let server start in dev mode)
   setTimeout(tryLoadUrl, isDev ? 2000 : 500)
 
-  // v5.4: HARD DENY all new windows — no exceptions
-  // This is the critical fix for the window spawn loop crash.
-  // ALL window.open() calls from the web app are blocked.
-  // Internal navigation happens in the same window.
-  // External links open in the user's default browser.
+  // v6.3: Allow print preview windows (about:blank) but block everything else
+  // This fixes the "print preview not supported" issue in Electron.
+  // The web app calls window.open('', '_blank') to show print preview.
+  // We allow about:blank windows so the preview can display.
+  // All other external URLs open in the user's default browser.
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    console.log('[Window Open Blocked]', url)
-    // Allow internal navigation (Railway app + localhost dev)
+    console.log('[Window Open Handler]', url)
+
+    // ALLOW about:blank windows (used by print preview)
+    if (url === 'about:blank' || url === '') {
+      console.log('[Window Open] Allowed: about:blank (print preview)')
+      return {
+        action: 'allow',
+        overrideBrowserWindowOptions: {
+          width: 900,
+          height: 700,
+          title: 'Print Preview — BizBook Pro',
+          webPreferences: {
+            contextIsolation: true,
+          },
+        }
+      }
+    }
+
+    // ALLOW internal navigation (Railway app + localhost dev)
     const isInternal = url.startsWith('http://localhost') ||
                        url.startsWith('https://localhost') ||
                        url.startsWith('http://127.0.0.1') ||
                        url.includes('carefree-success-production-7766.up.railway.app')
-    if (!isInternal) {
-      shell.openExternal(url).catch(() => {})
+    if (isInternal) {
+      console.log('[Window Open] Allowed: internal URL')
+      return { action: 'allow' }
     }
+
+    // DENY everything else — open in external browser
+    console.log('[Window Open] Blocked: external URL → opening in browser')
+    shell.openExternal(url).catch(() => {})
     return { action: 'deny' }
   })
 
@@ -773,13 +795,27 @@ app.on('before-quit', () => {
   }
 })
 
-// v5.4: Global window spawn prevention — deny ALL new windows on ALL web contents
+// v6.3: Global window handler — allow about:blank (print preview), block externals
 app.on('web-contents-created', (_, contents) => {
   contents.setWindowOpenHandler(({ url }) => {
-    console.log('[Global Window Open Blocked]', url)
-    if (!url.startsWith('http://localhost') && !url.startsWith('https://localhost') && !url.startsWith('http://127.0.0.1')) {
-      shell.openExternal(url).catch(() => {})
+    console.log('[Global Window Open Handler]', url)
+
+    // ALLOW about:blank (used by print preview)
+    if (url === 'about:blank' || url === '') {
+      return { action: 'allow' }
     }
+
+    // ALLOW internal URLs
+    const isInternal = url.startsWith('http://localhost') ||
+                       url.startsWith('https://localhost') ||
+                       url.startsWith('http://127.0.0.1') ||
+                       url.includes('carefree-success-production-7766.up.railway.app')
+    if (isInternal) {
+      return { action: 'allow' }
+    }
+
+    // DENY everything else
+    shell.openExternal(url).catch(() => {})
     return { action: 'deny' }
   })
 })
