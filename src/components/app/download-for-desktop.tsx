@@ -153,12 +153,14 @@ export function DownloadForDesktop() {
 
       {showModal && (
         <div
-          className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 p-4"
+          className="fixed inset-0 z-[9998] flex items-center justify-center bg-black/50 p-4"
+          style={{ zIndex: 9998 }}
           onClick={() => setShowModal(false)}
         >
           <div
             ref={modalRef}
             className="bg-card border-2 border-emerald-500 rounded-xl shadow-2xl max-w-lg w-full p-6 relative mx-auto my-auto max-h-[85vh] overflow-y-auto"
+            style={{ zIndex: 9999, position: 'relative' }}
             onClick={(e) => e.stopPropagation()}
           >
             <button
@@ -238,11 +240,13 @@ export function DownloadForDesktop() {
       {/* v6.13: Installation Guide Modal — shown after platform selection */}
       {showGuide && selectedPlatform && (
         <div
-          className="fixed inset-0 z-[300] flex items-start justify-center bg-black/50 p-4 overflow-y-auto"
+          className="fixed inset-0 z-[9999] flex items-start justify-center bg-black/60 p-4 overflow-y-auto"
+          style={{ zIndex: 9999 }}
           onClick={() => { setShowGuide(false); setSelectedPlatform(null) }}
         >
           <div
             className="bg-card border-2 border-emerald-500 rounded-xl shadow-2xl max-w-2xl w-full p-6 relative mt-8 mb-8 mx-auto"
+            style={{ zIndex: 10000, position: 'relative' }}
             onClick={(e) => e.stopPropagation()}
           >
             <button
