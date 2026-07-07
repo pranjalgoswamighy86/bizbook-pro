@@ -12,14 +12,25 @@ export async function POST(req: NextRequest) {
     }
 
     // List audit logs with filters
+    // v6.5: MAIN_ADMIN sees ALL logs. JUNIOR_ADMIN sees only DATA_ENTRY users' logs.
     if (action === 'list') {
       // ---- SECURITY PATCH v1: auth + tenant access ----
-      const access = await requireAuthAndRole(req, tenantId, ['MAIN_ADMIN'])
+      const access = await requireAuthAndRole(req, tenantId, ['MAIN_ADMIN', 'JUNIOR_ADMIN'])
       if (access instanceof NextResponse) return access
       // --------------------------------------------------
 
       const { userId, actionType, entityType, startDate, endDate, page = 1, pageSize = 50 } = body
       const where: Record<string, unknown> = { tenantId }
+
+      // v6.5: JUNIOR_ADMIN can only see DATA_ENTRY users' logs
+      if (access.role === 'JUNIOR_ADMIN') {
+        // Find all DATA_ENTRY user IDs in this tenant
+        const dataEntryUsers = await db.userTenant.findMany({
+          where: { tenantId, role: 'DATA_ENTRY' },
+          select: { userId: true },
+        })
+        where.userId = { in: dataEntryUsers.map(u => u.userId) }
+      }
 
       if (userId) where.userId = userId
       if (actionType) where.action = actionType

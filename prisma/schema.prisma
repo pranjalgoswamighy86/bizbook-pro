@@ -91,6 +91,11 @@ model UserTenant {
   isOwner   Boolean  @default(false)          // Did this user create the company?
   createdAt DateTime @default(now())
 
+  // v6.5: Usage limit settings (set by MAIN_ADMIN)
+  maxSecondsPerMonth  Int?     // Monthly hour limit in seconds (null = unlimited)
+  limitSetBy          String?  // User ID of who set the limit
+  limitSetAt          DateTime? // When the limit was set
+
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
@@ -533,12 +538,14 @@ model AuditLog {
   tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   userId      String?
   userName    String?
+  userRole    String?  // v6.5: Role of the user when they performed the action
   action      String   // CREATE, UPDATE, DELETE
   entityType  String   // Sale, Purchase, InventoryItem, etc.
   entityId    String?
   entityName  String?
   changes     String?  // JSON string with before/after values
   ipAddress   String?
+  secondsUsed Int?     // v6.5: Seconds consumed by this action (for activity tracking)
   createdAt   DateTime @default(now())
 }
 

@@ -210,6 +210,98 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ payments })
     }
 
+    // ============================================================
+    // v6.5: SET USAGE LIMIT — Main admin sets monthly hour limit for a user
+    // ============================================================
+    if (action === 'set-usage-limit') {
+      const access = await requireAuthAndRole(req, tenantId, ['MAIN_ADMIN'])
+      if (access instanceof NextResponse) return access
+
+      const { targetUserId, maxSecondsPerMonth } = body
+      if (!targetUserId) {
+        return NextResponse.json({ error: 'targetUserId is required' }, { status: 400 })
+      }
+
+      // Validate that target user is in this tenant
+      const targetUserTenant = await db.userTenant.findUnique({
+        where: { userId_tenantId: { userId: targetUserId, tenantId } },
+      })
+      if (!targetUserTenant) {
+        return NextResponse.json({ error: 'User not found in this company' }, { status: 404 })
+      }
+
+      // MAIN_ADMIN can set limits for all non-view users
+      // JUNIOR_ADMIN can only set limits for DATA_ENTRY users (but this route requires MAIN_ADMIN)
+      await db.userTenant.update({
+        where: { userId_tenantId: { userId: targetUserId, tenantId } },
+        data: {
+          maxSecondsPerMonth: maxSecondsPerMonth || null, // null = unlimited
+          limitSetBy: access.userId,
+          limitSetAt: new Date(),
+        },
+      })
+
+      await writeAuditLog({
+        tenantId,
+        userId: access.userId,
+        userName: access.user.name,
+        action: 'UPDATE',
+        entityType: 'UserLimit',
+        entityId: targetUserId,
+        entityName: `Set limit to ${maxSecondsPerMonth ? Math.floor(maxSecondsPerMonth / 3600) + 'h' : 'unlimited'}`,
+      })
+
+      return NextResponse.json({ success: true, message: 'Usage limit updated' })
+    }
+
+    // ============================================================
+    // v6.5: GET USAGE LIMITS — Get all users with their limits
+    // ============================================================
+    if (action === 'get-usage-limits') {
+      const access = await requireAuthAndRole(req, tenantId, ['MAIN_ADMIN', 'JUNIOR_ADMIN'])
+      if (access instanceof NextResponse) return access
+
+      // JUNIOR_ADMIN can only see DATA_ENTRY users' limits
+      // MAIN_ADMIN can see all users' limits
+      const roleFilter = access.role === 'JUNIOR_ADMIN'
+        ? { role: 'DATA_ENTRY' as const }
+        : {}
+
+      const userTenants = await db.userTenant.findMany({
+        where: { tenantId, ...roleFilter },
+        include: { user: true },
+      })
+
+      // Get monthly usage for each user
+      const monthStart = new Date()
+      monthStart.setDate(1)
+      monthStart.setHours(0, 0, 0, 0)
+
+      const usersWithUsage = await Promise.all(
+        userTenants.map(async (ut) => {
+          const usage = await db.usageLog.aggregate({
+            where: {
+              userId: ut.userId,
+              loggedAt: { gte: monthStart },
+            },
+            _sum: { secondsUsed: true },
+          })
+          return {
+            userId: ut.userId,
+            userName: ut.user.name,
+            email: ut.user.email,
+            role: ut.role,
+            maxSecondsPerMonth: ut.maxSecondsPerMonth,
+            limitSetBy: ut.limitSetBy,
+            limitSetAt: ut.limitSetAt,
+            usedThisMonth: usage._sum.secondsUsed || 0,
+          }
+        })
+      )
+
+      return NextResponse.json({ users: usersWithUsage })
+    }
+
     return NextResponse.json({ error: 'Invalid action' }, { status: 400 })
   } catch (error) {
     console.error('Staff error:', error)

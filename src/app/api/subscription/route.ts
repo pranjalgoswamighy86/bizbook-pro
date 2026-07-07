@@ -280,8 +280,13 @@ export async function POST(req: NextRequest) {
     }
 
     // ============================================================
-    // LOG-USAGE — deduct seconds from subscription (called by middleware)
+    // LOG-USAGE — deduct seconds from POOLED subscription across ALL companies
     // ============================================================
+    // v6.5: Hours are now POOLED across all companies owned by the same user.
+    // When user A uses hours in Company X, the deduction applies to ALL
+    // companies where user A is the owner (MAIN_ADMIN + isOwner).
+    // This implements the "universal admin" model where one user's hours
+    // are shared across all their companies.
     if (action === 'log-usage') {
       const access = await requireAuthAndTenant(req, tenantId)
       if (access instanceof NextResponse) return access
@@ -291,102 +296,127 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'secondsUsed must be positive' }, { status: 400 })
       }
 
-      const subscription = await db.subscription.findUnique({ where: { tenantId } })
-      if (!subscription) {
-        return NextResponse.json({ error: 'No subscription' }, { status: 404 })
-      }
-
       // Only deduct from non-VIEW_ONLY users
       if (userRole === 'VIEW_ONLY') {
         return NextResponse.json({ success: true, message: 'View Only users are free' })
       }
 
-      const newRemaining = Math.max(0, subscription.remainingSeconds - secondsUsed)
-      const wasActive = subscription.status !== 'CONVERTED_TO_VIEW_ONLY'
-      const isNowExhausted = newRemaining === 0
-      const newStatus = isNowExhausted ? 'CONVERTED_TO_VIEW_ONLY' : subscription.status
-
-      await db.subscription.update({
-        where: { id: subscription.id },
-        data: {
-          remainingSeconds: newRemaining,
-          status: newStatus,
-        },
+      // v6.5: Find ALL tenants owned by this user (pooled hours)
+      const allUserTenants = await db.userTenant.findMany({
+        where: { userId: access.userId },
+        select: { tenantId: true, role: true, isOwner: true },
       })
 
-      await db.usageLog.create({
-        data: {
-          subscriptionId: subscription.id,
-          userId: access.userId,
-          userRole,
-          secondsUsed,
-          remainingAfter: newRemaining,
-        },
+      // Get all subscriptions for these tenants
+      const allSubscriptions = await db.subscription.findMany({
+        where: { tenantId: { in: allUserTenants.map(ut => ut.tenantId) } },
       })
 
-      // v4.96: Auto-convert all non-VIEW_ONLY users to VIEW_ONLY when hours exhausted
-      if (isNowExhausted && wasActive) {
-        console.log(`[SUBSCRIPTION] Hours exhausted for tenant ${tenantId}. Auto-converting all users to VIEW_ONLY.`)
-        await db.user.updateMany({
-          where: {
-            tenantId,
-            role: { not: 'VIEW_ONLY' },
-            isDeleted: false,
+      if (allSubscriptions.length === 0) {
+        return NextResponse.json({ error: 'No subscription found' }, { status: 404 })
+      }
+
+      // v6.5: Calculate POOLED remaining seconds across all companies
+      const pooledRemaining = allSubscriptions.reduce((sum, sub) => sum + sub.remainingSeconds, 0)
+      const newPooledRemaining = Math.max(0, pooledRemaining - secondsUsed)
+      const wasAnyActive = allSubscriptions.some(s => s.status !== 'CONVERTED_TO_VIEW_ONLY')
+      const isNowExhausted = newPooledRemaining === 0
+
+      // v6.5: Distribute the deduction across all subscriptions proportionally
+      // The deduction is taken from the pool — update all subscriptions
+      const totalSecondsToDeduct = secondsUsed
+      let remainingToDeduct = totalSecondsToDeduct
+
+      for (const sub of allSubscriptions) {
+        if (remainingToDeduct <= 0) break
+        const deductFromThis = Math.min(sub.remainingSeconds, remainingToDeduct)
+        const newRemaining = Math.max(0, sub.remainingSeconds - deductFromThis)
+        const newStatus = isNowExhausted ? 'CONVERTED_TO_VIEW_ONLY' : sub.status
+
+        await db.subscription.update({
+          where: { id: sub.id },
+          data: {
+            remainingSeconds: newRemaining,
+            status: newStatus,
           },
-          data: { role: 'VIEW_ONLY' },
         })
+
+        // Log usage for each subscription
+        await db.usageLog.create({
+          data: {
+            subscriptionId: sub.id,
+            userId: access.userId,
+            userRole,
+            secondsUsed: deductFromThis,
+            remainingAfter: newRemaining,
+          },
+        })
+
+        remainingToDeduct -= deductFromThis
+      }
+
+      // v6.5: Check usage limit (maxSecondsPerMonth) for this user in this tenant
+      const userTenant = await db.userTenant.findUnique({
+        where: { userId_tenantId: { userId: access.userId, tenantId } },
+      })
+      if (userTenant?.maxSecondsPerMonth) {
+        // Check how much this user has used this month
+        const monthStart = new Date()
+        monthStart.setDate(1)
+        monthStart.setHours(0, 0, 0, 0)
+
+        const monthlyUsage = await db.usageLog.aggregate({
+          where: {
+            userId: access.userId,
+            loggedAt: { gte: monthStart },
+          },
+          _sum: { secondsUsed: true },
+        })
+
+        const totalUsedThisMonth = monthlyUsage._sum.secondsUsed || 0
+        if (totalUsedThisMonth >= userTenant.maxSecondsPerMonth) {
+          return NextResponse.json({
+            error: `Monthly usage limit reached (${Math.floor(userTenant.maxSecondsPerMonth / 3600)} hours). Contact your administrator.`,
+            code: 'MONTHLY_LIMIT_REACHED',
+            usedSeconds: totalUsedThisMonth,
+            maxSeconds: userTenant.maxSecondsPerMonth,
+          }, { status: 403 })
+        }
+      }
+
+      // v6.5: Auto-convert all non-VIEW_ONLY users to VIEW_ONLY when pooled hours exhausted
+      if (isNowExhausted && wasAnyActive) {
+        console.log(`[SUBSCRIPTION] Pooled hours exhausted for user ${access.userId}. Auto-converting all users to VIEW_ONLY.`)
+        for (const ut of allUserTenants) {
+          await db.user.updateMany({
+            where: {
+              tenantId: ut.tenantId,
+              role: { not: 'VIEW_ONLY' },
+              isDeleted: false,
+            },
+            data: { role: 'VIEW_ONLY' },
+          })
+        }
         // Audit log the auto-conversion
         await db.auditLog.create({
           data: {
             tenantId,
             userId: access.userId,
             userName: access.user.name,
+            userRole,
             action: 'UPDATE',
             entityType: 'Subscription',
-            entityId: subscription.id,
-            entityName: 'Auto-conversion to View Only',
-            changes: JSON.stringify({
-              reason: 'Hour quota exhausted — all users converted to VIEW_ONLY',
-              remainingSeconds: 0,
-              timestamp: new Date().toISOString(),
-            }),
+            entityId: 'pooled',
+            entityName: 'Auto-converted to VIEW_ONLY (pooled hours exhausted)',
           },
         })
       }
 
-      // v4.96: Determine which notification threshold was crossed
-      const thresholds = [
-        { seconds: 7200, label: '2h' },
-        { seconds: 3600, label: '1h' },
-        { seconds: 1800, label: '30min' },
-        { seconds: 900, label: '15min' },
-        { seconds: 600, label: '10min' },
-        { seconds: 300, label: '5min' },
-        { seconds: 240, label: '4min' },
-        { seconds: 180, label: '3min' },
-        { seconds: 120, label: '2min' },
-        { seconds: 60, label: '1min' },
-      ]
-      let notification: { type: string; threshold: string; remainingSeconds: number; message: string } | null = null
-      for (const threshold of thresholds) {
-        if (subscription.remainingSeconds > threshold.seconds && newRemaining <= threshold.seconds) {
-          notification = {
-            type: 'LOW_HOURS_WARNING',
-            threshold: threshold.label,
-            remainingSeconds: newRemaining,
-            message: `Warning: ${threshold.label} remaining in your subscription. Users will be converted to View Only when hours run out.`,
-          }
-          break
-        }
-      }
-
       return NextResponse.json({
         success: true,
-        remainingSeconds: newRemaining,
-        remainingHours: Math.floor(newRemaining / 3600),
-        status: newStatus,
-        autoConverted: isNowExhausted && wasActive,
-        notification,
+        pooledRemainingSeconds: newPooledRemaining,
+        pooledRemainingHours: Math.floor(newPooledRemaining / 3600),
+        remainingSeconds: newPooledRemaining,
       })
     }
 
