@@ -11,6 +11,7 @@ import { ErrorBoundary } from '@/components/app/error-boundary'
 import { Loader2 } from 'lucide-react'
 import { authFetch } from '@/lib/auth-fetch'
 import { useSubscriptionUsageTracker } from '@/hooks/use-subscription-usage'
+import { useToast } from '@/hooks/use-toast'
 
 // v4.58: Lazy load ALL modules except Dashboard (default view)
 // This reduces initial JS bundle by 60-70% — only the active module's
@@ -103,6 +104,8 @@ function ModuleRouter() {
 
 export default function Home() {
   const { isAuthenticated, currentView, logout, user } = useAppStore()
+  const { setView } = useAppStore()
+  const { toast } = useToast()
   useSubscriptionUsageTracker()
   const [hydrated, setHydrated] = useState(false)
 
@@ -179,6 +182,49 @@ export default function Home() {
       events.forEach(e => window.removeEventListener(e, throttledReset))
     }
   }, [hydrated, isAuthenticated, logout])
+
+  // v6.14: Electron menu actions + keyboard shortcuts
+  useEffect(() => {
+    if (!hydrated || !isAuthenticated) return
+    const electronAPI = (window as any).electron
+    if (!electronAPI?.onMenuAction) return
+
+    electronAPI.onMenuAction((action: string) => {
+      console.log('[Electron Menu]', action)
+      switch (action) {
+        case 'new-sale':
+          setView('sales')
+          break
+        case 'new-purchase':
+          setView('purchases')
+          break
+        case 'export-backup':
+          setView('backup')
+          break
+        case 'navigate-dashboard':
+          setView('dashboard')
+          break
+        case 'navigate-sales':
+          setView('sales')
+          break
+        case 'navigate-purchases':
+          setView('purchases')
+          break
+        case 'navigate-inventory':
+          setView('inventory')
+          break
+        case 'navigate-gst':
+          setView('gst-reports')
+          break
+        case 'help-chat':
+          setView('help-support-management')
+          break
+        case 'check-updates':
+          toast({ title: 'Updates', description: 'BizBook Pro updates automatically when you restart the app.' })
+          break
+      }
+    })
+  }, [hydrated, isAuthenticated, setView])
 
   if (!hydrated) {
     return (

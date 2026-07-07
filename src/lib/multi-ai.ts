@@ -164,13 +164,33 @@ export async function analyzeWithAI(
 ): Promise<{ provider: string; result: string }> {
   const providers: AIProvider[] = [];
 
-  if (process.env.DEEPSEEK_API_KEY) providers.push(new DeepSeekProvider());
-  if (process.env.OPENAI_API_KEY) providers.push(new OpenAIProvider());
+  // v6.14: Priority order for user-facing AI features:
+  // 1. Gemini (free tier, reliable, supports vision)
+  // 2. OpenAI (reliable, but costs money)
+  // 3. DeepSeek (cheap, but less reliable)
+  // 4. Anthropic (high quality, but expensive)
+  // ZAI is NOT used for user-facing features (too many rate limit errors)
   if (process.env.GEMINI_API_KEY) providers.push(new GeminiProvider());
+  if (process.env.OPENAI_API_KEY) providers.push(new OpenAIProvider());
+  if (process.env.DEEPSEEK_API_KEY) providers.push(new DeepSeekProvider());
   if (process.env.ANTHROPIC_API_KEY) providers.push(new ClaudeProvider());
 
   if (providers.length === 0) {
-    throw new Error('No AI provider configured. Set DEEPSEEK_API_KEY, OPENAI_API_KEY, or GEMINI_API_KEY.');
+    // v6.14: Fallback to ZAI if no other provider is configured
+    // (ZAI is still used internally for development)
+    try {
+      const { getZaiClient } = await import('@/lib/zai-client')
+      const zai = await getZaiClient()
+      const response = await zai.chat.completions.create({
+        messages: [
+          { role: 'system', content: 'You are a helpful assistant for BizBook Pro accounting software.' },
+          { role: 'user', content: context ? `${context}\n\nQuestion: ${prompt}` : prompt },
+        ],
+      })
+      return { provider: 'ZAI (fallback)', result: response.choices[0]?.message?.content || 'No response' }
+    } catch (zaiErr: any) {
+      throw new Error('No AI provider configured. Set GEMINI_API_KEY (recommended, free) or OPENAI_API_KEY. ZAI fallback also failed: ' + zaiErr.message)
+    }
   }
 
   let lastError: Error | null = null;
