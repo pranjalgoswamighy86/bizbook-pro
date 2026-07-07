@@ -119,11 +119,24 @@ export async function POST(req: NextRequest) {
         console.log(`[SUBSCRIPTION] Created free tier (${freeHours}Hrs) for tenant ${tenantId}`)
       }
 
-      // v4.160: Count ACTUAL non-view-only users for surcharge calculation
-      // Was: only checked maxUsersAllowed (purchased extra IDs) — missed users added directly
+      // v6.6: Count ACTUAL non-view-only users GLOBALLY across ALL companies
+      // owned by the same user. The first 3 IDs are free. Any additional IDs
+      // incur 15% surcharge on recharge.
       const { rawDb } = await import('@/lib/db-soft-delete')
+
+      // v6.6: Find ALL companies owned by this user
+      const ownerUserTenants = await db.userTenant.findMany({
+        where: { userId: access.userId, role: 'MAIN_ADMIN', isOwner: true },
+        select: { tenantId: true },
+      })
+      const allOwnerTenantIds = ownerUserTenants.map(ut => ut.tenantId)
+
+      // Count ALL non-view-only users across ALL companies
       const actualNonViewOnlyCount = await rawDb.userTenant.count({
-        where: { tenantId, role: { notIn: ['VIEW_ONLY'] } },
+        where: {
+          tenantId: { in: allOwnerTenantIds.length > 0 ? allOwnerTenantIds : [tenantId] },
+          role: { notIn: ['VIEW_ONLY'] },
+        },
       })
       const DEFAULT_NON_VIEW_ONLY_USERS = 3
       const actualExtraIds = Math.max(0, actualNonViewOnlyCount - DEFAULT_NON_VIEW_ONLY_USERS)
@@ -202,13 +215,23 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'No subscription found. Please refresh.' }, { status: 404 })
       }
 
-      // v4.130: Calculate 15% surcharge if tenant has extra non-view-only users
-      // v4.160 FIX: Check ACTUAL non-view-only user count, not just maxUsersAllowed
-      // The old code only checked maxUsersAllowed (purchased extra IDs) — missed users
-      // added directly via add-user. Now we count real users in UserTenant table.
+      // v6.6: Calculate 15% surcharge based on GLOBAL non-view-only user count
+      // across ALL companies owned by the same user. The first 3 IDs are free.
+      // Any additional IDs incur 15% surcharge on recharge.
       const { rawDb: rawDb2 } = await import('@/lib/db-soft-delete')
+
+      // v6.6: Find ALL companies owned by this user (global count)
+      const rechargeOwnerTenants = await db.userTenant.findMany({
+        where: { userId: access.userId, role: 'MAIN_ADMIN', isOwner: true },
+        select: { tenantId: true },
+      })
+      const rechargeAllTenantIds = rechargeOwnerTenants.map(ut => ut.tenantId)
+
       const actualNonViewOnlyCountRecharge = await rawDb2.userTenant.count({
-        where: { tenantId, role: { notIn: ['VIEW_ONLY'] } },
+        where: {
+          tenantId: { in: rechargeAllTenantIds.length > 0 ? rechargeAllTenantIds : [tenantId] },
+          role: { notIn: ['VIEW_ONLY'] },
+        },
       })
       const hasExtraUsers = actualNonViewOnlyCountRecharge > DEFAULT_NON_VIEW_ONLY_USERS
       const basePrice = plan.discountAmount // e.g., 150 for 50Hrs plan
@@ -216,7 +239,7 @@ export async function POST(req: NextRequest) {
       const finalPrice = basePrice + surchargeAmount
 
       if (hasExtraUsers) {
-        console.log(`[RECHARGE] Tenant ${tenantId} actualNonViewOnlyUsers=${actualNonViewOnlyCountRecharge} (> ${DEFAULT_NON_VIEW_ONLY_USERS}). Applying 15% surcharge: ₹${basePrice} + ₹${surchargeAmount} = ₹${finalPrice}`)
+        console.log(`[RECHARGE] User ${access.userId} has ${actualNonViewOnlyCountRecharge} non-view-only users globally (> ${DEFAULT_NON_VIEW_ONLY_USERS}). Applying 15% surcharge: ₹${basePrice} + ₹${surchargeAmount} = ₹${finalPrice}`)
       }
 
       // Add recharge seconds to remaining

@@ -888,30 +888,56 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'Email already exists' }, { status: 400 })
       }
 
-      // v4.130: User limit validation — only non-view-only users are counted
-      // View-only users are UNLIMITED and free
+      // v6.6: GLOBAL user limit validation — count non-view users across ALL companies
+      // owned by the same tenant owner. The first 3 IDs are free (1 main admin +
+      // 1 junior admin + 1 data entry). Any additional non-view IDs incur 15% surcharge.
+      // View-only users are UNLIMITED and free.
       const targetRole = role || 'DATA_ENTRY'
       if (targetRole !== 'VIEW_ONLY') {
-        // Get the tenant's max non-view-only users limit
-        const subscription = await db.subscription.findUnique({ where: { tenantId } })
-        const maxUsers = (subscription as any)?.maxUsersAllowed
-        if (maxUsers && maxUsers > 0) {
-          // Count current non-view-only users (MAIN_ADMIN, JUNIOR_ADMIN, DATA_ENTRY)
-          const { rawDb } = await import('@/lib/db-soft-delete')
-          const nonViewOnlyCount = await rawDb.userTenant.count({
-            where: {
-              tenantId,
-              role: { notIn: ['VIEW_ONLY'] },
-            },
-          })
-          if (nonViewOnlyCount >= maxUsers) {
-            return NextResponse.json({
-              error: `User limit reached. This company is allowed ${maxUsers} non-view-only user(s). View-only users are unlimited and free. To add more non-view-only users, the Super Admin must increase the limit in the Super Admin Panel.`,
-              code: 'USER_LIMIT_REACHED',
-              currentCount: nonViewOnlyCount,
-              maxAllowed: maxUsers,
-            }, { status: 403 })
-          }
+        // v6.6: Find ALL companies owned by this user (the main admin adding the user)
+        const allUserTenants = await db.userTenant.findMany({
+          where: { userId: access.userId, role: 'MAIN_ADMIN', isOwner: true },
+          select: { tenantId: true },
+        })
+        const allTenantIds = allUserTenants.map(ut => ut.tenantId)
+
+        // Count ALL non-view-only users across ALL companies
+        const { rawDb } = await import('@/lib/db-soft-delete')
+        const globalNonViewCount = await rawDb.userTenant.count({
+          where: {
+            tenantId: { in: allTenantIds },
+            role: { notIn: ['VIEW_ONLY'] },
+          },
+        })
+
+        // v6.6: Free tier = 3 non-view users (1 main admin + 1 junior admin + 1 data entry)
+        // Any additional non-view user incurs 15% surcharge on subscription/recharge
+        const FREE_NON_VIEW_USERS = 3
+        const isExtraUser = globalNonViewCount >= FREE_NON_VIEW_USERS
+
+        // Check if user has purchased extra slots
+        // Sum maxUsersAllowed across all subscriptions
+        const allSubscriptions = await db.subscription.findMany({
+          where: { tenantId: { in: allTenantIds } },
+          select: { maxUsersAllowed: true, tenantId: true },
+        })
+        const totalMaxAllowed = allSubscriptions.reduce((sum, sub) => sum + (sub.maxUsersAllowed || FREE_NON_VIEW_USERS), 0)
+
+        if (globalNonViewCount >= totalMaxAllowed) {
+          return NextResponse.json({
+            error: `User limit reached. You have ${globalNonViewCount} non-view-only users across all companies. The free tier allows ${FREE_NON_VIEW_USERS} users (1 Main Admin + 1 Junior Admin + 1 Data Entry). To add more users, purchase additional ID slots or recharge with 15% surcharge.`,
+            code: 'USER_LIMIT_REACHED',
+            currentCount: globalNonViewCount,
+            maxAllowed: totalMaxAllowed,
+            isExtraUser,
+            surchargePercent: 15,
+          }, { status: 403 })
+        }
+
+        // v6.6: If this is an extra user (beyond free tier), mark for surcharge
+        // The surcharge is applied on the NEXT recharge — stored as a flag
+        if (isExtraUser) {
+          console.log(`[USER-CREATION] Extra non-view user being added. Global count: ${globalNonViewCount}. 15% surcharge will apply on next recharge.`)
         }
       }
 
