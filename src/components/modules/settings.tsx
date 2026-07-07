@@ -198,7 +198,17 @@ export function SettingsPage() {
       loadUsers() // Refresh users list
     } else {
       const errData = await res.json().catch(() => ({}))
-      toast({ title: errData.error || 'Error adding user', description: errData.error || 'Please check the details and try again.', variant: 'destructive' })
+      // v6.7: Handle payment-required error for extra users
+      if (errData.code === 'USER_LIMIT_REACHED' && errData.requiresPayment) {
+        toast({
+          title: 'Payment Required',
+          description: `You have ${errData.currentCount} users. Free tier allows 3. Purchase additional ID slots for ₹${errData.costPerId} each to add more users.`,
+          variant: 'destructive',
+        })
+        // TODO: Open payment dialog for purchasing extra ID slots
+      } else {
+        toast({ title: errData.error || 'Error adding user', description: errData.error || 'Please check the details and try again.', variant: 'destructive' })
+      }
     }
   }
 

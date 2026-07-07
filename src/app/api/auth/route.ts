@@ -890,8 +890,8 @@ export async function POST(req: NextRequest) {
 
       // v6.6: GLOBAL user limit validation — count non-view users across ALL companies
       // owned by the same tenant owner. The first 3 IDs are free (1 main admin +
-      // 1 junior admin + 1 data entry). Any additional non-view IDs incur 15% surcharge.
-      // View-only users are UNLIMITED and free.
+      // 1 junior admin + 1 data entry). Any additional non-view IDs require payment
+      // of ₹149 per ID. View-only users are UNLIMITED and free.
       const targetRole = role || 'DATA_ENTRY'
       if (targetRole !== 'VIEW_ONLY') {
         // v6.6: Find ALL companies owned by this user (the main admin adding the user)
@@ -910,34 +910,37 @@ export async function POST(req: NextRequest) {
           },
         })
 
-        // v6.6: Free tier = 3 non-view users (1 main admin + 1 junior admin + 1 data entry)
-        // Any additional non-view user incurs 15% surcharge on subscription/recharge
+        // v6.7: Free tier = 3 non-view users GLOBALLY (not per company)
+        // 1 main admin + 1 junior admin + 1 data entry = 3 free IDs
+        // Any additional non-view user REQUIRES payment of ₹149 per ID
         const FREE_NON_VIEW_USERS = 3
-        const isExtraUser = globalNonViewCount >= FREE_NON_VIEW_USERS
 
-        // Check if user has purchased extra slots
-        // Sum maxUsersAllowed across all subscriptions
+        // v6.7: Count PURCHASED extra slots across ALL companies
+        // extraSlots = maxUsersAllowed - FREE_NON_VIEW_USERS (if maxUsersAllowed > 3)
+        // If maxUsersAllowed is null, no extra slots purchased
         const allSubscriptions = await db.subscription.findMany({
           where: { tenantId: { in: allTenantIds } },
-          select: { maxUsersAllowed: true, tenantId: true },
+          select: { maxUsersAllowed: true, extraJuniorAdminSlots: true, extraDataEntrySlots: true },
         })
-        const totalMaxAllowed = allSubscriptions.reduce((sum, sub) => sum + (sub.maxUsersAllowed || FREE_NON_VIEW_USERS), 0)
+        const purchasedExtraSlots = allSubscriptions.reduce((sum, sub) => {
+          const max = sub.maxUsersAllowed || FREE_NON_VIEW_USERS
+          const extra = Math.max(0, max - FREE_NON_VIEW_USERS)
+          return sum + extra + (sub.extraJuniorAdminSlots || 0) + (sub.extraDataEntrySlots || 0)
+        }, 0)
+
+        // v6.7: Total allowed = free tier (3) + purchased extra slots
+        // NOT sum of maxUsersAllowed across companies (that was the bug)
+        const totalMaxAllowed = FREE_NON_VIEW_USERS + purchasedExtraSlots
 
         if (globalNonViewCount >= totalMaxAllowed) {
           return NextResponse.json({
-            error: `User limit reached. You have ${globalNonViewCount} non-view-only users across all companies. The free tier allows ${FREE_NON_VIEW_USERS} users (1 Main Admin + 1 Junior Admin + 1 Data Entry). To add more users, purchase additional ID slots or recharge with 15% surcharge.`,
+            error: `User limit reached. You have ${globalNonViewCount} non-view-only users across all companies. The free tier allows ${FREE_NON_VIEW_USERS} users (1 Main Admin + 1 Junior Admin + 1 Data Entry). To add more users, purchase additional ID slots for ₹149 each.`,
             code: 'USER_LIMIT_REACHED',
             currentCount: globalNonViewCount,
             maxAllowed: totalMaxAllowed,
-            isExtraUser,
-            surchargePercent: 15,
+            requiresPayment: true,
+            costPerId: 149,
           }, { status: 403 })
-        }
-
-        // v6.6: If this is an extra user (beyond free tier), mark for surcharge
-        // The surcharge is applied on the NEXT recharge — stored as a flag
-        if (isExtraUser) {
-          console.log(`[USER-CREATION] Extra non-view user being added. Global count: ${globalNonViewCount}. 15% surcharge will apply on next recharge.`)
         }
       }
 
