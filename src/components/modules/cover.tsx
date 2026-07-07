@@ -44,8 +44,19 @@ export function CoverPage() {
   }, [])
 
   // Login form
-  const [loginEmail, setLoginEmail] = useState('')
+  const [loginEmail, setLoginEmail] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('bizbook-remembered-email') || ''
+    }
+    return ''
+  })
   const [loginPassword, setLoginPassword] = useState('')
+  const [rememberMe, setRememberMe] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('bizbook-remember-me') === 'true'
+    }
+    return false
+  })
 
   // v4.7: 3-Day OTP Gate state (Task 8)
   const [loginRequiresOtp, setLoginRequiresOtp] = useState(false)
@@ -113,6 +124,17 @@ export function CoverPage() {
           setError(data.error || 'Login failed')
         }
         return
+      }
+
+      // v6.4: Save email if "Remember Me" is checked
+      if (typeof window !== 'undefined') {
+        if (rememberMe) {
+          localStorage.setItem('bizbook-remembered-email', loginEmail)
+          localStorage.setItem('bizbook-remember-me', 'true')
+        } else {
+          localStorage.removeItem('bizbook-remembered-email')
+          localStorage.setItem('bizbook-remember-me', 'false')
+        }
       }
 
       // v4.7: Handle 3-Day OTP Gate (Task 8)
@@ -667,6 +689,17 @@ export function CoverPage() {
                       <div>
                         <Label htmlFor="login-pass">Password</Label>
                         <Input id="login-pass" type="password" value={loginPassword} onChange={(e) => setLoginPassword(e.target.value)} required placeholder="Enter password" />
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <label className="flex items-center gap-2 cursor-pointer text-sm text-muted-foreground select-none">
+                          <input
+                            type="checkbox"
+                            checked={rememberMe}
+                            onChange={(e) => setRememberMe(e.target.checked)}
+                            className="h-4 w-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                          />
+                          Remember Me
+                        </label>
                       </div>
                       {error && tab === 'login' && (
                         <div className="space-y-1.5">
