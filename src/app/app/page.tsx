@@ -208,6 +208,14 @@ export default function Home() {
     // v6.14.1: Register global handler for Electron fallback (executeJavaScript)
     ;(window as any).__bizbookMenuAction = handleMenuAction
 
+    // v6.14.2: Process any pending actions that were queued before the listener was ready
+    const pending = (window as any).__pendingMenuActions as string[] | undefined
+    if (pending && pending.length > 0) {
+      console.log(`[Menu] Processing ${pending.length} pending action(s)`)
+      pending.forEach(action => handleMenuAction(action))
+      ;(window as any).__pendingMenuActions = []
+    }
+
     // v6.14.1: Also listen for IPC menu actions (primary method)
     const electronAPI = (window as any).electron
     if (electronAPI?.onMenuAction) {

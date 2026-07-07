@@ -194,6 +194,40 @@ function createWindow() {
     shell.openExternal(url)
   })
 
+  // v6.14.2: Centralized menu action sender with retry
+  // Sends IPC message + executeJavaScript fallback
+  // Retries up to 3 times if the web app hasn't loaded the listener yet
+  const sendMenuAction = (action: string) => {
+    console.log(`[Menu] Sending action: ${action}`)
+    // Method 1: IPC
+    mainWindow?.webContents.send('menu-action', action)
+    // Method 2: Direct JS injection (works even if IPC listener isn't ready)
+    mainWindow?.webContents.executeJavaScript(`
+      if (window.__bizbookMenuAction) {
+        window.__bizbookMenuAction('${action}');
+        true;
+      } else {
+        // Retry: inject a pending action that the web app will pick up when ready
+        if (!window.__pendingMenuActions) window.__pendingMenuActions = [];
+        window.__pendingMenuActions.push('${action}');
+        false;
+      }
+    `).then((result: boolean) => {
+      if (!result) {
+        // Listener not ready — retry after 1 second
+        console.log(`[Menu] Listener not ready, retrying in 1s...`)
+        setTimeout(() => {
+          mainWindow?.webContents.executeJavaScript(`
+            if (window.__bizbookMenuAction) {
+              window.__bizbookMenuAction('${action}');
+              true;
+            } else { false; }
+          `).catch(() => {})
+        }, 1000)
+      }
+    }).catch(() => {})
+  }
+
   // Build menu
   const template: any = [
     {
@@ -202,18 +236,18 @@ function createWindow() {
         {
           label: 'New Sale',
           accelerator: 'CmdOrCtrl+N',
-          click: () => mainWindow?.webContents.send('menu-action', 'new-sale'),
+          click: () => sendMenuAction('new-sale'),
         },
         {
           label: 'New Purchase',
           accelerator: 'CmdOrCtrl+Shift+N',
-          click: () => mainWindow?.webContents.send('menu-action', 'new-purchase'),
+          click: () => sendMenuAction('new-purchase'),
         },
         { type: 'separator' },
         {
           label: 'Export Data (Excel Backup)',
           accelerator: 'CmdOrCtrl+E',
-          click: () => mainWindow?.webContents.send('menu-action', 'export-backup'),
+          click: () => sendMenuAction('export-backup'),
         },
         { type: 'separator' },
         { role: 'quit' },
@@ -251,27 +285,27 @@ function createWindow() {
         {
           label: 'Dashboard',
           accelerator: 'CmdOrCtrl+1',
-          click: () => mainWindow?.webContents.send('menu-action', 'navigate-dashboard'),
+          click: () => sendMenuAction('navigate-dashboard'),
         },
         {
           label: 'Sales',
           accelerator: 'CmdOrCtrl+2',
-          click: () => mainWindow?.webContents.send('menu-action', 'navigate-sales'),
+          click: () => sendMenuAction('navigate-sales'),
         },
         {
           label: 'Purchases',
           accelerator: 'CmdOrCtrl+3',
-          click: () => mainWindow?.webContents.send('menu-action', 'navigate-purchases'),
+          click: () => sendMenuAction('navigate-purchases'),
         },
         {
           label: 'Inventory',
           accelerator: 'CmdOrCtrl+4',
-          click: () => mainWindow?.webContents.send('menu-action', 'navigate-inventory'),
+          click: () => sendMenuAction('navigate-inventory'),
         },
         {
           label: 'GST Reports',
           accelerator: 'CmdOrCtrl+5',
-          click: () => mainWindow?.webContents.send('menu-action', 'navigate-gst'),
+          click: () => sendMenuAction('navigate-gst'),
         },
       ],
     },
@@ -281,24 +315,7 @@ function createWindow() {
         {
           label: 'AI Support Chat',
           accelerator: 'F1',
-          click: () => {
-            // v6.14.1: Send menu action + execute JS directly as backup
-            mainWindow?.webContents.send('menu-action', 'help-chat')
-            // Also try direct JS injection as fallback
-            mainWindow?.webContents.executeJavaScript(`
-              if (window.__bizbookMenuAction) {
-                window.__bizbookMenuAction('help-chat');
-              } else {
-                // Fallback: try to navigate to help view via store
-                try {
-                  const store = window.__NEXT_DATA__?.props?.pageProps;
-                  if (window.useAppStore) {
-                    window.useAppStore.getState().setView('help-support-management');
-                  }
-                } catch(e) { console.log('Menu action fallback failed:', e); }
-              }
-            `).catch(() => {})
-          },
+          click: () => sendMenuAction('help-chat'),
         },
         {
           label: 'Keyboard Shortcuts',
