@@ -15,7 +15,9 @@
     "electron/main.js",
     "electron/preload.js",
     "electron/fingerprint.js",
-    "package.json"
+    "package.json",
+    "INSTALLATION_GUIDE.md",
+    "LICENSE"
   ],
   "extraResources": [],
   "win": {
@@ -44,6 +46,7 @@
     "createStartMenuShortcut": true,
     "shortcutName": "BizBook Pro",
     "license": "LICENSE",
+    "instructions": "INSTALLATION_GUIDE.md",
     "deleteAppDataOnUninstall": false,
     "displayLanguageSelector": false,
     "language": "1033"

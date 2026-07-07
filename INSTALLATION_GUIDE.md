@@ -102,7 +102,6 @@ Because the installer is downloaded from the internet, Windows blocks it by defa
 
 ## Need Help?
 
-- **Email**: support@tahigo.in
 - **Website**: https://www.tahigo.in
 - **In-app**: Press F1 for AI Support Chat
 
