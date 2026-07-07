@@ -911,14 +911,19 @@ export async function POST(req: NextRequest) {
         })
         const allTenantIds = allUserTenants.map(ut => ut.tenantId)
 
-        // Count ALL non-view-only users across ALL companies
+        // Count ALL UNIQUE non-view-only users across ALL companies
+        // v6.9: Count UNIQUE userIds, not UserTenant records — the main admin
+        // appears in UserTenant for each company, but should only be counted ONCE.
         const { rawDb } = await import('@/lib/db-soft-delete')
-        const globalNonViewCount = await rawDb.userTenant.count({
+        const allNonViewUserTenants = await rawDb.userTenant.findMany({
           where: {
             tenantId: { in: allTenantIds },
             role: { notIn: ['VIEW_ONLY'] },
           },
+          select: { userId: true },
+          distinct: ['userId'], // v6.9: Count unique users, not per-company entries
         })
+        const globalNonViewCount = allNonViewUserTenants.length
 
         // v6.7: Free tier = 3 non-view users GLOBALLY (not per company)
         // 1 main admin + 1 junior admin + 1 data entry = 3 free IDs
@@ -1085,12 +1090,18 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'User not found in this business' }, { status: 404 })
       }
 
-      // Don't allow changing the owner's role (would orphan the business)
-      if (targetUserTenant.isOwner && role !== 'MAIN_ADMIN') {
-        return NextResponse.json({ error: 'Cannot change the business owner\'s role' }, { status: 400 })
+      // v6.9: Don't allow changing the owner's role (would orphan the business)
+      // The owner (isOwner: true) MUST always remain MAIN_ADMIN.
+      // They can only be converted to VIEW_ONLY by the SYSTEM when hours expire
+      // — never manually by any user (including themselves).
+      if (targetUserTenant.isOwner) {
+        return NextResponse.json({
+          error: 'Cannot change the business owner\'s role. The Main Admin (owner) role is permanent and can only be changed by the system when subscription hours expire.',
+          code: 'OWNER_ROLE_LOCKED',
+        }, { status: 400 })
       }
 
-      // Don't allow demoting yourself (prevent lockout)
+      // v6.9: Don't allow demoting yourself (prevent lockout)
       if (targetUserId === access.userId && role !== 'MAIN_ADMIN') {
         return NextResponse.json({ error: 'Cannot demote yourself. Ask another Main Admin to do this.' }, { status: 400 })
       }

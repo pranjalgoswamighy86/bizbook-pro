@@ -131,13 +131,18 @@ export async function POST(req: NextRequest) {
       })
       const allOwnerTenantIds = ownerUserTenants.map(ut => ut.tenantId)
 
-      // Count ALL non-view-only users across ALL companies
-      const actualNonViewOnlyCount = await rawDb.userTenant.count({
+      // Count ALL UNIQUE non-view-only users across ALL companies
+      // v6.9: Count UNIQUE userIds — the main admin appears in UserTenant
+      // for each company, but should only be counted ONCE.
+      const allNonViewUserTenants = await rawDb.userTenant.findMany({
         where: {
           tenantId: { in: allOwnerTenantIds.length > 0 ? allOwnerTenantIds : [tenantId] },
           role: { notIn: ['VIEW_ONLY'] },
         },
+        select: { userId: true },
+        distinct: ['userId'],
       })
+      const actualNonViewOnlyCount = allNonViewUserTenants.length
       const DEFAULT_NON_VIEW_ONLY_USERS = 3
       const actualExtraIds = Math.max(0, actualNonViewOnlyCount - DEFAULT_NON_VIEW_ONLY_USERS)
       const hasExtraUsers = actualNonViewOnlyCount > DEFAULT_NON_VIEW_ONLY_USERS
@@ -227,12 +232,16 @@ export async function POST(req: NextRequest) {
       })
       const rechargeAllTenantIds = rechargeOwnerTenants.map(ut => ut.tenantId)
 
-      const actualNonViewOnlyCountRecharge = await rawDb2.userTenant.count({
+      // v6.9: Count UNIQUE non-view-only users (not per-company entries)
+      const allNonViewUserTenantsRecharge = await rawDb2.userTenant.findMany({
         where: {
           tenantId: { in: rechargeAllTenantIds.length > 0 ? rechargeAllTenantIds : [tenantId] },
           role: { notIn: ['VIEW_ONLY'] },
         },
+        select: { userId: true },
+        distinct: ['userId'],
       })
+      const actualNonViewOnlyCountRecharge = allNonViewUserTenantsRecharge.length
       const hasExtraUsers = actualNonViewOnlyCountRecharge > DEFAULT_NON_VIEW_ONLY_USERS
       const basePrice = plan.discountAmount // e.g., 150 for 50Hrs plan
       const surchargeAmount = hasExtraUsers ? Math.round(basePrice * EXTRA_USER_RECHARGE_SURCHARGE_PERCENT / 100) : 0
@@ -407,18 +416,59 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // v6.5: Auto-convert all non-VIEW_ONLY users to VIEW_ONLY when pooled hours exhausted
+      // v6.9: Auto-convert non-VIEW_ONLY users to VIEW_ONLY when pooled hours exhausted
+      // EXCEPT the owner (isOwner: true) — the owner stays MAIN_ADMIN even when hours expire.
+      // The owner's User.role is downgraded to VIEW_ONLY (for middleware checks) but
+      // their UserTenant.role stays MAIN_ADMIN (for company access).
       if (isNowExhausted && wasAnyActive) {
-        console.log(`[SUBSCRIPTION] Pooled hours exhausted for user ${access.userId}. Auto-converting all users to VIEW_ONLY.`)
+        console.log(`[SUBSCRIPTION] Pooled hours exhausted for user ${access.userId}. Auto-converting non-owner users to VIEW_ONLY.`)
         for (const ut of allUserTenants) {
-          await db.user.updateMany({
+          // v6.9: Convert ALL non-view users EXCEPT the owner to VIEW_ONLY
+          // The owner keeps their role but the User.role is set to VIEW_ONLY
+          // for middleware/hour-tracking purposes
+          const usersToConvert = await db.userTenant.findMany({
             where: {
               tenantId: ut.tenantId,
               role: { not: 'VIEW_ONLY' },
-              isDeleted: false,
+              isOwner: false, // v6.9: Don't convert the owner
+            },
+            select: { userId: true },
+          })
+
+          // Update UserTenant roles
+          await db.userTenant.updateMany({
+            where: {
+              tenantId: ut.tenantId,
+              role: { not: 'VIEW_ONLY' },
+              isOwner: false,
             },
             data: { role: 'VIEW_ONLY' },
           })
+
+          // Update User roles for middleware
+          if (usersToConvert.length > 0) {
+            await db.user.updateMany({
+              where: {
+                id: { in: usersToConvert.map(u => u.userId) },
+              },
+              data: { role: 'VIEW_ONLY' },
+            })
+          }
+
+          // v6.9: The owner's User.role is set to VIEW_ONLY (for hour tracking)
+          // but their UserTenant.role stays MAIN_ADMIN (for company access)
+          const owner = await db.userTenant.findFirst({
+            where: { tenantId: ut.tenantId, isOwner: true },
+            select: { userId: true },
+          })
+          if (owner) {
+            await db.user.update({
+              where: { id: owner.userId },
+              data: { role: 'VIEW_ONLY' }, // User.role = VIEW_ONLY for middleware
+            })
+            // UserTenant.role stays MAIN_ADMIN — owner retains full access
+            console.log(`[SUBSCRIPTION] Owner ${owner.userId} User.role set to VIEW_ONLY (hours exhausted), UserTenant.role stays MAIN_ADMIN`)
+          }
         }
         // Audit log the auto-conversion
         await db.auditLog.create({
