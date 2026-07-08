@@ -237,26 +237,44 @@ export function AIImportPage() {
   const [exportingExcel, setExportingExcel] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
+  // v6.19: Preferences dialog — ask user how to categorize each file BEFORE AI analysis
+  const [pendingFiles, setPendingFiles] = useState<File[]>([])
+  const [showPreferences, setShowPreferences] = useState(false)
+  const [selectedCategory, setSelectedCategory] = useState<string>('auto')
+
   const canImport = canEdit(user?.role || 'VIEW_ONLY')
 
   const analyzingCount = fileQueue.filter(f => f.status === 'analyzing').length
   const doneCount = fileQueue.filter(f => f.status === 'done').length
   const errorCount = fileQueue.filter(f => f.status === 'error').length
 
-  /** Add files to queue and start analyzing */
+  /** v6.19: Add files — shows preferences dialog FIRST, then processes with selected category */
   const addFiles = useCallback(async (files: FileList | File[]) => {
     if (!tenant) {
       toast({ title: 'Error', description: 'Please select a company first', variant: 'destructive' })
       return
     }
+    const fileArray = Array.from(files)
+    if (fileArray.length === 0) return
+    // Store pending files and show preferences dialog
+    setPendingFiles(fileArray)
+    setSelectedCategory('auto') // reset to default
+    setShowPreferences(true)
+  }, [tenant, toast])
 
-    const newEntries: FileEntry[] = Array.from(files).map(file => ({
+  /** v6.19: Process files with the user-selected category */
+  const processFilesWithCategory = useCallback(async (category: string) => {
+    if (!tenant || pendingFiles.length === 0) return
+    setShowPreferences(false)
+
+    const newEntries: FileEntry[] = pendingFiles.map(file => ({
       id: uid(), file, status: 'pending' as const,
     }))
 
     setFileQueue(prev => [...prev, ...newEntries])
     setMergedAnalysis(null)
     setImportResults(null)
+    setPendingFiles([])
 
     for (const entry of newEntries) {
       setFileQueue(prev => prev.map(f => f.id === entry.id ? { ...f, status: 'analyzing' } : f))
@@ -264,6 +282,8 @@ export function AIImportPage() {
         const formData = new FormData()
         formData.append('file', entry.file)
         formData.append('tenantId', tenant.id)
+        // v6.19: Send the user-selected category to guide AI analysis
+        formData.append('category', category)
         const res = await fetchWithRetry('/api/ai-import', { method: 'POST', body: formData })
         const data = await safeParseJson(res)
         if (res.ok && data.success) {
@@ -275,7 +295,7 @@ export function AIImportPage() {
         setFileQueue(prev => prev.map(f => f.id === entry.id ? { ...f, status: 'error', error: error.message?.includes('fetch') || error.message?.includes('retry') ? 'Server connection failed after retries' : (error.message || 'Network error') } : f))
       }
     }
-  }, [tenant, toast])
+  }, [tenant, pendingFiles, toast])
 
   // Handle pending import file from external components (e.g., BackupImportDialog)
   useEffect(() => {
@@ -298,6 +318,7 @@ export function AIImportPage() {
       const formData = new FormData()
       formData.append('file', entry.file)
       formData.append('tenantId', tenant.id)
+      formData.append('category', 'auto') // v6.19: retry uses auto-detect
       const res = await fetchWithRetry('/api/ai-import', { method: 'POST', body: formData })
       const data = await safeParseJson(res)
       if (res.ok && data.success) {
@@ -952,6 +973,91 @@ export function AIImportPage() {
               <Button className="bg-gradient-to-r from-violet-600 to-purple-600" onClick={handleImport} disabled={importing}>
                 {importing ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Zap className="h-4 w-4 mr-2" />}
                 Confirm Import
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* v6.19: AI Smart Import Preferences Dialog — asks user how to categorize the file BEFORE AI analysis */}
+        <Dialog open={showPreferences} onOpenChange={(open) => { if (!open) { setShowPreferences(false); setPendingFiles([]) } }}>
+          <DialogContent className="max-w-2xl">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2 text-lg">
+                <Brain className="h-5 w-5 text-violet-600" />
+                How should AI handle your file?
+              </DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div className="p-3 rounded-lg bg-violet-50 dark:bg-violet-950/30 border border-violet-200 dark:border-violet-800">
+                <p className="text-sm text-violet-800 dark:text-violet-200">
+                  <strong>{pendingFiles.length} file(s)</strong> ready to upload. Please tell the AI how you want each file categorized so it can extract the right data and map it to the correct BizBook Pro module.
+                </p>
+                {pendingFiles.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-1">
+                    {pendingFiles.slice(0, 5).map((f, i) => (
+                      <Badge key={i} variant="outline" className="text-xs bg-white/50">{f.name}</Badge>
+                    ))}
+                    {pendingFiles.length > 5 && <Badge variant="outline" className="text-xs">+{pendingFiles.length - 5} more</Badge>}
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <p className="text-sm font-semibold mb-3">Select the data category for this import:</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {[
+                    { value: 'auto', label: 'Auto-Detect (Let AI Decide)', icon: <Sparkles className="h-4 w-4 text-violet-600" />, desc: 'AI analyzes the file and determines the best category automatically', selectedClass: 'border-violet-500 bg-violet-50 dark:bg-violet-950/30' },
+                    { value: 'sale_invoice', label: 'Sales Register / Sale Invoice', icon: <ShoppingCart className="h-4 w-4 text-blue-600" />, desc: 'One or more sales invoices — extract invoice#, party, items, totals, GST', selectedClass: 'border-blue-500 bg-blue-50 dark:bg-blue-950/30' },
+                    { value: 'purchase_invoice', label: 'Purchase Invoice', icon: <Package className="h-4 w-4 text-purple-600" />, desc: 'Vendor bills — extract supplier, items, GST input credit, totals', selectedClass: 'border-purple-500 bg-purple-50 dark:bg-purple-950/30' },
+                    { value: 'bank_statement', label: 'Bank Statement', icon: <Banknote className="h-4 w-4 text-teal-600" />, desc: 'Bank transactions — deposits, withdrawals, balances, categories', selectedClass: 'border-teal-500 bg-teal-50 dark:bg-teal-950/30' },
+                    { value: 'inventory_data', label: 'Inventory Data Management', icon: <Package className="h-4 w-4 text-emerald-600" />, desc: 'Product/stock list — name, HSN, qty, purchase/sale price, GST rate', selectedClass: 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/30' },
+                    { value: 'expense_data', label: 'Expense Records', icon: <Receipt className="h-4 w-4 text-red-600" />, desc: 'Business expenses — date, amount, category, payment mode', selectedClass: 'border-red-500 bg-red-50 dark:bg-red-950/30' },
+                    { value: 'party_data', label: 'Party Data (Customers/Suppliers)', icon: <Users className="h-4 w-4 text-indigo-600" />, desc: 'Contact list — name, address, GSTIN, phone, type', selectedClass: 'border-indigo-500 bg-indigo-50 dark:bg-indigo-950/30' },
+                    { value: 'staff_data', label: 'Staff Data', icon: <Users className="h-4 w-4 text-orange-600" />, desc: 'Employee records — name, role, salary, contact', selectedClass: 'border-orange-500 bg-orange-50 dark:bg-orange-950/30' },
+                    { value: 'backup_data', label: 'Backup Data (Multi-Module)', icon: <FileSpreadsheet className="h-4 w-4 text-amber-600" />, desc: 'BizBook Pro backup file — contains multiple module types', selectedClass: 'border-amber-500 bg-amber-50 dark:bg-amber-950/30' },
+                  ].map((opt) => (
+                    <label
+                      key={opt.value}
+                      className={`flex items-start gap-3 p-3 rounded-lg border-2 cursor-pointer transition-all ${
+                        selectedCategory === opt.value ? opt.selectedClass : 'border-muted hover:border-muted-foreground/30'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="fileCategory"
+                        value={opt.value}
+                        checked={selectedCategory === opt.value}
+                        onChange={(e) => setSelectedCategory(e.target.value)}
+                        className="mt-1"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          {opt.icon}
+                          <span className="text-sm font-semibold">{opt.label}</span>
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-1">{opt.desc}</p>
+                      </div>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              <div className="p-3 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800">
+                <p className="text-xs text-amber-800 dark:text-amber-200">
+                  <strong>Note:</strong> The AI will use your selection as a hint. If the file content doesn't match your selection, the AI will still attempt to extract the most relevant data and flag any mismatches in the analysis.
+                </p>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => { setShowPreferences(false); setPendingFiles([]) }}>
+                Cancel
+              </Button>
+              <Button
+                className="bg-gradient-to-r from-violet-600 to-purple-600"
+                onClick={() => processFilesWithCategory(selectedCategory)}
+              >
+                <Sparkles className="h-4 w-4 mr-2" />
+                Start AI Analysis
               </Button>
             </DialogFooter>
           </DialogContent>

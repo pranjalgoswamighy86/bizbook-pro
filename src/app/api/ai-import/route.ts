@@ -44,6 +44,8 @@ async function handleFileUpload(req: NextRequest) {
   const formData = await req.formData()
   const file = formData.get('file') as File
   const tenantId = formData.get('tenantId') as string
+  // v6.19: User-selected category — guides AI analysis instead of pure auto-detect
+  const userCategory = (formData.get('category') as string) || 'auto'
 
   if (!file) {
     return NextResponse.json({ error: 'No file provided' }, { status: 400 })
@@ -59,7 +61,7 @@ async function handleFileUpload(req: NextRequest) {
   const ext = fileName.split('.').pop() || ''
   const fileSize = file.size
 
-  console.log(`[AI-Import] File: ${file.name}, Size: ${fileSize}, Ext: ${ext}`)
+  console.log(`[AI-Import] File: ${file.name}, Size: ${fileSize}, Ext: ${ext}, Category: ${userCategory}`)
 
   // Read file content
   const arrayBuffer = await file.arrayBuffer()
@@ -152,6 +154,24 @@ async function handleFileUpload(req: NextRequest) {
   // ============================================================
   let analysis: any = null
 
+  // v6.19: Build category hint for the AI prompt
+  // When the user selects a category (not 'auto'), tell the AI to extract data for that specific category
+  const CATEGORY_HINTS: Record<string, string> = {
+    auto: '',
+    sale_invoice: 'The user has indicated this file contains SALES REGISTER / SALE INVOICE data. Extract: invoice number, date, customer/party name, items (name, qty, rate, amount), subtotal, GST (CGST/SGST/IGST), grand total, payment status. Map to the "sales" module.',
+    purchase_invoice: 'The user has indicated this file contains PURCHASE INVOICE data. Extract: bill number, date, supplier/vendor name, items (name, qty, rate, amount), subtotal, GST input credit, grand total, payment status. Map to the "purchases" module.',
+    bank_statement: 'The user has indicated this file contains BANK STATEMENT data. Extract: date, description, deposit/credit, withdrawal/debit, running balance, transaction type, category. Map to the "bankTransactions" module.',
+    inventory_data: 'The user has indicated this file contains INVENTORY DATA. Extract: product name, HSN/SKU code, category, unit, quantity/stock, purchase price, sale price, MRP, GST rate, opening stock. Map to the "products" module.',
+    expense_data: 'The user has indicated this file contains EXPENSE RECORDS. Extract: date, description, amount, category, payment mode (cash/UPI/card/bank), vendor/payee. Map to the "expenses" module.',
+    party_data: 'The user has indicated this file contains PARTY DATA (customers/suppliers). Extract: name, type (customer/supplier), address, phone, email, GSTIN, opening balance. Map to the "parties" module.',
+    staff_data: 'The user has indicated this file contains STAFF DATA. Extract: name, role/designation, salary, phone, email, join date. Map to the "staff" module.',
+    backup_data: 'The user has indicated this file is a BIZBOOK PRO BACKUP file containing multiple module types. Extract all data and categorize into the appropriate modules (sales, purchases, expenses, products, parties, staff, bankTransactions).',
+  }
+  const categoryHint = CATEGORY_HINTS[userCategory] || ''
+  const categoryInstruction = categoryHint
+    ? `\n\nIMPORTANT USER INSTRUCTION:\n${categoryHint}\n\nPlease extract the data accordingly. If the file content does not match the user-selected category, still attempt extraction and note any mismatch in the warnings.`
+    : ''
+
   try {
     // Build prompt based on data type
     let prompt = ''
@@ -177,6 +197,7 @@ ${JSON.stringify(sampleRows, null, 2)}`
 
 File: ${file.name}
 Type: ${dataType.toUpperCase()}
+${categoryInstruction}
 
 ${sheetSummary}
 
@@ -198,7 +219,8 @@ Provide a structured analysis in JSON format:
 3. Data quality and readability
 4. Import suggestions
 
-File: ${file.name}`
+File: ${file.name}
+${categoryInstruction}`
       imageBase64 = parsedData.base64
     } else {
       // For text/json/xml/pdf
@@ -210,6 +232,7 @@ File: ${file.name}`
 
 File: ${file.name}
 Type: ${dataType.toUpperCase()}
+${categoryInstruction}
 Content (first 10000 chars):
 ${content}
 
@@ -260,6 +283,7 @@ Provide a structured analysis with:
     parsedData: dataType === 'image' ? undefined : parsedData, // Don't return base64 image data
     analysis,
     hasImageData: dataType === 'image',
+    userCategory, // v6.19: Echo back the category the user selected
   })
 }
 
