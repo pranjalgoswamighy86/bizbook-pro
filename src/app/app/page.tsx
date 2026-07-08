@@ -11,7 +11,6 @@ import { ErrorBoundary } from '@/components/app/error-boundary'
 import { Loader2 } from 'lucide-react'
 import { authFetch } from '@/lib/auth-fetch'
 import { useSubscriptionUsageTracker } from '@/hooks/use-subscription-usage'
-import { useToast } from '@/hooks/use-toast'
 
 // v4.58: Lazy load ALL modules except Dashboard (default view)
 // This reduces initial JS bundle by 60-70% — only the active module's
@@ -103,9 +102,8 @@ function ModuleRouter() {
 }
 
 export default function Home() {
-  const { isAuthenticated, currentView, logout, user } = useAppStore()
+  const { isAuthenticated, currentView, logout } = useAppStore()
   const { setView } = useAppStore()
-  const { toast } = useToast()
   useSubscriptionUsageTracker()
   const [hydrated, setHydrated] = useState(false)
 
@@ -183,54 +181,14 @@ export default function Home() {
     }
   }, [hydrated, isAuthenticated, logout])
 
-  // v6.14: Electron menu actions + keyboard shortcuts
+  // v6.16: Electron menu actions are now handled globally by
+  // <MenuActionBridge /> in layout.tsx — it works on every page (login,
+  // company-select, main app) and is mounted exactly once.
+  // This file now only owns the in-app keyboard shortcuts.
   useEffect(() => {
     if (!hydrated || !isAuthenticated) return
 
-    const handleMenuAction = (action: string) => {
-      console.log('[Menu Action]', action)
-      switch (action) {
-        case 'new-sale': setView('sales'); break
-        case 'new-purchase': setView('purchases'); break
-        case 'export-backup': setView('backup'); break
-        case 'navigate-dashboard': setView('dashboard'); break
-        case 'navigate-sales': setView('sales'); break
-        case 'navigate-purchases': setView('purchases'); break
-        case 'navigate-inventory': setView('inventory'); break
-        case 'navigate-gst': setView('gst-reports'); break
-        case 'help-chat': setView('help-support-management'); break
-        case 'check-updates':
-          toast({ title: 'Updates', description: 'BizBook Pro updates automatically when you restart the app.' })
-          break
-      }
-    }
-
-    // v6.14.1: Register global handler for Electron fallback (executeJavaScript)
-    ;(window as any).__bizbookMenuAction = handleMenuAction
-
-    // v6.14.2: Process any pending actions that were queued before the listener was ready
-    const pending = (window as any).__pendingMenuActions as string[] | undefined
-    if (pending && pending.length > 0) {
-      console.log(`[Menu] Processing ${pending.length} pending action(s)`)
-      pending.forEach(action => handleMenuAction(action))
-      ;(window as any).__pendingMenuActions = []
-    }
-
-    // v6.14.1: Also listen for IPC menu actions (primary method)
-    const electronAPI = (window as any).electron
-    if (electronAPI?.onMenuAction) {
-      electronAPI.onMenuAction(handleMenuAction)
-    }
-
-    // v6.14.1: F1 keyboard shortcut (works in both web and Electron)
-    const handleF1 = (e: KeyboardEvent) => {
-      if (e.key === 'F1') {
-        e.preventDefault()
-        setView('help-support-management')
-      }
-    }
-
-    // v6.14.3: ALL keyboard shortcuts (work in web + old Electron v2.1.4)
+    // v6.14.3: ALL keyboard shortcuts (work in web + Electron)
     const handleKeydown = (e: KeyboardEvent) => {
       // Skip if typing in an input/textarea
       const target = e.target as HTMLElement
@@ -242,7 +200,7 @@ export default function Home() {
       } else if ((e.ctrlKey || e.metaKey) && e.key === 'n' && !e.shiftKey) {
         e.preventDefault()
         setView('sales')
-      } else if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'N') {
+      } else if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'N' || e.key === 'n')) {
         e.preventDefault()
         setView('purchases')
       } else if ((e.ctrlKey || e.metaKey) && e.key === 'e') {
@@ -267,12 +225,10 @@ export default function Home() {
     }
 
     window.addEventListener('keydown', handleKeydown)
-
     return () => {
-      delete (window as any).__bizbookMenuAction
       window.removeEventListener('keydown', handleKeydown)
     }
-  }, [hydrated, isAuthenticated, setView, toast])
+  }, [hydrated, isAuthenticated, setView])
 
   if (!hydrated) {
     return (

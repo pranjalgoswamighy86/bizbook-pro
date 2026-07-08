@@ -1,25 +1,29 @@
 /**
- * v4.153: Electron Main Process — BizBook Pro Desktop App
+ * v2.3.0: Electron Main Process — BizBook Pro Desktop App
  * ============================================================
  * Wraps the Next.js web app as a desktop application (.exe for Windows).
  *
+ * v2.3.0 CHANGES (menu bar fix):
+ *   - Clears session cache + storage data BEFORE loading the URL on every
+ *     launch. This guarantees the desktop app loads the LATEST deployed
+ *     version of the Railway web app, not a stale cached copy. This was
+ *     the root cause of "menu bar updates don't show up" — the desktop
+ *     app kept running the old cached JS that didn't have the new
+ *     __bizbookMenuAction handler.
+ *   - Improved sendMenuAction: now retries up to 5 times with exponential
+ *     backoff, and injects a hard console.log so users can verify in
+ *     DevTools that the menu click actually fired.
+ *   - Adds did-finish-load diagnostics that log the deployed app version
+ *     so users can confirm exactly which build is loaded.
+ *   - Registers a global 'ping' IPC channel the web app can call to
+ *     verify the bridge is alive (used by the new version badge).
+ *
  * Architecture:
  *   - Electron main process (this file) creates a BrowserWindow
- *   - In DEV mode: loads localhost:3000 (Next.js dev server must be running)
- *   - In PROD mode: starts the standalone Next.js server as a child process
- *     and loads http://localhost:PORT
- *   - Offline-first PWA cache handles intermittent connectivity
- *   - Native menus for File, Edit, View, Help
+ *   - In DEV mode: loads localhost:3000
+ *   - In PROD mode: loads the Railway URL directly
+ *   - Native menus for File, Edit, View, Navigate, Help
  *   - Auto-updates via electron-updater (configured in electron-builder.yml)
- *
- * Build commands:
- *   - npm run electron:dev    — dev mode (Next.js dev server + Electron)
- *   - npm run electron:build  — production build (creates .exe installer)
- *   - npm run electron:pack   — pack without installer (faster testing)
- *
- * Output:
- *   - dist/bizbook-pro-setup-<version>.exe (NSIS installer for Windows)
- *   - dist/win-unpacked/BizBookPro.exe (portable executable)
  */
 
 import { app, BrowserWindow, Menu, shell, dialog, ipcMain } from 'electron'
@@ -119,6 +123,24 @@ function createWindow() {
     },
   })
 
+  // v2.3.0: CRITICAL — Clear HTTP cache + storage data BEFORE loading the
+  // URL. Without this, Electron serves a stale cached copy of the web app
+  // and the user's Railway deploys never reach the desktop. This was the
+  // root cause of "menu bar updates don't show up after deploying".
+  const clearCacheAndLoad = async () => {
+    try {
+      console.log('[Electron] Clearing session cache (v2.3.0)...')
+      await mainWindow!.webContents.session.clearCache()
+      await mainWindow!.webContents.session.clearStorageData({
+        storages: ['cachestorage', 'serviceworkers', 'shadercache'],
+      })
+      console.log('[Electron] Cache cleared ✓')
+    } catch (err) {
+      console.warn('[Electron] Cache clear failed (non-fatal):', err)
+    }
+    tryLoadUrl()
+  }
+
   // Load the app with retry logic
   // v5.6: In production, load the Railway URL directly (no local server)
   const url = APP_URL
@@ -128,7 +150,10 @@ function createWindow() {
   const tryLoadUrl = () => {
     loadAttempts++
     console.log(`[Electron] Load attempt ${loadAttempts}/${maxAttempts} → ${url}`)
-    mainWindow?.loadURL(url).catch((err) => {
+    mainWindow?.loadURL(url, {
+      // v2.3.0: Extra headers to bypass any HTTP cache on the Railway side
+      extraHeaders: 'Cache-Control: no-cache\nPragma: no-cache\n',
+    }).catch((err) => {
       console.error(`[Electron] Load failed (attempt ${loadAttempts}):`, err.message)
     })
   }
@@ -141,8 +166,26 @@ function createWindow() {
     }
   })
 
+  // v2.3.0: After the page finishes loading, log the deployed version so
+  // users can verify in DevTools exactly which build is running.
+  mainWindow.webContents.on('did-finish-load', () => {
+    console.log('[Electron] did-finish-load ✓ — page fully loaded')
+    mainWindow?.webContents.executeJavaScript(`
+      (function() {
+        try {
+          var v = (window.__BIZBOOK_VERSION__) || 'unknown';
+          console.log('[Electron] Deployed app version: ' + v);
+        } catch (e) {}
+      })();
+    `).catch(() => {})
+  })
+
   // Initial load attempt (with small delay to let server start in dev mode)
-  setTimeout(tryLoadUrl, isDev ? 2000 : 500)
+  if (isDev) {
+    setTimeout(clearCacheAndLoad, 2000)
+  } else {
+    clearCacheAndLoad()
+  }
 
   // v6.3: Allow print preview windows (about:blank) but block everything else
   // This fixes the "print preview not supported" issue in Electron.
@@ -194,38 +237,55 @@ function createWindow() {
     shell.openExternal(url)
   })
 
-  // v6.14.2: Centralized menu action sender with retry
-  // Sends IPC message + executeJavaScript fallback
-  // Retries up to 3 times if the web app hasn't loaded the listener yet
+  // v2.3.0: Centralized menu action sender with robust retry
+  // Sends IPC message + executeJavaScript fallback.
+  // Retries up to 5 times with exponential backoff (200ms, 400ms, 800ms, 1.6s, 3.2s)
+  // if the web app hasn't finished mounting the global handler yet.
   const sendMenuAction = (action: string) => {
     console.log(`[Menu] Sending action: ${action}`)
-    // Method 1: IPC
-    mainWindow?.webContents.send('menu-action', action)
+    // Method 1: IPC (primary — works once preload bridge is ready)
+    try {
+      mainWindow?.webContents.send('menu-action', action)
+    } catch (err) {
+      console.warn(`[Menu] IPC send failed:`, err)
+    }
+
     // Method 2: Direct JS injection (works even if IPC listener isn't ready)
-    mainWindow?.webContents.executeJavaScript(`
-      if (window.__bizbookMenuAction) {
-        window.__bizbookMenuAction('${action}');
-        true;
-      } else {
-        // Retry: inject a pending action that the web app will pick up when ready
-        if (!window.__pendingMenuActions) window.__pendingMenuActions = [];
-        window.__pendingMenuActions.push('${action}');
-        false;
+    // The web app's MenuActionBridge component sets window.__bizbookMenuAction.
+    // If it's not ready yet, queue the action so it can be replayed on mount.
+    const tryExecute = (attempt: number): void => {
+      if (attempt > 5) {
+        console.warn(`[Menu] Gave up after 5 attempts: ${action}`)
+        return
       }
-    `).then((result: boolean) => {
-      if (!result) {
-        // Listener not ready — retry after 1 second
-        console.log(`[Menu] Listener not ready, retrying in 1s...`)
-        setTimeout(() => {
-          mainWindow?.webContents.executeJavaScript(`
-            if (window.__bizbookMenuAction) {
-              window.__bizbookMenuAction('${action}');
-              true;
-            } else { false; }
-          `).catch(() => {})
-        }, 1000)
-      }
-    }).catch(() => {})
+      mainWindow?.webContents.executeJavaScript(`
+        (function() {
+          if (typeof window.__bizbookMenuAction === 'function') {
+            console.log('[Menu Bridge] Dispatching:', '${action}');
+            window.__bizbookMenuAction('${action}');
+            return true;
+          } else {
+            // Queue for replay — MenuActionBridge drains this on mount
+            if (!window.__pendingMenuActions) window.__pendingMenuActions = [];
+            window.__pendingMenuActions.push('${action}');
+            console.log('[Menu Bridge] Queued (handler not ready):', '${action}', '(attempt ${attempt})');
+            return false;
+          }
+        })();
+      `).then((result: boolean) => {
+        if (!result) {
+          // Listener not ready — retry with exponential backoff
+          const delay = 200 * Math.pow(2, attempt - 1)
+          console.log(`[Menu] Listener not ready (attempt ${attempt}/5), retrying in ${delay}ms...`)
+          setTimeout(() => tryExecute(attempt + 1), delay)
+        }
+      }).catch((err: any) => {
+        console.warn(`[Menu] executeJavaScript failed (attempt ${attempt}):`, err?.message || err)
+        const delay = 200 * Math.pow(2, attempt - 1)
+        setTimeout(() => tryExecute(attempt + 1), delay)
+      })
+    }
+    tryExecute(1)
   }
 
   // Build menu
@@ -351,10 +411,15 @@ function createWindow() {
             dialog.showMessageBox(mainWindow!, {
               type: 'info',
               title: 'About BizBook Pro',
-              message: 'BizBook Pro v4.153',
+              message: `BizBook Pro Desktop v${app.getVersion()}`,
               detail: [
                 'Premium Business Software by Tahigo International',
                 'GST-compliant billing, inventory, accounting, payroll',
+                '',
+                `Desktop shell version: v${app.getVersion()}`,
+                `Electron: ${process.versions.electron}`,
+                `Chrome: ${process.versions.chrome}`,
+                `Node: ${process.versions.node}`,
                 '',
                 'Office: Guwahati, Assam, India',
                 'Website: https://www.tahigo.in',
@@ -409,6 +474,47 @@ ipcMain.handle('app:version', () => ({
   node: process.versions.node,
   platform: process.platform,
 }))
+
+// v2.3.0: Diagnostic ping — lets the web app verify the Electron bridge
+// is alive (used by the version badge to show "Desktop v2.3.0 connected")
+ipcMain.handle('app:ping', () => ({
+  ok: true,
+  desktopVersion: app.getVersion(),
+  electron: process.versions.electron,
+  timestamp: Date.now(),
+}))
+
+// v2.3.0: Print to a specific printer (was referenced in preload but never
+// implemented — caused "Error invoking remote method 'print:invoice-to-printer'")
+ipcMain.handle('print:invoice-to-printer', async (_, url: string, printerName: string) => {
+  if (!mainWindow) {
+    return { ok: false, error: 'Main window not available' }
+  }
+  try {
+    const printWindow = new BrowserWindow({
+      show: false,
+      width: 800,
+      height: 600,
+      webPreferences: { contextIsolation: true },
+    })
+    await printWindow.loadURL(url)
+    await new Promise(resolve => setTimeout(resolve, 2000))
+    try {
+      await printWindow.webContents.print({
+        silent: true,
+        printBackground: true,
+        deviceName: printerName,
+      })
+      printWindow.close()
+      return { ok: true }
+    } catch (printErr: any) {
+      printWindow.close()
+      return { ok: false, error: printErr?.message || 'Print failed' }
+    }
+  } catch (err: any) {
+    return { ok: false, error: err?.message || 'Unknown print error' }
+  }
+})
 
 // ============================================================
 // v5.8: PRINTER AUTO-DETECTION + SILENT PRINT

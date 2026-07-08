@@ -34,8 +34,13 @@ interface ElectronAPI {
   /** v4.154: Subscribe to enrollment progress updates (sample 1/3, 2/3, 3/3) */
   onEnrollProgress(callback: (progress: { sample: number; total: number }) => void): void
 
-  /** Subscribe to menu actions (File/New Sale, View/Reload, etc.) */
-  onMenuAction(callback: (action: string) => void): void
+  /** Subscribe to menu actions (File/New Sale, View/Reload, etc.)
+   *  v2.3.0: Now returns an unsubscribe function for clean teardown. */
+  onMenuAction(callback: (action: string) => void): () => void
+
+  /** v2.3.0: Diagnostic ping — verifies the Electron bridge is alive
+   *  and returns the desktop shell version + Electron/Chrome/Node versions. */
+  ping(): Promise<{ ok: boolean; desktopVersion: string; electron: string; timestamp: number }>
 
   /** The platform we're running on (win32, darwin, linux) */
   platform: NodeJS.Platform

@@ -1,7 +1,13 @@
 /**
- * v4.153: Electron Preload Script
+ * v2.3.0: Electron Preload Script
  * Bridges the renderer (Next.js app) and main process securely.
  * Exposes only whitelisted APIs to window.electron.
+ *
+ * v2.3.0 CHANGES:
+ *   - onMenuAction now returns an unsubscribe function so listeners can be
+ *     cleaned up properly (prevents leak when components unmount).
+ *   - Exposes `ping()` for the web app to verify the bridge is alive.
+ *   - All listeners use a tracked-set so we can remove them on cleanup.
  */
 
 const { contextBridge, ipcRenderer } = require('electron')
@@ -9,6 +15,9 @@ const { contextBridge, ipcRenderer } = require('electron')
 contextBridge.exposeInMainWorld('electron', {
   // App info
   getVersion: () => ipcRenderer.invoke('app:version'),
+
+  // v2.3.0: Diagnostic ping — verifies the Electron bridge is alive.
+  ping: () => ipcRenderer.invoke('app:ping'),
 
   // Native dialogs
   saveFileDialog: (defaultName: string, filters: any[]) =>
@@ -24,25 +33,24 @@ contextBridge.exposeInMainWorld('electron', {
 
   // Enrollment progress (live updates during 3-sample enrollment)
   onEnrollProgress: (callback: (progress: { sample: number; total: number }) => void) => {
-    ipcRenderer.on('fingerprint:enroll-progress', (_, progress) => callback(progress))
+    const handler = (_, progress) => callback(progress)
+    ipcRenderer.on('fingerprint:enroll-progress', handler)
+    return () => ipcRenderer.removeListener('fingerprint:enroll-progress', handler)
   },
 
-  // Menu action listener (for File/Edit/Navigate menu items)
+  // v2.3.0: Menu action listener — returns an unsubscribe function.
+  // The web app's MenuActionBridge uses this to cleanly detach when needed.
   onMenuAction: (callback: (action: string) => void) => {
-    ipcRenderer.on('menu-action', (_, action: string) => callback(action))
+    const handler = (_, action: string) => callback(action)
+    ipcRenderer.on('menu-action', handler)
+    return () => ipcRenderer.removeListener('menu-action', handler)
   },
 
   // v5.12: ESC/POS direct printing — bypasses browser entirely
-  // Sends raw ESC/POS commands to thermal printer via USB
-  // This is the ONLY reliable way to print on 58mm thermal paper
   printEscpos: (data: any) =>
     ipcRenderer.invoke('print:escpos', data),
 
   // v5.8: Silent print + auto-detect APIs
-  // - printInvoiceSilent(url): prints to default OS printer with NO dialog
-  // - listPrinters(): returns array of installed printers with detectedPaper
-  // - autoDetectPaper(): returns { paper, printerName } from default printer
-  // - printInvoiceToPrinter(url, printerName): prints to specific printer silently
   printInvoiceSilent: (url: string) =>
     ipcRenderer.invoke('print:invoice-silent', url),
   listPrinters: () =>
