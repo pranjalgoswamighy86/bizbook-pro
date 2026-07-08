@@ -12,6 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Building2, Shield, Zap, BarChart3, Package, Users, KeyRound, ArrowLeft, Loader2, Phone, MailCheck, HelpCircle } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import { HelpModal } from '@/components/app/help-modal' // v4.50: Help on login page
+import { onOpenHelpChat } from '@/lib/help-chat-trigger' // v6.17: F1 → AI Support Chat
 
 type ResetStep = 'idle' | 'request' | 'verify' | 'done'
 type RegStep = 'form' | 'verify-otp'
@@ -23,6 +24,19 @@ export function CoverPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [showHelp, setShowHelp] = useState(false) // v4.50: Help modal on login page
+  // v6.17: Initial tab for the Help modal. F1 / "AI Support Chat" menu
+  // action opens the modal directly on the 'chat' tab.
+  const [helpInitialTab, setHelpInitialTab] = useState<'faq' | 'guides' | 'chat' | 'management'>('faq')
+
+  // v6.17: Listen for global "open help chat" events (F1, Electron menu).
+  // On the login screen, opens the HelpModal directly on the AI Support Chat tab.
+  useEffect(() => {
+    const unsubscribe = onOpenHelpChat(() => {
+      setHelpInitialTab('chat')
+      setShowHelp(true)
+    })
+    return unsubscribe
+  }, [])
 
   // v4.11: Spec Section 24 — Developer fallback message for missing env vars
   // "If any core variable is evaluated as undefined at runtime, the application
@@ -1097,7 +1111,7 @@ export function CoverPage() {
       />
 
       {/* v4.50: Help modal — accessible from login page */}
-      <HelpModal open={showHelp} onClose={() => setShowHelp(false)} />
+      <HelpModal open={showHelp} onClose={() => setShowHelp(false)} initialTab={helpInitialTab} />
     </div>
   )
 }

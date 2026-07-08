@@ -42,6 +42,7 @@ import { Separator } from '@/components/ui/separator'
 import { cn } from '@/lib/utils'
 import { getRoleLabel } from '@/store/app-store'
 import { useState, useEffect, useCallback } from 'react'
+import { onOpenHelpChat } from '@/lib/help-chat-trigger' // v6.17: F1 → AI Support Chat
 import { useToast } from '@/hooks/use-toast'
 import { BackupImportDialog } from '@/components/modules/backup-import-dialog'
 import { HelpModal } from '@/components/app/help-modal' // v4.49: Help & Support modal
@@ -97,6 +98,9 @@ export function AppSidebar() {
   const [isMobile, setIsMobile] = useState(false)
   const [showBackupImport, setShowBackupImport] = useState(false)
   const [showHelp, setShowHelp] = useState(false) // v4.49: Help modal state
+  // v6.17: Which tab the HelpModal opens on. F1 / "AI Support Chat" menu
+  // action sets this to 'chat' via the global openHelpChat() event.
+  const [helpInitialTab, setHelpInitialTab] = useState<'faq' | 'guides' | 'chat' | 'management'>('faq')
   // v4.67: Check if user is Super Admin (to hide regular Help button)
   const SUPER_ADMIN_EMAILS = ['admin@bizbook.pro', 'pranjalgoswamighy86@gmail.com']
   const isSuperAdmin = user ? SUPER_ADMIN_EMAILS.includes(user.email.toLowerCase()) : false
@@ -147,7 +151,20 @@ export function AppSidebar() {
   const handleHelpClick = useCallback(() => {
     closeMobileDrawer() // Close drawer first (mobile)
     // Small delay to let drawer close animation finish before opening modal
+    setHelpInitialTab('faq') // default tab when opened via sidebar button
     setTimeout(() => setShowHelp(true), 100)
+  }, [closeMobileDrawer])
+
+  // v6.17: Listen for global "open help chat" events (F1, Electron menu).
+  // Opens the HelpModal directly on the AI Support Chat tab.
+  useEffect(() => {
+    const unsubscribe = onOpenHelpChat(() => {
+      setHelpInitialTab('chat')
+      closeMobileDrawer()
+      // Small delay so any closing drawer/animation doesn't trap the dialog
+      setTimeout(() => setShowHelp(true), 50)
+    })
+    return unsubscribe
   }, [closeMobileDrawer])
 
   const handleDownloadBackup = async (format: 'json' | 'tally') => {
@@ -414,7 +431,7 @@ export function AppSidebar() {
         {/* v4.51: Fix — HelpModal was only mounted on desktop, never on mobile.
             Clicking Help button on mobile did nothing because the modal component
             wasn't in the render tree. Now mounted in BOTH paths. */}
-        <HelpModal open={showHelp} onClose={() => setShowHelp(false)} />
+        <HelpModal open={showHelp} onClose={() => setShowHelp(false)} initialTab={helpInitialTab} />
       </>
     )
   }
@@ -569,7 +586,7 @@ export function AppSidebar() {
       {backupDialog}
 
       {/* v4.49: Help modal — mounted at sidebar root so it works in both desktop and mobile drawer */}
-      <HelpModal open={showHelp} onClose={() => setShowHelp(false)} />
+      <HelpModal open={showHelp} onClose={() => setShowHelp(false)} initialTab={helpInitialTab} />
     </div>
   )
 }

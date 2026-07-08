@@ -11,6 +11,7 @@ import { ErrorBoundary } from '@/components/app/error-boundary'
 import { Loader2 } from 'lucide-react'
 import { authFetch } from '@/lib/auth-fetch'
 import { useSubscriptionUsageTracker } from '@/hooks/use-subscription-usage'
+import { openHelpChat } from '@/lib/help-chat-trigger' // v6.17: F1 → AI Support Chat
 
 // v4.58: Lazy load ALL modules except Dashboard (default view)
 // This reduces initial JS bundle by 60-70% — only the active module's
@@ -194,9 +195,13 @@ export default function Home() {
       const target = e.target as HTMLElement
       if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) return
 
+      // v6.17: F1 opens AI Support Chat (was: setView('help-support-management')
+      // which opened the admin ticket management page — wrong destination).
+      // Now F1 dispatches a global event that the HelpModal catches and
+      // opens directly on the AI Support Chat tab.
       if (e.key === 'F1') {
         e.preventDefault()
-        setView('help-support-management')
+        openHelpChat()
       } else if ((e.ctrlKey || e.metaKey) && e.key === 'n' && !e.shiftKey) {
         e.preventDefault()
         setView('sales')

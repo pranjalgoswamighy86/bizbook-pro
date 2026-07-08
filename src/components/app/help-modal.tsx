@@ -20,7 +20,7 @@
  *   - Add Company page (floating Help button)
  */
 
-import { useState, lazy, Suspense } from 'react'
+import { useState, useEffect, lazy, Suspense } from 'react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import {
@@ -38,6 +38,9 @@ const HelpSupportManagementInline = lazy(() =>
 interface HelpModalProps {
   open: boolean
   onClose: () => void
+  /** v6.17: Optional initial tab. Used by F1 / "AI Support Chat" menu action
+   *  to jump straight to the AI chat tab. Defaults to 'faq'. */
+  initialTab?: 'faq' | 'guides' | 'chat' | 'management'
 }
 
 interface FAQItem {
@@ -144,13 +147,22 @@ const GUIDES = [
   },
 ]
 
-export function HelpModal({ open, onClose }: HelpModalProps) {
+export function HelpModal({ open, onClose, initialTab = 'faq' }: HelpModalProps) {
   const [expandedFAQ, setExpandedFAQ] = useState<number | null>(0)
-  const [activeTab, setActiveTab] = useState<'faq' | 'guides' | 'chat' | 'management'>('faq')
+  const [activeTab, setActiveTab] = useState<'faq' | 'guides' | 'chat' | 'management'>(initialTab)
   const { user, tenant } = useAppStore()
   // v4.107: Super Admin check for Management tab
   const SUPER_ADMIN_EMAILS = ['admin@bizbook.pro', 'pranjalgoswamighy86@gmail.com']
   const isSuperAdmin = user ? SUPER_ADMIN_EMAILS.includes(user.email.toLowerCase()) : false
+
+  // v6.17: When the modal opens, sync the active tab to `initialTab`.
+  // This lets F1 / menu action re-open the modal on the Chat tab even if
+  // the user previously switched to FAQ or Guides.
+  useEffect(() => {
+    if (open) {
+      setActiveTab(initialTab)
+    }
+  }, [open, initialTab])
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>

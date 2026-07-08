@@ -11,6 +11,7 @@ import { useState, useEffect } from 'react'
 import { useToast } from '@/hooks/use-toast'
 import { BackupImportDialog } from '@/components/modules/backup-import-dialog'
 import { HelpModal } from '@/components/app/help-modal' // v4.50: Help on Add Company page
+import { onOpenHelpChat } from '@/lib/help-chat-trigger' // v6.17: F1 → AI Support Chat
 import { authFetch } from '@/lib/auth-fetch'
 
 export function CompanySelectPage() {
@@ -25,6 +26,19 @@ export function CompanySelectPage() {
   const [showBackupImport, setShowBackupImport] = useState(false)
   const [backupCompanyName, setBackupCompanyName] = useState('')
   const [showHelp, setShowHelp] = useState(false) // v4.50: Help modal state
+  // v6.17: Initial tab for the Help modal. F1 / "AI Support Chat" menu
+  // action opens the modal directly on the 'chat' tab.
+  const [helpInitialTab, setHelpInitialTab] = useState<'faq' | 'guides' | 'chat' | 'management'>('faq')
+
+  // v6.17: Listen for global "open help chat" events (F1, Electron menu).
+  // On the company-select screen, opens the HelpModal directly on the AI Support Chat tab.
+  useEffect(() => {
+    const unsubscribe = onOpenHelpChat(() => {
+      setHelpInitialTab('chat')
+      setShowHelp(true)
+    })
+    return unsubscribe
+  }, [])
 
   const handleSelectCompany = async (company: CompanyInfo) => {
     try {
@@ -248,7 +262,7 @@ export function CompanySelectPage() {
       </Dialog>
 
       {/* v4.50: Help modal — accessible from Add Company page */}
-      <HelpModal open={showHelp} onClose={() => setShowHelp(false)} />
+      <HelpModal open={showHelp} onClose={() => setShowHelp(false)} initialTab={helpInitialTab} />
     </div>
   )
 }

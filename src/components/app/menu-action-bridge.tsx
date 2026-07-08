@@ -31,6 +31,7 @@
 import { useEffect, useRef } from 'react'
 import { useAppStore } from '@/store/app-store'
 import { useToast } from '@/hooks/use-toast'
+import { openHelpChat } from '@/lib/help-chat-trigger' // v6.17: F1 / Help menu → AI Support Chat
 
 export function MenuActionBridge() {
   const setView = useAppStore((s) => s.setView)
@@ -97,7 +98,9 @@ export function MenuActionBridge() {
           setView('gst-reports')
           break
         case 'help-chat':
-          setView('help-support-management')
+          // v6.17: Open AI Support Chat directly (was: setView('help-support-management')
+          // which opened the admin ticket management page — wrong destination).
+          openHelpChat()
           break
         case 'check-updates':
           toast({
@@ -168,7 +171,7 @@ export function MenuActionBridge() {
         case 'navigate-purchases': setView('purchases'); break
         case 'navigate-inventory': setView('inventory'); break
         case 'navigate-gst': setView('gst-reports'); break
-        case 'help-chat': setView('help-support-management'); break
+        case 'help-chat': openHelpChat(); break // v6.17: AI Support Chat
       }
     })
   }, [isAuthenticated])
