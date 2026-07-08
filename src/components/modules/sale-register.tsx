@@ -835,15 +835,19 @@ export function SaleRegister() {
                               variant="ghost"
                               size="icon"
                               className="h-8 w-8"
-                              title={(s.partyName || '').trim().toLowerCase() === 'cash' ? 'Cannot confirm Cash sale — edit customer name first' : 'Confirm Sale'}
-                              disabled={(s.partyName || '').trim().toLowerCase() === 'cash'}
+                              title={(s.partyName || '').trim().toLowerCase() === 'cash' && (s.totalAmount - (s.amountReceived || s.amountPaid || 0)) > 0
+                                ? 'Cannot confirm — cash sale has outstanding balance'
+                                : 'Confirm Sale'}
                               onClick={async () => {
-                                // v4.160: Cash customer rule — block confirmation in UI
-                                if ((s.partyName || '').trim().toLowerCase() === 'cash') {
+                                // v6.18: Cash customer rule — block confirmation only if balance due > 0
+                                const isCashCustomer = (s.partyName || '').trim().toLowerCase() === 'cash'
+                                const balanceDue = s.totalAmount - (s.amountReceived || s.amountPaid || 0)
+                                if (isCashCustomer && balanceDue > 0) {
                                   toast({
-                                    title: 'Cannot Confirm',
-                                    description: 'Edit the sale and enter the customer\'s real name before confirming.',
+                                    title: 'Cannot Confirm — Outstanding Balance',
+                                    description: `This cash sale has an outstanding balance of ₹${balanceDue.toFixed(2)}. A cash sale must be fully paid before confirmation. Edit the sale to enter the full amount received, or change the customer name to process as a credit sale.`,
                                     variant: 'destructive',
+                                    duration: 8000,
                                   })
                                   return
                                 }
@@ -1480,12 +1484,13 @@ export function SaleRegister() {
               </Button>
               <Button className="bg-emerald-600 hover:bg-emerald-700" onClick={async () => {
                 if (!justSavedSale || !tenant) return
-                // v4.160: Cash customer rule — block confirmation
+                // v6.18: Cash customer rule — block confirmation only if balance due > 0
                 const isCashCustomer = (justSavedSale.partyName || '').trim().toLowerCase() === 'cash'
-                if (isCashCustomer) {
+                const balanceDue = justSavedSale.totalAmount - (justSavedSale.amountReceived || justSavedSale.amountPaid || 0)
+                if (isCashCustomer && balanceDue > 0) {
                   toast({
-                    title: 'Cannot Confirm Sale',
-                    description: 'A sale with customer name "Cash" cannot be confirmed. Edit the sale and enter the customer\'s real name to process a credit sale.',
+                    title: 'Cannot Confirm — Outstanding Balance',
+                    description: `This cash sale has an outstanding balance of ₹${balanceDue.toFixed(2)}. A cash sale must be fully paid before confirmation. Edit the sale to enter the full amount received, or change the customer name to process as a credit sale.`,
                     variant: 'destructive',
                     duration: 8000,
                   })

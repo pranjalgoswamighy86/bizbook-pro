@@ -89,28 +89,16 @@ export async function POST(req: NextRequest) {
       }
       data.date = new Date(data.date)
 
-      // v4.160: CASH CUSTOMER RULE — enforced permanently
-      // A sale with partyName "Cash" CANNOT be confirmed as a finalized sale.
-      // It can only be saved as a QUOTATION.
-      // Rationale: Cash sales have no receivable — card/UPI/cash/order values are all zero,
-      // so the pending amount would equal the full selling price, creating a false credit entry.
-      // Credit sales require the customer's real name (mobile + address optional).
-      // This logic must not be removed.
-      const isCashCustomer = (data.partyName || '').trim().toLowerCase() === 'cash'
-      const targetInvoiceStatus = (data.invoiceStatus || 'CONFIRMED').toUpperCase()
-      if (isCashCustomer && targetInvoiceStatus === 'CONFIRMED') {
-        return NextResponse.json({
-          error: 'Cannot confirm a sale with customer name "Cash". A finalized sale requires the customer\'s real name. You can save it as a Quotation instead, or change the customer name to process a credit sale.',
-          code: 'CASH_CUSTOMER_CANNOT_CONFIRM',
-        }, { status: 422 })
-      }
-      // If Cash customer, force QUOTATION status
-      if (isCashCustomer) {
-        data.invoiceStatus = 'QUOTATION'
-      }
-
-      // Payment status logic (unchanged)
+      // v6.18: CASH CUSTOMER RULE — cash sales are allowed as CONFIRMED
+      // provided balance due = 0 (which the payment-status logic below
+      // guarantees by forcing amountReceived = totalAmount for cash sales).
+      // Previously: blocked ALL cash customers from being saved as CONFIRMED
+      // and forced them to QUOTATION — that was wrong because a fully-paid
+      // cash sale is a legitimate finalized sale.
+      // The confirm-sale action still blocks cash customers with balance due > 0.
       const isCashSale = (data.partyName || '').trim().toLowerCase() === 'cash'
+
+      // Payment status logic — cash sales are always fully paid (balance due = 0)
       if (isCashSale) {
         data.paymentStatus = 'RECEIVED'
         data.amountReceived = data.totalAmount
@@ -734,13 +722,24 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'Sale not found' }, { status: 404 })
       }
 
-      // v4.160: CASH CUSTOMER RULE — cannot confirm a sale with partyName "Cash"
+      // v6.18: CASH CUSTOMER RULE — can only confirm if balance due = 0.
+      // A cash sale means full payment was received at the time of sale.
+      // If there's an outstanding balance, it's not really a cash sale —
+      // the user must either enter the full amount received or change the
+      // customer name to a real name (credit sale).
+      // (Previously: blocked ALL cash customers unconditionally — that was
+      //  wrong because the create/update flow already forces amountReceived
+      //  = totalAmount for cash customers, so balance due is always 0.)
       const isCashCustomer = (sale.partyName || '').trim().toLowerCase() === 'cash'
       if (isCashCustomer) {
-        return NextResponse.json({
-          error: 'Cannot confirm a sale with customer name "Cash". Please edit the sale and enter the customer\'s real name before confirming. Credit sales require a real customer name — mobile and address are optional.',
-          code: 'CASH_CUSTOMER_CANNOT_CONFIRM',
-        }, { status: 422 })
+        const balanceDue = roundTo2(sale.totalAmount - (sale.amountReceived || sale.amountPaid || 0))
+        if (balanceDue > 0) {
+          return NextResponse.json({
+            error: `Cannot confirm a cash sale with an outstanding balance of ₹${balanceDue.toFixed(2)}. A cash sale must be fully paid at the time of confirmation. Either edit the sale to enter the full amount received, or change the customer name to a real name to process it as a credit sale.`,
+            code: 'CASH_CUSTOMER_BALANCE_DUE',
+            balanceDue,
+          }, { status: 422 })
+        }
       }
 
       await db.$transaction(async (tx) => {
