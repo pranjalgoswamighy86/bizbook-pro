@@ -179,21 +179,20 @@ async function handleFileUpload(req: NextRequest) {
 
     if (dataType === 'excel' || dataType === 'csv') {
       // For spreadsheets, summarize the data structure and content
+      // v6.19.1: Truncate to avoid Gemini 400 errors on large files (303+ rows)
       const sheets = parsedData as Record<string, any[]>
+      const MAX_ROWS_PER_SHEET = 30 // Truncate to 30 sample rows per sheet (was 5, but headers + 30 rows is safe for all providers)
+      const MAX_TOTAL_CHARS = 20000 // Hard cap to stay under token limits
       const sheetSummary = Object.entries(sheets).map(([name, rows]) => {
         const headers = rows.length > 0 ? Object.keys(rows[0]) : []
-        const sampleRows = rows.slice(0, 5)
-        return `Sheet "${name}": ${rows.length} rows, columns: ${headers.join(', ')}
-Sample data (first 5 rows):
+        const sampleRows = rows.slice(0, MAX_ROWS_PER_SHEET)
+        const truncatedNote = rows.length > MAX_ROWS_PER_SHEET ? `\n(Showing first ${MAX_ROWS_PER_SHEET} of ${rows.length} rows — data truncated for AI analysis)` : ''
+        return `Sheet "${name}": ${rows.length} rows, columns: ${headers.join(', ')}${truncatedNote}
+Sample data (first ${sampleRows.length} rows):
 ${JSON.stringify(sampleRows, null, 2)}`
-      }).join('\n\n')
+      }).join('\n\n').substring(0, MAX_TOTAL_CHARS)
 
-      prompt = `Analyze this business data file and provide:
-1. Data type identification (sales register, purchase register, inventory, expenses, etc.)
-2. Column mapping suggestions (which columns map to: invoice number, date, party name, item name, quantity, rate, amount, tax, total, etc.)
-3. Data quality issues (missing values, format inconsistencies, duplicates)
-4. Import readiness assessment (can this data be directly imported into BizBook Pro?)
-5. Suggested import actions (which modules to import into)
+      prompt = `Analyze this business data file and extract records for import into BizBook Pro.
 
 File: ${file.name}
 Type: ${dataType.toUpperCase()}
@@ -201,16 +200,70 @@ ${categoryInstruction}
 
 ${sheetSummary}
 
-Provide a structured analysis in JSON format:
+CRITICAL: You must return a JSON object with the following structure. The "importData" field is the MOST IMPORTANT — it contains the actual extracted records that will be imported. Extract ALL rows from the file, not just the sample.
+
+Return EXACTLY this JSON structure (no markdown, no code fences, just pure JSON):
 {
-  "dataType": "sales|purchases|inventory|expenses|parties|unknown",
-  "confidence": "high|medium|low",
-  "columnMapping": { "originalColumn": "bizbookField" },
-  "dataQuality": { "issues": [], "score": "0-100" },
-  "importReady": true|false,
-  "suggestions": [],
-  "summary": "Brief summary"
-}`
+  "detectedDocumentType": "sale_invoice|purchase_invoice|bank_statement|inventory_data|expense_data|party_data|staff_data|backup_data|mixed_data|unknown",
+  "detectedBusiness": "business name if found in the file, else null",
+  "detectedGSTIN": "GSTIN if found, else null",
+  "summary": "Brief 1-2 sentence summary of what was found",
+  "confidence": 0.85,
+  "importData": {
+    "sales": [
+      {
+        "invoiceNumber": "string",
+        "date": "YYYY-MM-DD or ISO date",
+        "partyName": "customer name",
+        "partyAddress": "string or null",
+        "partyGst": "GSTIN or null",
+        "items": [{"name":"item","qty":1,"rate":100,"amount":100,"total":100}],
+        "subtotal": 100,
+        "gstAmount": 0,
+        "totalAmount": 100,
+        "paymentStatus": "RECEIVED|PENDING|PARTIAL",
+        "paymentMode": "CASH|UPI|CARD|OTHERS|null"
+      }
+    ],
+    "purchases": [
+      {
+        "invoiceNumber": "string",
+        "date": "YYYY-MM-DD",
+        "partyName": "supplier name",
+        "items": [{"name":"item","qty":1,"rate":100,"amount":100}],
+        "subtotal": 100,
+        "gstAmount": 0,
+        "totalAmount": 100,
+        "paymentStatus": "UNPAID|PAID|PARTIAL"
+      }
+    ],
+    "expenses": [
+      {"date":"YYYY-MM-DD","description":"string","amount":100,"category":"string","paymentMode":"CASH|UPI|CARD|BANK|OTHERS"}
+    ],
+    "products": [
+      {"name":"item","hsnCode":"string|null","category":"string|null","unit":"PCS|KG|LTR","purchasePrice":0,"salePrice":0,"mrp":0,"currentStock":0,"gstRate":0}
+    ],
+    "parties": [
+      {"name":"string","type":"CUSTOMER|SUPPLIER","address":"string|null","phone":"string|null","gstNumber":"string|null","currentBalance":0}
+    ],
+    "staff": [
+      {"name":"string","role":"string","salary":0,"phone":"string|null"}
+    ],
+    "bankTransactions": [
+      {"date":"YYYY-MM-DD","description":"string","deposit":0,"withdrawal":0,"balance":0,"category":"string|null","bankName":"string|null"}
+    ]
+  },
+  "warnings": ["list of any data quality issues found"],
+  "suggestions": ["list of import suggestions"]
+}
+
+RULES:
+- Extract ALL rows from the file into the appropriate importData array(s), not just the sample.
+- Only populate arrays that match the data you found. Leave empty arrays for modules with no data.
+- Use 0 for missing numeric values, null for missing optional string values.
+- Confidence is a number between 0 and 1 (e.g., 0.85 for 85% confident).
+- If you cannot determine the document type, use "unknown" and put data in the most likely module.
+- Do NOT wrap the JSON in markdown code fences. Return raw JSON only.`
     } else if (dataType === 'image') {
       // For images, use vision AI
       prompt = `Analyze this business document/image and extract:
@@ -246,18 +299,45 @@ Provide a structured analysis with:
     // Call AI
     const { provider, result } = await analyzeWithAI(prompt, undefined, imageBase64)
 
+    // v6.19.1: Clean the AI response — strip markdown code fences if present
+    let cleanedResult = result.trim()
+    if (cleanedResult.startsWith('```')) {
+      // Remove ```json ... ``` or ``` ... ``` wrappers
+      cleanedResult = cleanedResult.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '')
+    }
+
     // Try to parse AI response as JSON, fallback to text
     try {
-      analysis = JSON.parse(result)
+      analysis = JSON.parse(cleanedResult)
       analysis._provider = provider
       analysis._rawResponse = result
+      // v6.19.1: Ensure importData exists with all module arrays
+      if (!analysis.importData) analysis.importData = {}
+      const requiredModules = ['sales', 'purchases', 'expenses', 'products', 'parties', 'staff', 'bankTransactions']
+      for (const mod of requiredModules) {
+        if (!Array.isArray(analysis.importData[mod])) analysis.importData[mod] = []
+      }
+      // Ensure confidence is a number 0-1
+      if (typeof analysis.confidence === 'string') {
+        const c = analysis.confidence.toLowerCase()
+        analysis.confidence = c === 'high' ? 0.9 : c === 'medium' ? 0.6 : c === 'low' ? 0.3 : 0.5
+      } else if (typeof analysis.confidence === 'number' && analysis.confidence > 1) {
+        // If confidence is 0-100, convert to 0-1
+        analysis.confidence = analysis.confidence / 100
+      } else if (typeof analysis.confidence !== 'number') {
+        analysis.confidence = 0.5
+      }
+      console.log(`[AI-Import] AI analysis complete. Provider: ${provider}. Records: sales=${analysis.importData.sales.length}, purchases=${analysis.importData.purchases.length}, expenses=${analysis.importData.expenses.length}, products=${analysis.importData.products.length}`)
     } catch {
       analysis = {
         dataType: 'unknown',
-        confidence: 'low',
-        summary: result,
+        confidence: 0.3,
+        summary: cleanedResult.substring(0, 500),
         _provider: provider,
         _rawResponse: result,
+        importData: { sales: [], purchases: [], expenses: [], products: [], parties: [], staff: [], bankTransactions: [] },
+        warnings: ['AI response could not be parsed as JSON. Showing raw summary.'],
+        suggestions: [],
       }
     }
 

@@ -208,5 +208,24 @@ export async function analyzeWithAI(
       lastError = err;
     }
   }
-  throw lastError || new Error('All AI providers failed.');
+
+  // v6.19.1: ALL configured providers failed — fall back to ZAI as last resort
+  // (Previously, ZAI was only used when NO providers were configured. Now it
+  // also catches the case where all 4 providers fail at runtime — e.g.,
+  // Gemini 400, OpenAI 429, DeepSeek insufficient balance, Anthropic error.)
+  console.warn('[AI] All configured providers failed. Falling back to ZAI...');
+  try {
+    const { getZaiClient } = await import('@/lib/zai-client')
+    const zai = await getZaiClient()
+    const response = await zai.chat.completions.create({
+      messages: [
+        { role: 'system', content: 'You are a helpful assistant for BizBook Pro accounting software. Respond in English only.' },
+        { role: 'user', content: context ? `${context}\n\nQuestion: ${prompt}` : prompt },
+      ],
+    })
+    return { provider: 'ZAI (emergency fallback)', result: response.choices[0]?.message?.content || 'No response' }
+  } catch (zaiErr: any) {
+    console.error('[AI] ZAI fallback also failed:', zaiErr.message);
+    throw lastError || new Error(`All AI providers failed. ZAI fallback also failed: ${zaiErr.message}`);
+  }
 }
