@@ -241,7 +241,22 @@ function createWindow() {
   // Sends IPC message + executeJavaScript fallback.
   // Retries up to 5 times with exponential backoff (200ms, 400ms, 800ms, 1.6s, 3.2s)
   // if the web app hasn't finished mounting the global handler yet.
+  //
+  // SECURITY: action strings are interpolated into executeJavaScript.
+  // To prevent any future injection (even though all current callers pass
+  // hardcoded literals), we whitelist allowed action names and reject
+  // anything else. The whitelist also makes the contract explicit.
+  const ALLOWED_MENU_ACTIONS = new Set([
+    'new-sale', 'new-purchase', 'export-backup',
+    'navigate-dashboard', 'navigate-sales', 'navigate-purchases',
+    'navigate-inventory', 'navigate-gst',
+    'help-chat', 'check-updates',
+  ])
   const sendMenuAction = (action: string) => {
+    if (!ALLOWED_MENU_ACTIONS.has(action)) {
+      console.error(`[Menu] BLOCKED unknown action (security whitelist):`, JSON.stringify(action))
+      return
+    }
     console.log(`[Menu] Sending action: ${action}`)
     // Method 1: IPC (primary — works once preload bridge is ready)
     try {
@@ -253,6 +268,7 @@ function createWindow() {
     // Method 2: Direct JS injection (works even if IPC listener isn't ready)
     // The web app's MenuActionBridge component sets window.__bizbookMenuAction.
     // If it's not ready yet, queue the action so it can be replayed on mount.
+    // NOTE: `action` is whitelisted above, so template interpolation is safe.
     const tryExecute = (attempt: number): void => {
       if (attempt > 5) {
         console.warn(`[Menu] Gave up after 5 attempts: ${action}`)
@@ -265,7 +281,6 @@ function createWindow() {
             window.__bizbookMenuAction('${action}');
             return true;
           } else {
-            // Queue for replay — MenuActionBridge drains this on mount
             if (!window.__pendingMenuActions) window.__pendingMenuActions = [];
             window.__pendingMenuActions.push('${action}');
             console.log('[Menu Bridge] Queued (handler not ready):', '${action}', '(attempt ${attempt})');
@@ -274,7 +289,6 @@ function createWindow() {
         })();
       `).then((result: boolean) => {
         if (!result) {
-          // Listener not ready — retry with exponential backoff
           const delay = 200 * Math.pow(2, attempt - 1)
           console.log(`[Menu] Listener not ready (attempt ${attempt}/5), retrying in ${delay}ms...`)
           setTimeout(() => tryExecute(attempt + 1), delay)
