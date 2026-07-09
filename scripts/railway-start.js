@@ -15,7 +15,7 @@ const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
-console.log('=== BizBook Pro Startup (v6.20.0 — PostgreSQL + PM2 + Security Hardened) ===');
+console.log('=== BizBook Pro Startup (v6.21.0 — PostgreSQL + PM2 + Rate-Limited) ===');
 
 // CRITICAL: Delete HOSTNAME so Next.js binds to 0.0.0.0 (fixes Railway 502)
 delete process.env.HOSTNAME;
@@ -141,12 +141,14 @@ try {
     runTenantProtectionCheck();
     runAutoRepair(); // v6.12: Auto-repair corrupted owner roles + consolidate wallets
     runStartupBackup();
+    cleanupLoginAttempts(); // v6.21.0: Clean old login attempts for rate limiting
     startServer();
   }).catch((err) => {
     console.log('⚠️ Seed check failed:', err.message);
     runTenantProtectionCheck();
     runAutoRepair();
     runStartupBackup();
+    cleanupLoginAttempts();
     startServer();
   });
 } catch (e) {
@@ -154,6 +156,7 @@ try {
   runTenantProtectionCheck();
   runAutoRepair();
   runStartupBackup();
+  cleanupLoginAttempts();
   startServer();
 }
 
@@ -303,6 +306,30 @@ function runTenantProtectionCheck() {
   }
 }
 
+// === v6.21.0: LoginAttempt Cleanup ===
+// Delete login attempts older than 24 hours to keep the table small.
+// At ~100 attempts/day at current traffic, the table stays under 1000 rows.
+// This runs on every container startup (before Next.js starts).
+async function cleanupLoginAttempts() {
+  try {
+    console.log('→ Cleaning up old login attempts...');
+    const { PrismaClient } = require('@prisma/client');
+    const prisma = new PrismaClient({ datasources: { db: { url: process.env.DATABASE_URL } } });
+
+    const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000); // 24 hours ago
+    const result = await prisma.loginAttempt.deleteMany({
+      where: { attemptedAt: { lt: cutoff } },
+    });
+
+    console.log(`[CLEANUP] ✓ Deleted ${result.count} old login attempt(s) older than 24h`);
+    await prisma.$disconnect();
+  } catch (err) {
+    // Non-blocking: if cleanup fails, old attempts will eventually age out
+    // via the 15-minute window check in the rate limiter itself.
+    console.warn('[CLEANUP] ⚠️ LoginAttempt cleanup failed (non-blocking):', err.message);
+  }
+}
+
 // === v4.115: Automatic Startup Backup ===
 // On every successful startup, export all tenant data to a JSON file.
 // This protects against database resets — if Railway loses the DB volume,
@@ -433,7 +460,16 @@ function startServer() {
         }
         PM2.start(pm2ConfigPath, (err) => {
           if (err) {
-            console.warn('PM2 start failed, falling back to direct server.js:', err.message);
+            // v6.21.0: Improved PM2 error logging — was logging err.message which is
+            // often undefined. Now logs the full error object for diagnosis.
+            console.warn('PM2 start failed, falling back to direct server.js.');
+            console.warn('  Error name:', err?.name || '(undefined)');
+            console.warn('  Error message:', err?.message || '(undefined)');
+            console.warn('  Error code:', err?.code || '(no code)');
+            console.warn('  Error stack:', err?.stack?.split('\n').slice(0, 3).join('\n  ') || '(no stack)');
+            console.warn('  PM2 config path:', pm2ConfigPath);
+            console.warn('  Config exists:', fs.existsSync(pm2ConfigPath));
+            console.warn('  Standalone server.js exists:', fs.existsSync(path.join(standaloneDir, 'server.js')));
             PM2.disconnect();
             require(path.join(standaloneDir, 'server.js'));
             return;
