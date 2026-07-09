@@ -6,7 +6,11 @@ import { dispatchOtp } from '@/lib/otp/dispatcher'
 import { isMasterMobile } from '@/lib/master-mobile' // v4.124: Master mobile bypass
 import { checkRateLimit, RATE_LIMITS, otpRateLimitKey, loginRateLimitKey, passwordResetRateLimitKey } from '@/lib/rate-limit'
 // v6.21.0: PostgreSQL-backed rate limiter for login (survives container restarts)
-import { checkLoginRateLimit, recordLoginAttempt, clearLoginAttempts, getClientIP } from '@/lib/rate-limit-db'
+// v6.21.2 EMERGENCY ROLLBACK: DB-backed rate limiter disabled — was causing 500 errors
+// because the standalone-bundled Prisma client doesn't know about LoginAttempt model.
+// The in-memory limiter (RATE_LIMITS.LOGIN, 10/15min) remains active as the sole layer.
+// TODO: Re-enable DB-backed rate limiting after fixing the Prisma client generation issue.
+// import { checkLoginRateLimit, recordLoginAttempt, clearLoginAttempts, getClientIP } from '@/lib/rate-limit-db'
 // ---- SECURITY PATCH v1 imports ----
 import {
   hashPassword,
@@ -407,26 +411,13 @@ export async function POST(req: NextRequest) {
     if (action === 'login') {
       const { email, password } = body
 
-      // v6.21.0: PostgreSQL-backed rate limiting (survives container restarts)
-      // Two dimensions: per-email (5/15min) + per-IP (20/15min) + escalation (3 lockouts → 1h)
-      // The old in-memory limiter reset 9×/day on Railway restarts — this one persists.
-      const clientIP = getClientIP(request)
-      const dbRateLimit = await checkLoginRateLimit(email || '', clientIP)
-      if (!dbRateLimit.allowed) {
-        const retryMin = Math.ceil(dbRateLimit.retryAfterSeconds / 60)
-        const reasonText = dbRateLimit.reason === 'escalation'
-          ? ' due to repeated failed attempts. For security, this account/IP is locked for 1 hour'
-          : ''
-        return NextResponse.json({
-          error: `Too many login attempts${reasonText}. Please try again in ${retryMin} minute${retryMin > 1 ? 's' : ''}.`,
-        }, {
-          status: 429,
-          headers: { 'Retry-After': String(dbRateLimit.retryAfterSeconds) },
-        })
-      }
+      // v6.21.2 EMERGENCY ROLLBACK: DB-backed rate limiter disabled (was causing 500 errors)
+      // The in-memory limiter below remains active as the sole rate-limiting layer.
+      // const clientIP = getClientIP(request)
+      // const dbRateLimit = await checkLoginRateLimit(email || '', clientIP)
+      // if (!dbRateLimit.allowed) { ... return 429 ... }
 
-      // Keep the in-memory limiter as a second layer (fast, sync, never fails)
-      // but with a higher threshold (10/15min) since the DB limiter is the primary
+      // Keep the in-memory limiter as the sole rate-limiting layer (10/15min)
       const rlKey = loginRateLimitKey(email || '')
       const rl = checkRateLimit(rlKey, RATE_LIMITS.LOGIN)
       if (!rl.allowed) {
@@ -450,13 +441,12 @@ export async function POST(req: NextRequest) {
       // roughly constant (mitigates user-enumeration via response timing).
       const passwordValid = user ? verifyPassword(password, user.password) : false
       if (!user || !passwordValid) {
-        // v6.21.0: Record the failed attempt in PostgreSQL for rate limiting
-        await recordLoginAttempt(email || '', clientIP, false)
+        // v6.21.2: DB-backed attempt recording disabled (was causing 500 errors)
+        // await recordLoginAttempt(email || '', clientIP, false)
         return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 })
       }
-      // v6.21.0: Login succeeded — clear all failed attempts for this email
-      // so a user who mistyped once doesn't carry a partial counter
-      await clearLoginAttempts(email || '')
+      // v6.21.2: DB-backed attempt clearing disabled (was causing 500 errors)
+      // await clearLoginAttempts(email || '')
       // ----------------------------------------------------------------
 
       if (!user.isActive || user.isDeleted) {
