@@ -15,7 +15,7 @@ const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
-console.log('=== BizBook Pro Startup (v4.56 — PostgreSQL + PM2) ===');
+console.log('=== BizBook Pro Startup (v6.20.0 — PostgreSQL + PM2 + Security Hardened) ===');
 
 // CRITICAL: Delete HOSTNAME so Next.js binds to 0.0.0.0 (fixes Railway 502)
 delete process.env.HOSTNAME;
@@ -45,7 +45,13 @@ if (!process.env.DATABASE_URL) {
 
 console.log('CWD:', process.cwd());
 console.log('PORT:', process.env.PORT || '8080');
-console.log('DATABASE_URL:', process.env.DATABASE_URL.substring(0, 30) + '...');
+// v6.20.0: Removed DATABASE_URL echo — was leaking password's first 8 chars to Railway logs
+// Audit finding P0-4: even truncated, "postgresql://postgres:ztiuIMNE..." reveals the
+// DB username (postgres — the default superuser, itself a bad practice) and the first
+// 8 characters of the password. Engineers who need to verify the DB connection should
+// check the Railway dashboard Variables tab, NOT the deploy log.
+// To verify DB connectivity at startup, the Prisma client init log line below already
+// confirms whether the connection succeeded.
 
 // Step 1: Regenerate Prisma client
 console.log('→ Regenerating Prisma client...');
