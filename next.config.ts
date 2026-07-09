@@ -31,7 +31,13 @@ const nextConfig: NextConfig = {
   // ESLint is now configured via .eslintrc (if present) or skipped entirely.
   reactStrictMode: false,
 
-  serverExternalPackages: ["xlsx", "pdf-parse", "mammoth", "imap", "mailparser"],
+  // v6.22.0: Add @prisma/client to serverExternalPackages so it's NOT bundled
+  // into the standalone output. Instead, it's loaded from node_modules/ at
+  // runtime — where `prisma generate` (in railway-start.js) has updated it with
+  // the latest schema (including LoginAttempt). This was the root cause of the
+  // v6.21.0/v6.21.1 outage: the bundled Prisma client was stale (generated at
+  // build time, before LoginAttempt was added to the schema).
+  serverExternalPackages: ["xlsx", "pdf-parse", "mammoth", "imap", "mailparser", "@prisma/client", ".prisma/client"],
 
   // Exclude bloat dirs from the standalone trace so the production
   // bundle stays small. Adjust if you add new top-level dirs.

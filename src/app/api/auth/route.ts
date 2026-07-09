@@ -5,12 +5,11 @@ import { sendOtpEmail, isEmailConfigured } from '@/lib/email'
 import { dispatchOtp } from '@/lib/otp/dispatcher'
 import { isMasterMobile } from '@/lib/master-mobile' // v4.124: Master mobile bypass
 import { checkRateLimit, RATE_LIMITS, otpRateLimitKey, loginRateLimitKey, passwordResetRateLimitKey } from '@/lib/rate-limit'
-// v6.21.0: PostgreSQL-backed rate limiter for login (survives container restarts)
-// v6.21.2 EMERGENCY ROLLBACK: DB-backed rate limiter disabled — was causing 500 errors
-// because the standalone-bundled Prisma client doesn't know about LoginAttempt model.
-// The in-memory limiter (RATE_LIMITS.LOGIN, 10/15min) remains active as the sole layer.
-// TODO: Re-enable DB-backed rate limiting after fixing the Prisma client generation issue.
-// import { checkLoginRateLimit, recordLoginAttempt, clearLoginAttempts, getClientIP } from '@/lib/rate-limit-db'
+// v6.22.0: PostgreSQL-backed rate limiter for login (re-enabled with Prisma client fix)
+// v6.21.2 EMERGENCY ROLLBACK is now reverted — the root cause was fixed by adding
+// @prisma/client to serverExternalPackages in next.config.ts, so the runtime Prisma
+// client now knows about the LoginAttempt model.
+import { checkLoginRateLimit, recordLoginAttempt, clearLoginAttempts, getClientIP } from '@/lib/rate-limit-db'
 // ---- SECURITY PATCH v1 imports ----
 import {
   hashPassword,
@@ -411,13 +410,26 @@ export async function POST(req: NextRequest) {
     if (action === 'login') {
       const { email, password } = body
 
-      // v6.21.2 EMERGENCY ROLLBACK: DB-backed rate limiter disabled (was causing 500 errors)
-      // The in-memory limiter below remains active as the sole rate-limiting layer.
-      // const clientIP = getClientIP(request)
-      // const dbRateLimit = await checkLoginRateLimit(email || '', clientIP)
-      // if (!dbRateLimit.allowed) { ... return 429 ... }
+      // v6.22.0: PostgreSQL-backed rate limiting (re-enabled with Prisma client fix)
+      // Two dimensions: per-email (5/15min) + per-IP (20/15min) + escalation (3 lockouts → 1h)
+      // Fail-safe: if LoginAttempt table doesn't exist or DB query fails, allows the request.
+      const clientIP = getClientIP(request)
+      const dbRateLimit = await checkLoginRateLimit(email || '', clientIP)
+      if (!dbRateLimit.allowed) {
+        const retryMin = Math.ceil(dbRateLimit.retryAfterSeconds / 60)
+        const reasonText = dbRateLimit.reason === 'escalation'
+          ? ' due to repeated failed attempts. For security, this account/IP is locked for 1 hour'
+          : ''
+        return NextResponse.json({
+          error: `Too many login attempts${reasonText}. Please try again in ${retryMin} minute${retryMin > 1 ? 's' : ''}.`,
+        }, {
+          status: 429,
+          headers: { 'Retry-After': String(dbRateLimit.retryAfterSeconds) },
+        })
+      }
 
-      // Keep the in-memory limiter as the sole rate-limiting layer (10/15min)
+      // Keep the in-memory limiter as a second layer (fast, sync, never fails)
+      // with a higher threshold (10/15min) — defense in depth
       const rlKey = loginRateLimitKey(email || '')
       const rl = checkRateLimit(rlKey, RATE_LIMITS.LOGIN)
       if (!rl.allowed) {
@@ -441,12 +453,13 @@ export async function POST(req: NextRequest) {
       // roughly constant (mitigates user-enumeration via response timing).
       const passwordValid = user ? verifyPassword(password, user.password) : false
       if (!user || !passwordValid) {
-        // v6.21.2: DB-backed attempt recording disabled (was causing 500 errors)
-        // await recordLoginAttempt(email || '', clientIP, false)
+        // v6.22.0: Record the failed attempt in PostgreSQL for rate limiting
+        await recordLoginAttempt(email || '', clientIP, false)
         return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 })
       }
-      // v6.21.2: DB-backed attempt clearing disabled (was causing 500 errors)
-      // await clearLoginAttempts(email || '')
+      // v6.22.0: Login succeeded — clear all failed attempts for this email
+      // so a user who mistyped once doesn't carry a partial counter
+      await clearLoginAttempts(email || '')
       // ----------------------------------------------------------------
 
       if (!user.isActive || user.isDeleted) {

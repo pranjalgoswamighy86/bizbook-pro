@@ -1,22 +1,32 @@
 /**
- * v6.21.1 HOTFIX: PostgreSQL-Backed Rate Limiter for Login (raw SQL version)
- * ====================================================================
+ * v6.22.0: PostgreSQL-Backed Rate Limiter for Login (Prisma client version)
+ * ========================================================================
  *
- * The v6.21.0 version used db.loginAttempt.count() / .create() / .deleteMany()
- * via the Prisma client. This caused HTTP 500 errors in production because the
- * standalone-bundled Prisma client was generated at BUILD time (before the
- * LoginAttempt model was added to the schema), and the runtime prisma generate
- * in railway-start.js doesn't update the bundled client.
+ * ROOT CAUSE of v6.21.0/v6.21.1 outage:
+ *   The standalone-bundled Prisma client was generated at BUILD time (before
+ *   LoginAttempt was added to the schema). At runtime, db.loginAttempt was
+ *   undefined → TypeError → HTTP 500 on every login request.
  *
- * This hotfix uses raw SQL queries via rawDb.$queryRaw and rawDb.$executeRaw
- * — the same pattern the auth route already uses for user lookups. This bypasses
- * the Prisma client model registry entirely and goes straight to PostgreSQL.
+ * FIX in v6.22.0:
+ *   Added "@prisma/client" and ".prisma/client" to serverExternalPackages in
+ *   next.config.ts. This tells Next.js NOT to bundle the Prisma client into
+ *   the standalone output. Instead, it's loaded from node_modules/ at runtime
+ *   — where `prisma generate` (in railway-start.js) has updated it with the
+ *   latest schema (including LoginAttempt).
  *
- * The table is created by `prisma db push` in railway-start.js on container
- * startup, which DOES pick up the new LoginAttempt model from schema.prisma.
+ * ADDITIONAL FAIL-SAFE:
+ *   This version includes a table-existence check. If the LoginAttempt table
+ *   doesn't exist (e.g., prisma db push failed), the rate limiter gracefully
+ *   degrades to allow-all mode and logs a warning. This prevents a repeat of
+ *   the v6.21.0 outage where a missing model caused 500 errors.
+ *
+ * Rate limit configuration (two-dimensional):
+ *   Per-email:  5 failed attempts / 15 min → 15-min lockout
+ *   Per-IP:     20 failed attempts / 15 min → 15-min lockout
+ *   Escalation: 15+ failures in 24h → 1-hour lockout
  */
 
-import { rawDb } from '@/lib/db-soft-delete'
+import { db } from '@/lib/db-soft-delete'
 
 // ============================================================
 // Configuration
@@ -31,7 +41,7 @@ const LOGIN_CONFIG = {
   ipWindowMs: 15 * 60 * 1000,
   ipLockoutMs: 15 * 60 * 1000,
 
-  escalationThreshold: 3,
+  escalationThreshold: 3, // 3 × 5 = 15 failures in 24h
   escalationWindowMs: 24 * 60 * 60 * 1000,
   escalationLockoutMs: 60 * 60 * 1000,
 }
@@ -39,8 +49,49 @@ const LOGIN_CONFIG = {
 export interface LoginRateLimitResult {
   allowed: boolean
   retryAfterSeconds: number
-  reason?: 'email' | 'ip' | 'escalation'
+  reason?: 'email' | 'ip' | 'escalation' | 'table-missing'
   remaining?: number
+}
+
+// ============================================================
+// Table-Existence Cache (checked once per container lifetime)
+// ============================================================
+
+let tableExistsCache: boolean | null = null
+let tableCheckedAt: number = 0
+const TABLE_CHECK_INTERVAL_MS = 5 * 60 * 1000 // re-check every 5 min
+
+/**
+ * Check if the LoginAttempt table exists in the database.
+ * Cached for 5 minutes to avoid repeated queries.
+ * If the table doesn't exist, the rate limiter degrades to allow-all mode.
+ */
+async function tableExists(): Promise<boolean> {
+  const now = Date.now()
+  if (tableExistsCache !== null && now - tableCheckedAt < TABLE_CHECK_INTERVAL_MS) {
+    return tableExistsCache
+  }
+
+  try {
+    // Use rawDb to bypass the soft-delete extension (which would try to
+    // add isDeleted: false — LoginAttempt doesn't have that column)
+    const { rawDb } = await import('@/lib/db-soft-delete')
+    const result = await rawDb.$queryRaw`
+      SELECT to_regclass('LoginAttempt') as exists
+    ` as any[]
+    tableExistsCache = result[0]?.exists !== null
+    tableCheckedAt = now
+    if (!tableExistsCache) {
+      console.warn('[RATE-LIMIT-DB] ⚠️ LoginAttempt table does not exist — rate limiter in allow-all mode (fail-safe)')
+      console.warn('[RATE-LIMIT-DB] ⚠️ Run `prisma db push` to create the table')
+    }
+    return tableExistsCache
+  } catch (err) {
+    console.error('[RATE-LIMIT-DB] Table existence check failed:', err)
+    tableExistsCache = false
+    tableCheckedAt = now
+    return false
+  }
 }
 
 // ============================================================
@@ -59,7 +110,7 @@ export function getClientIP(request: Request): string {
 }
 
 // ============================================================
-// Core Rate-Limit Check (raw SQL)
+// Core Rate-Limit Check
 // ============================================================
 
 export async function checkLoginRateLimit(
@@ -69,16 +120,30 @@ export async function checkLoginRateLimit(
   const normalizedEmail = email.toLowerCase().trim()
   const now = Date.now()
 
+  // Fail-safe 1: if the LoginAttempt table doesn't exist, allow the request
+  const exists = await tableExists()
+  if (!exists) {
+    return {
+      allowed: true,
+      retryAfterSeconds: 0,
+      reason: 'table-missing',
+      remaining: LOGIN_CONFIG.maxEmailAttempts - 1,
+    }
+  }
+
   try {
     // === Check 1: Escalation lockout (15+ failures in 24h → 1-hour lockout) ===
     const escalationCutoff = new Date(now - LOGIN_CONFIG.escalationWindowMs)
-    const escalationRows = await rawDb.$queryRaw`
-      SELECT COUNT(*)::int as count FROM "LoginAttempt"
-      WHERE success = false
-        AND attemptedAt >= ${escalationCutoff}
-        AND (email = ${normalizedEmail} OR ip = ${ip})
-    ` as any[]
-    const escalationCount = escalationRows[0]?.count || 0
+    const escalationCount = await db.loginAttempt.count({
+      where: {
+        OR: [
+          { email: normalizedEmail },
+          { ip: ip },
+        ],
+        success: false,
+        attemptedAt: { gte: escalationCutoff },
+      },
+    })
 
     if (escalationCount >= LOGIN_CONFIG.maxEmailAttempts * LOGIN_CONFIG.escalationThreshold) {
       return {
@@ -90,13 +155,13 @@ export async function checkLoginRateLimit(
 
     // === Check 2: Per-email lockout (5 failed in 15 min) ===
     const emailCutoff = new Date(now - LOGIN_CONFIG.emailWindowMs)
-    const emailRows = await rawDb.$queryRaw`
-      SELECT COUNT(*)::int as count FROM "LoginAttempt"
-      WHERE email = ${normalizedEmail}
-        AND success = false
-        AND attemptedAt >= ${emailCutoff}
-    ` as any[]
-    const emailFailCount = emailRows[0]?.count || 0
+    const emailFailCount = await db.loginAttempt.count({
+      where: {
+        email: normalizedEmail,
+        success: false,
+        attemptedAt: { gte: emailCutoff },
+      },
+    })
 
     if (emailFailCount >= LOGIN_CONFIG.maxEmailAttempts) {
       return {
@@ -110,13 +175,13 @@ export async function checkLoginRateLimit(
     // === Check 3: Per-IP lockout (20 failed in 15 min) ===
     if (ip !== 'unknown') {
       const ipCutoff = new Date(now - LOGIN_CONFIG.ipWindowMs)
-      const ipRows = await rawDb.$queryRaw`
-        SELECT COUNT(*)::int as count FROM "LoginAttempt"
-        WHERE ip = ${ip}
-          AND success = false
-          AND attemptedAt >= ${ipCutoff}
-      ` as any[]
-      const ipFailCount = ipRows[0]?.count || 0
+      const ipFailCount = await db.loginAttempt.count({
+        where: {
+          ip: ip,
+          success: false,
+          attemptedAt: { gte: ipCutoff },
+        },
+      })
 
       if (ipFailCount >= LOGIN_CONFIG.maxIpAttempts) {
         return {
@@ -134,7 +199,7 @@ export async function checkLoginRateLimit(
       remaining: LOGIN_CONFIG.maxEmailAttempts - emailFailCount - 1,
     }
   } catch (err) {
-    // FAIL-SAFE: if DB query fails, allow the request
+    // Fail-safe 2: if the DB query fails, allow the request
     console.error('[RATE-LIMIT-DB] Check failed (allowing request as fail-safe):', err)
     return {
       allowed: true,
@@ -145,7 +210,7 @@ export async function checkLoginRateLimit(
 }
 
 // ============================================================
-// Record Attempt + Clear on Success (raw SQL)
+// Record Attempt + Clear on Success
 // ============================================================
 
 export async function recordLoginAttempt(
@@ -153,25 +218,36 @@ export async function recordLoginAttempt(
   ip: string,
   success: boolean
 ): Promise<void> {
+  const exists = await tableExists()
+  if (!exists) return // fail-safe: don't try to insert if table doesn't exist
+
   const normalizedEmail = email.toLowerCase().trim()
 
   try {
-    await rawDb.$executeRaw`
-      INSERT INTO "LoginAttempt" (id, email, ip, success, "attemptedAt")
-      VALUES (gen_random_uuid(), ${normalizedEmail}, ${ip}, ${success}, NOW())
-    `
+    await db.loginAttempt.create({
+      data: {
+        email: normalizedEmail,
+        ip: ip,
+        success: success,
+      },
+    })
   } catch (err) {
+    // Non-blocking: if we can't record the attempt, the rate limiter
+    // simply won't count it. Better than crashing the login flow.
     console.error('[RATE-LIMIT-DB] Failed to record attempt (non-blocking):', err)
   }
 }
 
 export async function clearLoginAttempts(email: string): Promise<void> {
+  const exists = await tableExists()
+  if (!exists) return
+
   const normalizedEmail = email.toLowerCase().trim()
 
   try {
-    await rawDb.$executeRaw`
-      DELETE FROM "LoginAttempt" WHERE email = ${normalizedEmail}
-    `
+    await db.loginAttempt.deleteMany({
+      where: { email: normalizedEmail },
+    })
   } catch (err) {
     console.error('[RATE-LIMIT-DB] Failed to clear attempts (non-blocking):', err)
   }
@@ -183,11 +259,18 @@ export async function clearLoginAttempts(email: string): Promise<void> {
 
 export async function cleanupOldLoginAttempts(): Promise<number> {
   try {
+    const { rawDb } = await import('@/lib/db-soft-delete')
+    // Check if table exists before attempting cleanup
+    const result = await rawDb.$queryRaw`
+      SELECT to_regclass('LoginAttempt') as exists
+    ` as any[]
+    if (!result[0]?.exists) return 0
+
     const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000)
-    const result = await rawDb.$executeRaw`
-      DELETE FROM "LoginAttempt" WHERE "attemptedAt" < ${cutoff}
-    `
-    return typeof result === 'number' ? result : 0
+    const deleteResult = await db.loginAttempt.deleteMany({
+      where: { attemptedAt: { lt: cutoff } },
+    })
+    return deleteResult.count
   } catch (err) {
     console.error('[RATE-LIMIT-DB] Cleanup failed (non-blocking):', err)
     return 0
