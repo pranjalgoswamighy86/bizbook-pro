@@ -24,6 +24,29 @@ function log(level, msg) {
   console.log(`${colors[level] || ''}[TENANT-PROTECT] [${level}]${colors.reset} ${msg}`);
 }
 
+/**
+ * v6.20.0: Mask email addresses in log output to prevent PII leakage.
+ * Resolves audit finding P0-3: 10 customer emails were being logged in
+ * plain text on every container restart (DPDP Act 2023 violation).
+ *
+ * Masking strategy: show first 4 chars + **** + @ + domain.
+ * Example: "pranjalgoswamighy86@gmail.com" → "pran****@gmail.com"
+ *
+ * This preserves enough info for engineers to recognise tenants
+ * (especially during debugging) without exposing the full PII to
+ * anyone with Railway dashboard or log-download access.
+ */
+function maskEmail(email) {
+  if (!email || typeof email !== 'string') return '(unknown)';
+  const lower = email.toLowerCase();
+  const atIdx = lower.indexOf('@');
+  if (atIdx < 1) return lower; // not an email — return as-is
+  const local = lower.slice(0, atIdx);
+  const domain = lower.slice(atIdx);
+  if (local.length <= 4) return local[0] + '***' + domain;
+  return local.slice(0, 4) + '****' + domain;
+}
+
 async function loadPrisma() {
   try {
     const { PrismaClient } = require('@prisma/client');
@@ -78,12 +101,13 @@ async function main() {
 
     log('OK', `✓ ${tenantCount} tenant(s) registered — ALL are protected:`);
     activeTenants.forEach(t => {
-      log('OK', `  - ${t.email} (tenant: ${t.name}, plan: ${t.plan}) — ACTIVE`);
+      // v6.20.0: Mask email to prevent PII leakage in logs (DPDP Act 2023 compliance)
+      log('OK', `  - ${maskEmail(t.email)} (tenant: ${t.name}, plan: ${t.plan}) — ACTIVE`);
     });
     if (softDeletedTenants.length > 0) {
       log('INFO', `${softDeletedTenants.length} soft-deleted tenant(s) (data preserved):`);
       softDeletedTenants.forEach(t => {
-        log('INFO', `  - ${t.email} (tenant: ${t.name}) — SOFT-DELETED (data preserved)`);
+        log('INFO', `  - ${maskEmail(t.email)} (tenant: ${t.name}) — SOFT-DELETED (data preserved)`);
       });
     }
 
