@@ -24,9 +24,11 @@ const nextConfig: NextConfig = {
   typescript: {
     ignoreBuildErrors: true,
   },
-  eslint: {
-    ignoreDuringBuilds: true,
-  },
+  // v6.21.0: Removed deprecated `eslint: { ignoreDuringBuilds: true }` key
+  // Next.js 16 no longer recognizes this key — it was producing build warnings:
+  //   ⚠ `eslint` configuration in next.config.ts is no longer supported.
+  //   ⚠ Invalid next.config.ts options detected: Unrecognized key(s) in object: 'eslint'
+  // ESLint is now configured via .eslintrc (if present) or skipped entirely.
   reactStrictMode: false,
 
   serverExternalPackages: ["xlsx", "pdf-parse", "mammoth", "imap", "mailparser"],
