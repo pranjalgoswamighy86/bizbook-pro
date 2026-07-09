@@ -1,14 +1,27 @@
 // ============================================================
-// BizBook Pro — PM2 Ecosystem Configuration (v4.56)
+// BizBook Pro — PM2 Ecosystem Configuration (v6.23.0)
 // ============================================================
-// PM2 cluster mode: spawns multiple Node.js processes that share
-// the same port. Each process handles requests independently.
+// v6.23.0 FIX: Changed from cluster mode to fork mode.
 //
-// With PostgreSQL, multiple writers are safe (unlike SQLite).
-// 2 instances = 2x request handling capacity.
+// ROOT CAUSE of PM2 failure (v4.56–v6.22.3):
+//   PM2 cluster mode requires the server to use Node.js's cluster
+//   API (cluster.isMaster + worker.listen()). Next.js standalone
+//   server.js uses http.createServer() which binds to a specific
+//   port directly — incompatible with PM2's IPC-based port sharing.
+//   This caused PM2.start() to fail silently on every container
+//   startup, falling back to direct server.js (single instance).
 //
-// Memory: 2 × ~200MB = ~400MB (fits in Railway Hobby 512MB)
-// CPU: 2 instances use 2 CPU cores (Railway Hobby has shared CPU)
+// FIX:
+//   Switch to fork mode with 1 instance. Fork mode spawns a single
+//   child process — no cluster IPC, no port sharing. This works
+//   correctly with Next.js standalone server.js.
+//
+//   Railway provides container-level scaling (multiple containers),
+//   so PM2 cluster mode within a single container is redundant.
+//   If you need more capacity, upgrade the Railway plan or add
+//   more replicas via Railway's service settings.
+//
+// Memory: ~200MB (fits in Railway 512MB)
 // ============================================================
 
 const path = require('path');
@@ -18,9 +31,9 @@ module.exports = {
   apps: [{
     name: 'bizbook-pro',
     script: path.join(projectDir, '.next/standalone/server.js'),
-    instances: 2,              // v4.56: 2 instances (safe for 512MB RAM)
-    exec_mode: 'cluster',      // Cluster mode = shared port, load balanced
-    max_memory_restart: '300M',
+    instances: 1,              // v6.23.0: 1 instance (fork mode)
+    exec_mode: 'fork',         // v6.23.0: fork mode (was: cluster)
+    max_memory_restart: '400M',
     max_restarts: 30,
     min_uptime: '10s',
     restart_delay: 4000,
@@ -31,7 +44,7 @@ module.exports = {
       HOSTNAME: '0.0.0.0',
       PORT: process.env.PORT || 8080,
       UV_THREADPOOL_SIZE: 32,
-      NODE_OPTIONS: '--max-old-space-size=256',
+      NODE_OPTIONS: '--max-old-space-size=384',
       DATABASE_URL: process.env.DATABASE_URL,
       NEXT_TELEMETRY_DISABLED: 1,
       // Pass through all Railway env vars
