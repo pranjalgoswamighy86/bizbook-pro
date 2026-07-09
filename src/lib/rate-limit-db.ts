@@ -1,24 +1,26 @@
 /**
- * v6.22.1: PostgreSQL-Backed Rate Limiter for Login (lazy-import version)
+ * v6.22.3: PostgreSQL-Backed Rate Limiter for Login (simplified, fail-safe)
  * =======================================================================
  *
- * ROOT CAUSE of v6.22.0 staging crash:
- *   Even with serverExternalPackages fix, the static `import { db } from
- *   '@/lib/db-soft-delete'` at the top of this file caused the auth route
- *   module to fail loading entirely. If the Prisma client or db-soft-delete
- *   module has ANY load-time error, the entire /api/auth route becomes
- *   non-functional → HTTP 500 on every request.
+ * ROOT CAUSE of v6.22.2 fail-safe mode (rate limiter not triggering):
+ *   The tableExists() function used rawDb.$queryRaw, which tries to use
+ *   the WASM query engine. But postbuild.js REMOVES the PostgreSQL WASM
+ *   engine files to save space (keeps only the native binary). So
+ *   tableExists() failed → returned false → rate limiter stayed in
+ *   allow-all mode.
  *
- * FIX in v6.22.1:
- *   Use dynamic `await import()` inside each function instead of a static
- *   import at the top. This isolates any Prisma/db errors to the rate-limit
- *   function itself — the auth route module loads successfully regardless.
+ *   The existing auth route code works because it uses the Prisma client's
+ *   standard query methods (findFirst, etc.) which use the NATIVE binary
+ *   engine, not the WASM engine.
  *
- *   Combined with the existing try/catch fail-safe, this means:
- *     - If the DB is down → rate limiter returns allowed:true (login proceeds)
- *     - If Prisma client is stale → rate limiter returns allowed:true
- *     - If LoginAttempt table doesn't exist → rate limiter returns allowed:true
- *     - If everything works → rate limiter enforces 5/15min + 20/15min + escalation
+ * FIX in v6.22.3:
+ *   Remove the tableExists() check entirely. Just call db.loginAttempt.count()
+ *   directly and let any errors be caught by the try/catch. If the table
+ *   doesn't exist, Prisma will throw a P2021 error ("table does not exist")
+ *   which is caught and handled gracefully.
+ *
+ *   This is simpler, more reliable, and uses the same code path as the
+ *   existing auth route (native binary engine, not WASM).
  *
  * Rate limit configuration:
  *   Per-email:  5 failed attempts / 15 min → 15-min lockout
@@ -47,41 +49,8 @@ const LOGIN_CONFIG = {
 export interface LoginRateLimitResult {
   allowed: boolean
   retryAfterSeconds: number
-  reason?: 'email' | 'ip' | 'escalation' | 'table-missing' | 'db-unavailable'
+  reason?: 'email' | 'ip' | 'escalation' | 'db-unavailable'
   remaining?: number
-}
-
-// ============================================================
-// Table-Existence Cache
-// ============================================================
-
-let tableExistsCache: boolean | null = null
-let tableCheckedAt: number = 0
-const TABLE_CHECK_INTERVAL_MS = 5 * 60 * 1000
-
-async function tableExists(): Promise<boolean> {
-  const now = Date.now()
-  if (tableExistsCache !== null && now - tableCheckedAt < TABLE_CHECK_INTERVAL_MS) {
-    return tableExistsCache
-  }
-
-  try {
-    const { rawDb } = await import('@/lib/db-soft-delete')
-    const result = await rawDb.$queryRaw`
-      SELECT to_regclass('LoginAttempt') as exists
-    ` as any[]
-    tableExistsCache = result[0]?.exists !== null
-    tableCheckedAt = now
-    if (!tableExistsCache) {
-      console.warn('[RATE-LIMIT-DB] ⚠️ LoginAttempt table does not exist — rate limiter in allow-all mode')
-    }
-    return tableExistsCache
-  } catch (err) {
-    console.error('[RATE-LIMIT-DB] Table existence check failed:', err)
-    tableExistsCache = false
-    tableCheckedAt = now
-    return false
-  }
 }
 
 // ============================================================
@@ -104,7 +73,7 @@ export function getClientIP(request: Request): string {
 }
 
 // ============================================================
-// Core Rate-Limit Check (fully fail-safe)
+// Core Rate-Limit Check (simplified — no tableExists check)
 // ============================================================
 
 export async function checkLoginRateLimit(
@@ -115,21 +84,10 @@ export async function checkLoginRateLimit(
   const now = Date.now()
 
   try {
-    // Dynamic import — if this fails, the error is caught and we return allowed:true
+    // Dynamic import — if this fails, caught by try/catch
     const { db } = await import('@/lib/db-soft-delete')
 
-    // Check if the LoginAttempt table exists
-    const exists = await tableExists()
-    if (!exists) {
-      return {
-        allowed: true,
-        retryAfterSeconds: 0,
-        reason: 'table-missing',
-        remaining: LOGIN_CONFIG.maxEmailAttempts - 1,
-      }
-    }
-
-    // === Check 1: Escalation lockout ===
+    // === Check 1: Escalation lockout (15+ failures in 24h → 1-hour lockout) ===
     const escalationCutoff = new Date(now - LOGIN_CONFIG.escalationWindowMs)
     const escalationCount = await db.loginAttempt.count({
       where: {
@@ -147,7 +105,7 @@ export async function checkLoginRateLimit(
       }
     }
 
-    // === Check 2: Per-email lockout ===
+    // === Check 2: Per-email lockout (5 failed in 15 min) ===
     const emailCutoff = new Date(now - LOGIN_CONFIG.emailWindowMs)
     const emailFailCount = await db.loginAttempt.count({
       where: {
@@ -166,7 +124,7 @@ export async function checkLoginRateLimit(
       }
     }
 
-    // === Check 3: Per-IP lockout ===
+    // === Check 3: Per-IP lockout (20 failed in 15 min) ===
     if (ip !== 'unknown') {
       const ipCutoff = new Date(now - LOGIN_CONFIG.ipWindowMs)
       const ipFailCount = await db.loginAttempt.count({
@@ -193,9 +151,7 @@ export async function checkLoginRateLimit(
       remaining: LOGIN_CONFIG.maxEmailAttempts - emailFailCount - 1,
     }
   } catch (err) {
-    // FAIL-SAFE: any error → allow the request
-    // This is the key difference from v6.22.0 — the entire function body
-    // is wrapped in try/catch, including the dynamic import.
+    // FAIL-SAFE: any error (table missing, DB down, Prisma client stale) → allow
     console.error('[RATE-LIMIT-DB] Check failed (allowing request as fail-safe):', err)
     return {
       allowed: true,
@@ -207,7 +163,7 @@ export async function checkLoginRateLimit(
 }
 
 // ============================================================
-// Record Attempt + Clear on Success (fully fail-safe)
+// Record Attempt + Clear on Success
 // ============================================================
 
 export async function recordLoginAttempt(
@@ -216,9 +172,6 @@ export async function recordLoginAttempt(
   success: boolean
 ): Promise<void> {
   try {
-    const exists = await tableExists()
-    if (!exists) return
-
     const { db } = await import('@/lib/db-soft-delete')
     const normalizedEmail = (email || '').toLowerCase().trim()
 
@@ -230,16 +183,13 @@ export async function recordLoginAttempt(
       },
     })
   } catch (err) {
-    // Non-blocking
+    // Non-blocking — if we can't record, the rate limiter just won't count this attempt
     console.error('[RATE-LIMIT-DB] Failed to record attempt (non-blocking):', err)
   }
 }
 
 export async function clearLoginAttempts(email: string): Promise<void> {
   try {
-    const exists = await tableExists()
-    if (!exists) return
-
     const { db } = await import('@/lib/db-soft-delete')
     const normalizedEmail = (email || '').toLowerCase().trim()
 
@@ -257,12 +207,6 @@ export async function clearLoginAttempts(email: string): Promise<void> {
 
 export async function cleanupOldLoginAttempts(): Promise<number> {
   try {
-    const { rawDb } = await import('@/lib/db-soft-delete')
-    const result = await rawDb.$queryRaw`
-      SELECT to_regclass('LoginAttempt') as exists
-    ` as any[]
-    if (!result[0]?.exists) return 0
-
     const { db } = await import('@/lib/db-soft-delete')
     const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000)
     const deleteResult = await db.loginAttempt.deleteMany({
