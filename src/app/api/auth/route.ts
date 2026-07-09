@@ -413,7 +413,8 @@ export async function POST(req: NextRequest) {
       // v6.22.0: PostgreSQL-backed rate limiting (re-enabled with Prisma client fix)
       // Two dimensions: per-email (5/15min) + per-IP (20/15min) + escalation (3 lockouts → 1h)
       // Fail-safe: if LoginAttempt table doesn't exist or DB query fails, allows the request.
-      const clientIP = getClientIP(request)
+      // v6.22.2: Fixed variable name — was 'request' (undefined), should be 'req' (the POST handler param)
+      const clientIP = getClientIP(req)
       const dbRateLimit = await checkLoginRateLimit(email || '', clientIP)
       if (!dbRateLimit.allowed) {
         const retryMin = Math.ceil(dbRateLimit.retryAfterSeconds / 60)
