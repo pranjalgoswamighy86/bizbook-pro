@@ -107,8 +107,13 @@ export async function POST(req: NextRequest) {
         const freeHours = getFreeTierHours(totalUsers)
         const plan = PLANS.find(p => p.hours === freeHours) || PLANS[0]
 
-        subscription = await db.subscription.create({
-          data: {
+        // v6.23.0: Use upsert instead of create to prevent duplicate subscriptions.
+        // The tenantId field has @unique constraint, so upsert is safe.
+        // If a subscription somehow already exists (race condition), update it
+        // instead of creating a duplicate.
+        subscription = await db.subscription.upsert({
+          where: { tenantId },
+          create: {
             tenantId, // Create on current company, but all companies read from it
             planHours: freeHours,
             planName: `${freeHours}Hrs Free Plan`,
@@ -125,10 +130,18 @@ export async function POST(req: NextRequest) {
             dataEntryHours: plan.roleAllocation.DATA_ENTRY,
             viewOnlyHours: 0,
           },
+          update: {
+            // If it already exists, don't overwrite the wallet balance
+            // Just ensure the plan metadata is current
+            planHours: freeHours,
+            planName: `${freeHours}Hrs Free Plan`,
+            isFreeTier: true,
+            freeTierHours: freeHours,
+          },
           include: { recharges: true },
         })
 
-        console.log(`[SUBSCRIPTION] Created free tier (${freeHours}Hrs) — TENANT WALLET for tenant ${tenantId}`)
+        console.log(`[SUBSCRIPTION] Created/updated free tier (${freeHours}Hrs) — TENANT WALLET for tenant ${tenantId}`)
       }
 
       // v6.10: The wallet is the subscription we just found.
