@@ -790,3 +790,18 @@ model HelpSupportTicket {
   @@index([userId])
   @@index([category])
 }
+
+// v6.21.0: Rate limiting — PostgreSQL-backed brute-force protection
+// Resolves audit finding P1-2: in-memory rate limiter reset on every container
+// restart (9×/day), leaving the super-admin account vulnerable to credential
+// stuffing. This model persists login attempts across restarts.
+model LoginAttempt {
+  id          String   @id @default(cuid())
+  email       String   // lowercased email used for login
+  ip          String   // client IP from x-forwarded-for header
+  success     Boolean  @default(false) // true if login succeeded
+  attemptedAt DateTime @default(now())
+
+  @@index([email, attemptedAt]) // fast lookup by email
+  @@index([ip, attemptedAt])    // fast lookup by IP
+}
