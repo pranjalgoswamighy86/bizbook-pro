@@ -52,7 +52,7 @@ interface SaleItem {
 interface Sale {
   id: string; invoiceNumber: string; date: string; partyName: string; partyAddress: string | null
   partyGst: string | null; items: string; subtotal: number; gstAmount: number; totalAmount: number
-  paymentStatus: string; paymentMode: string | null; invoiceStatus: string; upiAmount: number; amountPaid: number; amountReceived: number; notes: string | null; invoiceFile: string | null; createdBy: string | null
+  paymentStatus: string; paymentMode: string | null; invoiceStatus: string; upiAmount: number; amountPaid: number; amountReceived: number; discountPercent: number; notes: string | null; invoiceFile: string | null; createdBy: string | null
   einvoiceIrn: string | null; einvoiceAckNo: string | null; einvoiceAckDate: string | null
   einvoiceQrCodeText: string | null; einvoiceStatus: string
 }
@@ -96,7 +96,7 @@ export function SaleRegister() {
   const [form, setForm] = useState({
     invoiceNumber: '', date: new Date().toISOString().split('T')[0],
     partyName: 'Cash', partyAddress: '', partyGst: '',
-    paymentStatus: 'RECEIVED', amountPaid: 0, amountReceived: 0, notes: '',
+    paymentStatus: 'RECEIVED', amountPaid: 0, amountReceived: 0, discountPercent: 0, notes: '',
     // v4.61: Payment Option dropdown
     paymentMode: 'CASH' as 'CASH' | 'UPI' | 'CARD' | 'PART_PAYMENT' | 'OTHERS',
     // v4.62: Part payment — multiple payment methods simultaneously
@@ -157,7 +157,11 @@ export function SaleRegister() {
   const subtotal = items.reduce((s, i) => s + i.amount, 0)
   const totalTax = items.reduce((s, i) => s + i.totalTax, 0)
   const totalDiscount = items.reduce((s, i) => s + i.discount, 0)
-  const totalAmount = subtotal + totalTax
+  // v6.25.0: Sale-level discount percentage — Grand Total = Subtotal - Discount + Tax
+  const saleDiscountPercent = form.discountPercent || 0
+  const saleDiscountAmount = Math.round(subtotal * saleDiscountPercent / 100 * 100) / 100
+  const taxableAmount = subtotal - saleDiscountAmount
+  const totalAmount = taxableAmount + totalTax
 
   // v4.62.1: Auto-set payment for Cash sales — Total Amount = Amount Received, Balance Due = 0
   useEffect(() => {
@@ -300,7 +304,7 @@ export function SaleRegister() {
     setForm({
       invoiceNumber: `INV-${Date.now().toString().slice(-6)}`, date: new Date().toISOString().split('T')[0],
       partyName: 'Cash', partyAddress: '', partyGst: '',
-      paymentStatus: 'RECEIVED', amountPaid: 0, amountReceived: 0, notes: '',
+      paymentStatus: 'RECEIVED', amountPaid: 0, amountReceived: 0, discountPercent: 0, notes: '',
       paymentMode: 'CASH', ppCash: 0, ppCard: 0, ppUpi: 0, ppOther: 0, ppCredit: 0, ppOtherRemarks: '', paymentRemarks: '',
     })
     setItems([emptyItem()])
@@ -432,6 +436,7 @@ export function SaleRegister() {
         subtotal: Number.isFinite(subtotal) ? subtotal : 0,
         gstAmount: Number.isFinite(totalTax) ? totalTax : 0,
         totalAmount: Number.isFinite(totalAmount) ? totalAmount : 0,
+        discountPercent: form.discountPercent || 0,
         createdBy: user?.id || null,
       }
       if (savedInvoiceFileRef) {
@@ -703,6 +708,10 @@ export function SaleRegister() {
 
   <div class="totals">
     <div class="row"><span>Subtotal</span><span>${fmtCurrency(sale.subtotal)}</span></div>
+    ${(sale as any).discountPercent > 0 ? `
+    <div class="row"><span>Discount (${(sale as any).discountPercent}%)</span><span>-${fmtCurrency(Math.round(sale.subtotal * (sale as any).discountPercent / 100 * 100) / 100)}</span></div>
+    <div class="row"><span>Taxable Amount</span><span>${fmtCurrency(sale.subtotal - Math.round(sale.subtotal * (sale as any).discountPercent / 100 * 100) / 100)}</span></div>
+    ` : ''}
     <div class="row"><span>Tax</span><span>${fmtCurrency(sale.gstAmount)}</span></div>
     <div class="row grand"><span>GRAND TOTAL</span><span>${fmtCurrency(sale.totalAmount)}</span></div>
     <div class="row"><span>Received</span><span>${fmtCurrency(sale.amountReceived || sale.amountPaid)}</span></div>
@@ -1217,9 +1226,27 @@ export function SaleRegister() {
               {/* Summary */}
               <div className="border-t pt-3 space-y-1 text-sm">
                 <div className="flex justify-between"><span>Subtotal</span><span>{formatCurrency(subtotal, tenant?.currency)}</span></div>
-                {totalDiscount > 0 && <div className="flex justify-between text-emerald-600"><span>Discount</span><span>-{formatCurrency(totalDiscount, tenant?.currency)}</span></div>}
+                {totalDiscount > 0 && <div className="flex justify-between text-emerald-600"><span>Item Discounts</span><span>-{formatCurrency(totalDiscount, tenant?.currency)}</span></div>}
+                {/* v6.25.0: Sale-level discount percentage input */}
+                <div className="flex justify-between items-center">
+                  <div className="flex items-center gap-2">
+                    <span>Discount (%)</span>
+                    <Input
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="0.5"
+                      placeholder="0"
+                      className="h-8 w-20 text-sm"
+                      value={form.discountPercent || ''}
+                      onChange={(e) => setForm(prev => ({ ...prev, discountPercent: Number(e.target.value) || 0 }))}
+                    />
+                  </div>
+                  {saleDiscountAmount > 0 && <span className="text-emerald-600">-{formatCurrency(saleDiscountAmount, tenant?.currency)}</span>}
+                </div>
+                {saleDiscountAmount > 0 && <div className="flex justify-between text-muted-foreground"><span>Taxable Amount</span><span>{formatCurrency(taxableAmount, tenant?.currency)}</span></div>}
                 <div className="flex justify-between"><span>Tax / Duties</span><span>{formatCurrency(totalTax, tenant?.currency)}</span></div>
-                <div className="flex justify-between font-bold text-base"><span>Total</span><span>{formatCurrency(totalAmount, tenant?.currency)}</span></div>
+                <div className="flex justify-between font-bold text-base"><span>GRAND TOTAL</span><span>{formatCurrency(totalAmount, tenant?.currency)}</span></div>
               </div>
 
               {/* v4.61: Payment Option dropdown — CASH, UPI, CARD, PART PAYMENT, OTHERS */}

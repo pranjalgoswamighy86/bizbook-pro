@@ -187,6 +187,9 @@ model Sale {
   upiAmount     Float    @default(0)  // UPI portion of payment (for QR code)
   amountReceived Float   @default(0)
   amountPaid    Float    @default(0)  // Kept for backward compat, same as amountReceived
+  // v6.25.0: Sale-level discount percentage (applied before tax)
+  // Grand Total = Subtotal - (Subtotal × discountPercent/100) + Tax
+  discountPercent Float  @default(0)
   notes         String?
   invoiceFile   String?
   // E-Invoice fields (GST IRN integration)

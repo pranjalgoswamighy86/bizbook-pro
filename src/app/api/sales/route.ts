@@ -53,6 +53,8 @@ export async function POST(req: NextRequest) {
       data.paymentMode = data.paymentMode || null
       data.invoiceStatus = data.invoiceStatus || 'CONFIRMED'
       data.upiAmount = roundTo2(sanitize(data.upiAmount))
+      // v6.25.0: Sale-level discount percentage
+      data.discountPercent = sanitize(data.discountPercent, 0)
 
       // v4.125: Anti-Negative Value Validation — GST compliance
       // Sales amounts can NEVER be negative. Opening/closing/stock can never be negative.
