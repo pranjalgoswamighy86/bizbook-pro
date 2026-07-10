@@ -708,10 +708,23 @@ export function SaleRegister() {
 
   <div class="totals">
     <div class="row"><span>Subtotal</span><span>${fmtCurrency(sale.subtotal)}</span></div>
-    ${(sale as any).discountPercent > 0 ? `
-    <div class="row"><span>Discount (${(sale as any).discountPercent}%)</span><span>-${fmtCurrency(Math.round(sale.subtotal * (sale as any).discountPercent / 100 * 100) / 100)}</span></div>
-    <div class="row"><span>Taxable Amount</span><span>${fmtCurrency(sale.subtotal - Math.round(sale.subtotal * (sale as any).discountPercent / 100 * 100) / 100)}</span></div>
-    ` : ''}
+    ${(() => {
+      // v6.25.1: Compute discount from actual amounts — works even if discountPercent wasn't saved
+      const discPercent = (sale as any).discountPercent || 0
+      const effectiveDiscount = sale.subtotal - (sale.totalAmount - sale.gstAmount)
+      if (discPercent > 0) {
+        const discAmt = Math.round(sale.subtotal * discPercent / 100 * 100) / 100
+        const taxable = sale.subtotal - discAmt
+        return `<div class="row"><span>Discount (${discPercent}%)</span><span>-${fmtCurrency(discAmt)}</span></div>
+                <div class="row"><span>Taxable Amount</span><span>${fmtCurrency(taxable)}</span></div>`
+      } else if (effectiveDiscount > 0.01) {
+        // Discount was applied but discountPercent wasn't saved — show the effective discount
+        const computedPercent = Math.round(effectiveDiscount / sale.subtotal * 100 * 10) / 10
+        return `<div class="row"><span>Discount (${computedPercent}%)</span><span>-${fmtCurrency(effectiveDiscount)}</span></div>
+                <div class="row"><span>Taxable Amount</span><span>${fmtCurrency(sale.subtotal - effectiveDiscount)}</span></div>`
+      }
+      return ''
+    })()}
     <div class="row"><span>Tax</span><span>${fmtCurrency(sale.gstAmount)}</span></div>
     <div class="row grand"><span>GRAND TOTAL</span><span>${fmtCurrency(sale.totalAmount)}</span></div>
     <div class="row"><span>Received</span><span>${fmtCurrency(sale.amountReceived || sale.amountPaid)}</span></div>
