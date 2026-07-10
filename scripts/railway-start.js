@@ -15,7 +15,7 @@ const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
-console.log('=== BizBook Pro Startup (v6.21.0 — PostgreSQL + PM2 + Rate-Limited) ===');
+console.log('=== BizBook Pro Startup (v6.24.0 — PostgreSQL + Direct Server + Rate-Limited) ===');
 
 // CRITICAL: Delete HOSTNAME so Next.js binds to 0.0.0.0 (fixes Railway 502)
 delete process.env.HOSTNAME;
@@ -142,6 +142,7 @@ try {
     runAutoRepair(); // v6.12: Auto-repair corrupted owner roles + consolidate wallets
     runStartupBackup();
     cleanupLoginAttempts(); // v6.21.0: Clean old login attempts for rate limiting
+    runSubscriptionDedup(); // v6.24.0: One-time dedup of duplicate subscriptions
     startServer();
   }).catch((err) => {
     console.log('⚠️ Seed check failed:', err.message);
@@ -149,6 +150,7 @@ try {
     runAutoRepair();
     runStartupBackup();
     cleanupLoginAttempts();
+    runSubscriptionDedup();
     startServer();
   });
 } catch (e) {
@@ -157,6 +159,7 @@ try {
   runAutoRepair();
   runStartupBackup();
   cleanupLoginAttempts();
+  runSubscriptionDedup();
   startServer();
 }
 
@@ -330,6 +333,24 @@ async function cleanupLoginAttempts() {
   }
 }
 
+// === v6.24.0: One-Time Subscription Dedup ===
+// Runs the dedupe-subscriptions.js script to permanently remove duplicate
+// subscription rows. After this runs once, the auto-repair should find
+// 0 duplicates on all future startups.
+function runSubscriptionDedup() {
+  try {
+    console.log('→ Running subscription dedup (one-time fix)...');
+    execSync('node scripts/dedupe-subscriptions.js', {
+      stdio: 'inherit',
+      env: process.env,
+      cwd: '/app',
+    });
+  } catch (err) {
+    // Non-blocking: if dedup fails, the auto-repair will continue to handle it
+    console.warn('[DEDUP] ⚠️ Subscription dedup failed (non-blocking):', err.message);
+  }
+}
+
 // === v4.115: Automatic Startup Backup ===
 // On every successful startup, export all tenant data to a JSON file.
 // This protects against database resets — if Railway loses the DB volume,
@@ -355,7 +376,7 @@ function runStartupBackup() {
 
 // === Start Server (v4.56: PM2 Cluster Mode) ===
 function startServer() {
-  console.log('→ Starting Next.js server via PM2 cluster...');
+  console.log('→ Starting Next.js server (direct mode, no PM2)...');
 
   const standaloneDir = path.join(process.cwd(), '.next', 'standalone');
 
@@ -442,53 +463,18 @@ function startServer() {
   process.chdir(standaloneDir);
   console.log('→ Working directory:', process.cwd());
 
-  // v4.57: Fixed PM2 startup — use require('pm2') API directly instead of execSync
-  // This avoids the "pm2 binary not found" issue in standalone mode
-  const pm2ConfigPath = path.join(standaloneDir, 'ecosystem.config.js');
+  // v6.24.0: Removed PM2 entirely — it failed on every startup since v4.56.
+  // PM2's daemon IPC mechanism doesn't work in Railway's container environment.
+  // The fallback to direct server.js was always used anyway, so PM2 was just
+  // adding ~200ms of startup overhead + error log noise on every restart.
+  //
+  // Railway provides container-level process management (auto-restart on crash,
+  // health checks, multi-replica scaling), so PM2 is redundant.
+  //
+  // If you need more throughput: upgrade the Railway plan or add replicas
+  // via Railway's service settings (not PM2 cluster mode).
 
-  const usePM2 = process.env.USE_PM2 !== 'false';
-  if (usePM2 && fs.existsSync(pm2ConfigPath)) {
-    console.log('→ Starting PM2 cluster (2 instances)...');
-    try {
-      // Use PM2 programmatic API instead of CLI
-      const PM2 = require('pm2');
-      PM2.connect(true, (err) => {
-        if (err) {
-          console.warn('PM2 connect failed, falling back to direct server.js:', err.message);
-          require(path.join(standaloneDir, 'server.js'));
-          return;
-        }
-        PM2.start(pm2ConfigPath, (err) => {
-          if (err) {
-            // v6.21.0: Improved PM2 error logging — was logging err.message which is
-            // often undefined. Now logs the full error object for diagnosis.
-            console.warn('PM2 start failed, falling back to direct server.js.');
-            console.warn('  Error name:', err?.name || '(undefined)');
-            console.warn('  Error message:', err?.message || '(undefined)');
-            console.warn('  Error code:', err?.code || '(no code)');
-            console.warn('  Error stack:', err?.stack?.split('\n').slice(0, 3).join('\n  ') || '(no stack)');
-            console.warn('  PM2 config path:', pm2ConfigPath);
-            console.warn('  Config exists:', fs.existsSync(pm2ConfigPath));
-            console.warn('  Standalone server.js exists:', fs.existsSync(path.join(standaloneDir, 'server.js')));
-            PM2.disconnect();
-            require(path.join(standaloneDir, 'server.js'));
-            return;
-          }
-          console.log('✓ PM2 cluster started — 2 instances running');
-          PM2.disconnect();
-          // Keep the process alive — PM2 manages the workers
-          // The workers will serve requests on the shared port
-        });
-      });
-      return; // Don't fall through to direct server.js
-    } catch (e) {
-      console.warn('PM2 module not available, starting direct server.js:', e.message);
-    }
-  } else {
-    console.log('→ PM2 config not found at', pm2ConfigPath, '— using direct server.js');
-  }
-
-  // Direct server.js (fallback when PM2 is not available or disabled)
-  console.log('→ Starting direct server.js...');
+  // Start Next.js standalone server directly
+  console.log('→ Starting Next.js standalone server (direct mode, no PM2)...');
   require(path.join(standaloneDir, 'server.js'));
 }
