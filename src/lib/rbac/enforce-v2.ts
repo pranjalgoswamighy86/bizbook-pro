@@ -91,17 +91,20 @@ const PERMISSION_MATRIX: Record<Role, Record<Action, boolean>> = {
 };
 
 // ---------- Tier identification ----------
-// SUPER_ADMIN: matched by email (admin@bizbook.pro)
+// SUPER_ADMIN: matched by email — both admin@bizbook.pro and pranjalgoswamighy86@gmail.com
 const SUPER_ADMIN_EMAILS = [
   'admin@bizbook.pro',
+  'pranjalgoswamighy86@gmail.com',
   (process.env.ADMIN_EMAIL || '').toLowerCase(),
+  (process.env.INFRASTRUCTURE_OWNER_EMAIL || '').toLowerCase(),
 ].filter(Boolean);
 
-// INFRASTRUCTURE_OWNER: matched by email (PRANJALGOSWAMIGHY86@GMAIL.COM per Spec Part 9)
-// Hardcoded fallback ensures spec compliance even if env var missing
+// INFRASTRUCTURE_OWNER: matched by email — same as SUPER_ADMIN (both have full bypass)
 const INFRA_OWNER_EMAILS = [
   'pranjalgoswamighy86@gmail.com',
+  'admin@bizbook.pro',
   (process.env.INFRASTRUCTURE_OWNER_EMAIL || '').toLowerCase(),
+  (process.env.ADMIN_EMAIL || '').toLowerCase(),
 ].filter(Boolean);
 
 // ---------- Main permission checker ----------
