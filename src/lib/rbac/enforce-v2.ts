@@ -91,7 +91,7 @@ const PERMISSION_MATRIX: Record<Role, Record<Action, boolean>> = {
 };
 
 // ---------- Tier identification ----------
-// SUPER_ADMIN: matched by email — both admin@bizbook.pro and pranjalgoswamighy86@gmail.com
+// SUPER_ADMIN and INFRA_OWNER share the same email list — both have full bypass
 const SUPER_ADMIN_EMAILS = [
   'admin@bizbook.pro',
   'pranjalgoswamighy86@gmail.com',
@@ -99,13 +99,7 @@ const SUPER_ADMIN_EMAILS = [
   (process.env.INFRASTRUCTURE_OWNER_EMAIL || '').toLowerCase(),
 ].filter(Boolean);
 
-// INFRASTRUCTURE_OWNER: matched by email — same as SUPER_ADMIN (both have full bypass)
-const INFRA_OWNER_EMAILS = [
-  'pranjalgoswamighy86@gmail.com',
-  'admin@bizbook.pro',
-  (process.env.INFRASTRUCTURE_OWNER_EMAIL || '').toLowerCase(),
-  (process.env.ADMIN_EMAIL || '').toLowerCase(),
-].filter(Boolean);
+const INFRA_OWNER_EMAILS = SUPER_ADMIN_EMAILS;
 
 // ---------- Main permission checker ----------
 export async function requirePermission(
