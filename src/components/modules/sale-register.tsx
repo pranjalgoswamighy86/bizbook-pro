@@ -662,6 +662,7 @@ export function SaleRegister() {
     <h1>${tenant?.name || 'BizBook Pro'}</h1>
     ${tenant?.address ? `<p>${tenant.address}</p>` : ''}
     ${tenant?.phone ? `<p>Ph: ${tenant.phone}</p>` : ''}
+    ${tenant?.email ? `<p>Email: ${tenant.email}</p>` : ''}
     ${tenant?.gstNumber ? `<p>GSTIN: ${tenant.gstNumber}</p>` : ''}
   </div>
 
