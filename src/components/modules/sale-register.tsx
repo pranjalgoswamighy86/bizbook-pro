@@ -722,8 +722,8 @@ export function SaleRegister() {
     })()}
     <div class="row"><span>Tax</span><span>${fmtCurrency(sale.gstAmount)}</span></div>
     <div class="row grand"><span>GRAND TOTAL</span><span>${fmtCurrency(sale.totalAmount)}</span></div>
-    <div class="row"><span>Received</span><span>${fmtCurrency(Math.min(sale.amountReceived || sale.amountPaid, sale.totalAmount))}</span></div>
-    <div class="row due"><span>Balance Due</span><span>${fmtCurrency(Math.max(0, sale.totalAmount - (sale.amountReceived || sale.amountPaid)))}</span></div>
+    <div class="row"><span>Received</span><span>${fmtCurrency(sale.amountReceived || sale.amountPaid)}</span></div>
+    <div class="row due"><span>Balance Due</span><span>${fmtCurrency(sale.totalAmount - (sale.amountReceived || sale.amountPaid))}</span></div>
   </div>
 
   ${sale.notes ? `<div class="notes"><strong>Notes:</strong> ${sale.notes}</div>` : ''}
@@ -792,7 +792,7 @@ export function SaleRegister() {
   const exportData = sales.map((s) => ({
     'Invoice #': s.invoiceNumber, 'Date': formatDate(s.date), 'Customer': s.partyName, 'Address': s.partyAddress || '',
     'GST': s.partyGst || '', 'Subtotal': s.subtotal, 'Tax': s.gstAmount, 'Total': s.totalAmount,
-    'Status': statusLabel(s.paymentStatus), 'Received': s.amountReceived || s.amountPaid, 'Due': Math.max(0, s.totalAmount - (s.amountReceived || s.amountPaid)),
+    'Status': statusLabel(s.paymentStatus), 'Received': s.amountReceived || s.amountPaid, 'Due': s.totalAmount - (s.amountReceived || s.amountPaid),
     'Notes': s.notes || '',
   }))
 
@@ -1491,7 +1491,7 @@ export function SaleRegister() {
                   <div className="flex justify-between"><span>Tax / Duties</span><span>{formatCurrency(viewItem.gstAmount, tenant?.currency)}</span></div>
                   <div className="flex justify-between font-bold"><span>Grand Total</span><span>{formatCurrency(viewItem.totalAmount, tenant?.currency)}</span></div>
                   <div className="flex justify-between"><span>Amount Received</span><span>{formatCurrency(viewItem.amountReceived || viewItem.amountPaid, tenant?.currency)}</span></div>
-                  <div className="flex justify-between text-destructive font-semibold"><span>Balance Due</span><span>{formatCurrency(Math.max(0, viewItem.totalAmount - (viewItem.amountReceived || viewItem.amountPaid)), tenant?.currency)}</span></div>
+                  <div className="flex justify-between text-destructive font-semibold"><span>Balance Due</span><span>{formatCurrency(viewItem.totalAmount - (viewItem.amountReceived || viewItem.amountPaid), tenant?.currency)}</span></div>
                 </div>
               </div>
             )}
