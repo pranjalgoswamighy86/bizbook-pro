@@ -728,7 +728,7 @@ export function SaleRegister() {
 
   ${sale.notes ? `<div class="notes"><strong>Notes:</strong> ${sale.notes}</div>` : ''}
 
-  ${upiQrCode ? `<div class="qr"><img src="${upiQrCode}" alt="UPI QR" /><div class="label">Scan to Pay ${fmtCurrency(sale.upiAmount || 0)}</div></div>` : ''}
+  ${upiQrCode ? `<div class="qr"><img src="${upiQrCode}" alt="UPI QR" /><div class="label">Scan to Pay</div></div>` : ''}
 
   <div class="sig">
     <div class="line"></div>
