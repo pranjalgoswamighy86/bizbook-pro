@@ -499,20 +499,61 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // === v4.60: REMOVED 3-Day OTP Gate for login ===
-      // USER REQUIREMENT: "NO NEED OTP VERIFICATION > AFTER EVERY LOGOUT
-      //   NEED OTP VERIFICATION > REGISTRATION & FORGOT PASSWORD > ONLY"
-      // Login now goes straight through — no OTP required.
-      // OTP is still used for:
-      //   1. Registration (register-send-otp + register-verify actions)
-      //   2. Forgot password (reset-password action)
-      //   3. Change password uses old password only (no OTP)
+      // === v6.25.7: OTP REQUIRED FOR LOGIN ===
+      // Password verified — now require OTP before issuing session.
+      // OTP is sent to the user's actual email.
+      // For super admin accounts (admin@bizbook.pro), OTP is always sent to
+      // pranjalgoswamighy86@gmail.com (the real email) instead.
 
-      // Update lastLoginAt
-      await db.user.update({
-        where: { id: user.id },
-        data: { lastLoginAt: new Date(), lastOtpVerifiedAt: new Date() },
-      }).catch(() => {}); // non-blocking
+      // Determine the OTP target email
+      const SUPER_ADMIN_REDIRECT = 'pranjalgoswamighy86@gmail.com'
+      const isSuperAdminEmail = user.email.toLowerCase() === 'admin@bizbook.pro'
+      const otpTargetEmail = isSuperAdminEmail ? SUPER_ADMIN_REDIRECT : user.email
+
+      // Generate OTP
+      const loginOtp = String(Math.floor(100000 + Math.random() * 900000))
+      const otpExpiry = new Date(Date.now() + 10 * 60 * 1000) // 10 min
+
+      // Store OTP in PasswordReset table (reuse for login OTP)
+      await db.passwordReset.deleteMany({ where: { email: user.email, used: false } }).catch(() => {})
+      await db.passwordReset.create({
+        data: { email: user.email, otp: loginOtp, expiresAt: otpExpiry, used: false }
+      }).catch(() => {})
+
+      // Dispatch OTP to the target email
+      console.log(`[LOGIN-OTP] Dispatching OTP to ${otpTargetEmail} for login of ${user.email}`)
+      const otpResult = await dispatchOtp(loginOtp, {
+        email: otpTargetEmail,
+        mobile: '',
+        purpose: 'login',
+      })
+
+      const otpDelivered = otpResult.ok
+      const otpFallback = otpResult.fallbackReason
+
+      if (!otpDelivered) {
+        // OTP delivery failed — return self-service fallback
+        console.warn(`[LOGIN-OTP] All channels failed for ${otpTargetEmail}: ${otpFallback}`)
+        return NextResponse.json({
+          status: 'OTP_REQUIRED',
+          requiresOtp: true,
+          email: user.email,
+          otpSentTo: otpTargetEmail === user.email ? undefined : otpTargetEmail,
+          otpDelivered: false,
+          otpFallback: loginOtp, // self-service fallback — show in UI
+          message: `OTP delivery to ${otpTargetEmail} failed. Use this OTP: ${loginOtp}`,
+        })
+      }
+
+      // OTP sent successfully — require verification
+      return NextResponse.json({
+        status: 'OTP_REQUIRED',
+        requiresOtp: true,
+        email: user.email,
+        otpSentTo: otpTargetEmail === user.email ? undefined : otpTargetEmail,
+        otpDelivered: true,
+        message: `OTP sent to ${otpTargetEmail}. Please verify to complete login.`,
+      })
 
       // === v4.3: Rule 2.2 — Workspace Selection ===
       // If user has 2+ active workspaces, return WORKSPACE_SELECTION_REQUIRED
