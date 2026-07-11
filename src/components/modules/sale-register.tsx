@@ -673,12 +673,6 @@ export function SaleRegister() {
 
   <div class="parties">
     <div class="party">
-      <div class="lbl">Seller</div>
-      <div class="name">${tenant?.name || 'Business'}</div>
-      ${tenant?.address ? `<div class="detail">${tenant.address}</div>` : ''}
-      ${tenant?.gstNumber ? `<div class="detail">GSTIN: ${tenant.gstNumber}</div>` : ''}
-    </div>
-    <div class="party">
       <div class="lbl">Bill To</div>
       <div class="name">${sale.partyName}</div>
       ${sale.partyAddress ? `<div class="detail">${sale.partyAddress}</div>` : ''}
