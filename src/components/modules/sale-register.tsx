@@ -585,8 +585,18 @@ export function SaleRegister() {
     })()
 
     const upiId = tenant?.upiId
-    const upiQrCode = upiId
-      ? 'https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=' + encodeURIComponent('upi://pay?pa=' + upiId + '&pn=' + (tenant?.name || 'Business') + '&am=' + (sale.upiAmount || 0) + '&cu=INR&tn=Invoice ' + sale.invoiceNumber)
+    // v6.25.16: QR amount depends on invoice status
+    // Quotation → UPI amount (full total to pay)
+    // Invoice (CONFIRMED) → Balance Due (remaining amount)
+    // Invoice (CONFIRMED) + Balance Due = 0 → no QR
+    const isQuotationPrint = sale.invoiceStatus === 'QUOTATION'
+    const printBalanceDue = sale.totalAmount - (sale.amountReceived || sale.amountPaid)
+    const qrPayAmount = isQuotationPrint
+      ? (sale.upiAmount || sale.totalAmount)
+      : printBalanceDue
+    const showQr = upiId && (isQuotationPrint || printBalanceDue > 0)
+    const upiQrCode = showQr
+      ? 'https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=' + encodeURIComponent('upi://pay?pa=' + upiId + '&pn=' + (tenant?.name || 'Business') + '&am=' + qrPayAmount + '&cu=INR&tn=Invoice ' + sale.invoiceNumber)
       : null
 
     const fmtCurrency = (amt: number) => '₹' + Number(amt || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -728,21 +738,7 @@ export function SaleRegister() {
 
   ${sale.notes ? `<div class="notes"><strong>Notes:</strong> ${sale.notes}</div>` : ''}
 
-  ${upiQrCode ? (() => {
-      // v6.25.15: QR code shown only when there's an amount to pay
-      // Quotation → show UPI amount (full amount to pay)
-      // Invoice (CONFIRMED) + Balance Due > 0 → show Balance Due
-      // Invoice (CONFIRMED) + Balance Due = 0 → NO QR (fully paid, nothing to scan)
-      const isQuotation = sale.invoiceStatus === 'QUOTATION'
-      const balanceDue = sale.totalAmount - (sale.amountReceived || sale.amountPaid)
-      if (!isQuotation && balanceDue <= 0) {
-        return '' // No QR for fully paid invoices
-      }
-      const qrAmount = isQuotation
-        ? (sale.upiAmount || sale.totalAmount)
-        : balanceDue
-      return `<div class="qr"><img src="${upiQrCode}" alt="UPI QR" /><div class="label">Scan to Pay ${fmtCurrency(qrAmount)}</div></div>`
-    })() : ''}
+  ${upiQrCode ? `<div class="qr"><img src="${upiQrCode}" alt="UPI QR" /><div class="label">Scan to Pay ${fmtCurrency(qrPayAmount)}</div></div>` : ''}
 
   <div class="sig">
     <div class="line"></div>
