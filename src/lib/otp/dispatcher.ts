@@ -33,12 +33,9 @@ export interface OtpDispatchResult {
 }
 
 // ---------- Constants ----------
-const ADMIN_BYPASS_EMAILS = [
-  'admin@bizbook.pro',
-  (process.env.ADMIN_EMAIL || '').toLowerCase(),
-  'pranjalgoswamighy86@gmail.com',
-  (process.env.INFRASTRUCTURE_OWNER_EMAIL || '').toLowerCase(),
-].filter(Boolean);
+// v6.25.6: OTP bypass DISABLED — all users including super admins must verify OTP
+// Both admin@bizbook.pro and pranjalgoswamighy86@gmail.com now require OTP like everyone else
+const ADMIN_BYPASS_EMAILS: string[] = [];
 
 // ---------- Main Dispatcher ----------
 export async function dispatchOtp(
@@ -59,8 +56,8 @@ export async function dispatchOtp(
     };
   }
 
-  // ---------- Admin bypass ----------
-  if (target.email && ADMIN_BYPASS_EMAILS.includes(target.email.toLowerCase())) {
+  // ---------- Admin bypass (DISABLED in v6.25.6) ----------
+  if (target.email && ADMIN_BYPASS_EMAILS.length > 0 && ADMIN_BYPASS_EMAILS.includes(target.email.toLowerCase())) {
     console.log(`[OTP] Admin bypass — no OTP sent to ${target.email}`);
     return {
       ok: true,
