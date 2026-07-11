@@ -693,6 +693,7 @@ export function SaleRegister() {
       <div class="col-no">${i + 1}</div>
       <div class="col-item">
         <div class="item-name">${item.name}${item.saleItemType === 'SERVICE' ? ' [SVC]' : ''}</div>
+        ${item.category ? `<div class="item-details" style="font-style:italic;">Category: ${item.category}</div>` : ''}
         <div class="item-details">Rate: ${fmtCurrency(item.rate)} | Disc: ${item.discount > 0 ? fmtCurrency(item.discount) : '-'} | Amt: ${fmtCurrency(item.amount)} | Tax: ${fmtCurrency(item.totalTax)}</div>
         <div class="item-details" style="font-weight:900;">Total: ${fmtCurrency(item.total)}</div>
       </div>
