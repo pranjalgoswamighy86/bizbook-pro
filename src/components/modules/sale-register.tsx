@@ -585,16 +585,13 @@ export function SaleRegister() {
     })()
 
     const upiId = tenant?.upiId
-    // v6.25.16: QR amount depends on invoice status
-    // Quotation → UPI amount (full total to pay)
-    // Invoice (CONFIRMED) → Balance Due (remaining amount)
-    // Invoice (CONFIRMED) + Balance Due = 0 → no QR
-    const isQuotationPrint = sale.invoiceStatus === 'QUOTATION'
+    // v6.25.17: QR amount = Balance Due (what the customer still owes)
+    // Quotation (no payment yet) → Balance Due = Grand Total (full amount)
+    // Invoice + partial payment → Balance Due = Grand Total - Received
+    // Invoice + fully paid → Balance Due = 0 → no QR
     const printBalanceDue = sale.totalAmount - (sale.amountReceived || sale.amountPaid)
-    const qrPayAmount = isQuotationPrint
-      ? (sale.upiAmount || sale.totalAmount)
-      : printBalanceDue
-    const showQr = upiId && (isQuotationPrint || printBalanceDue > 0)
+    const qrPayAmount = printBalanceDue > 0 ? printBalanceDue : 0
+    const showQr = upiId && qrPayAmount > 0
     const upiQrCode = showQr
       ? 'https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=' + encodeURIComponent('upi://pay?pa=' + upiId + '&pn=' + (tenant?.name || 'Business') + '&am=' + qrPayAmount + '&cu=INR&tn=Invoice ' + sale.invoiceNumber)
       : null
