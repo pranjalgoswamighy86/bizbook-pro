@@ -729,17 +729,19 @@ export function SaleRegister() {
   ${sale.notes ? `<div class="notes"><strong>Notes:</strong> ${sale.notes}</div>` : ''}
 
   ${upiQrCode ? (() => {
-      // v6.25.14: QR label depends on invoice status
+      // v6.25.15: QR code shown only when there's an amount to pay
       // Quotation → show UPI amount (full amount to pay)
-      // Invoice (CONFIRMED) → show Balance Due (remaining amount)
+      // Invoice (CONFIRMED) + Balance Due > 0 → show Balance Due
+      // Invoice (CONFIRMED) + Balance Due = 0 → NO QR (fully paid, nothing to scan)
       const isQuotation = sale.invoiceStatus === 'QUOTATION'
+      const balanceDue = sale.totalAmount - (sale.amountReceived || sale.amountPaid)
+      if (!isQuotation && balanceDue <= 0) {
+        return '' // No QR for fully paid invoices
+      }
       const qrAmount = isQuotation
         ? (sale.upiAmount || sale.totalAmount)
-        : (sale.totalAmount - (sale.amountReceived || sale.amountPaid))
-      const qrLabel = isQuotation
-        ? 'Scan to Pay ' + fmtCurrency(sale.upiAmount || sale.totalAmount)
-        : (qrAmount > 0 ? 'Scan to Pay ' + fmtCurrency(qrAmount) : 'Scan to Pay')
-      return `<div class="qr"><img src="${upiQrCode}" alt="UPI QR" /><div class="label">${qrLabel}</div></div>`
+        : balanceDue
+      return `<div class="qr"><img src="${upiQrCode}" alt="UPI QR" /><div class="label">Scan to Pay ${fmtCurrency(qrAmount)}</div></div>`
     })() : ''}
 
   <div class="sig">
