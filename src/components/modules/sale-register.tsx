@@ -728,7 +728,19 @@ export function SaleRegister() {
 
   ${sale.notes ? `<div class="notes"><strong>Notes:</strong> ${sale.notes}</div>` : ''}
 
-  ${upiQrCode ? `<div class="qr"><img src="${upiQrCode}" alt="UPI QR" /><div class="label">Scan to Pay</div></div>` : ''}
+  ${upiQrCode ? (() => {
+      // v6.25.14: QR label depends on invoice status
+      // Quotation → show UPI amount (full amount to pay)
+      // Invoice (CONFIRMED) → show Balance Due (remaining amount)
+      const isQuotation = sale.invoiceStatus === 'QUOTATION'
+      const qrAmount = isQuotation
+        ? (sale.upiAmount || sale.totalAmount)
+        : (sale.totalAmount - (sale.amountReceived || sale.amountPaid))
+      const qrLabel = isQuotation
+        ? 'Scan to Pay ' + fmtCurrency(sale.upiAmount || sale.totalAmount)
+        : (qrAmount > 0 ? 'Scan to Pay ' + fmtCurrency(qrAmount) : 'Scan to Pay')
+      return `<div class="qr"><img src="${upiQrCode}" alt="UPI QR" /><div class="label">${qrLabel}</div></div>`
+    })() : ''}
 
   <div class="sig">
     <div class="line"></div>
