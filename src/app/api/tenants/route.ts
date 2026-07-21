@@ -51,7 +51,8 @@ export async function POST(req: NextRequest) {
 
       // Whitelist allowed fields — don't let callers change plan/planExpires
       // via this endpoint (use update-subscription for that, which is also admin-only)
-      const allowedFields = ['name', 'address', 'phone', 'email', 'gstNumber', 'panNumber', 'currency', 'upiId']
+      const allowedFields = ['name', 'address', 'phone', 'email', 'gstNumber', 'panNumber', 'currency', 'upiId',
+        'logoUrl', 'invoiceTemplate', 'invoiceColor', 'showLogoInInvoice', 'showSignatureInInvoice', 'showQrCode', 'invoiceFooterText']
       const cleanData: Record<string, unknown> = {}
       for (const field of allowedFields) {
         if (field in data) cleanData[field] = data[field]

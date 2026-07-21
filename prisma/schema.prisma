@@ -22,6 +22,14 @@ model Tenant {
   panNumber   String?
   currency    String   @default("INR")
   upiId       String?  // v4.100: UPI ID for receiving payments (e.g. business@okhdfcbank)
+  // v6.26.0: Invoice customization — logo upload + template selection
+  logoUrl     String?  // URL or path to uploaded company logo (for invoice header)
+  invoiceTemplate String @default("classic") // classic, modern, minimal
+  invoiceColor String?  // hex color for invoice accent (e.g. #001E42)
+  showLogoInInvoice Boolean @default(true) // whether to show logo on printed invoices
+  showSignatureInInvoice Boolean @default(true) // whether to show signature line
+  showQrCode Boolean @default(true) // whether to show UPI QR code on invoices
+  invoiceFooterText String?  // custom footer text for invoices
   plan        String   @default("free")
   planExpires DateTime?
   // Soft-delete: records are never truly deleted

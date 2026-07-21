@@ -557,8 +557,9 @@ export function SettingsPage() {
       <h2 className="text-lg font-semibold flex items-center gap-2"><Settings className="h-5 w-5" />Settings</h2>
 
       <Tabs defaultValue="company" className="space-y-4">
-        <TabsList className="grid w-full grid-cols-6 max-w-2xl">
+        <TabsList className="grid w-full grid-cols-7 max-w-2xl">
           <TabsTrigger value="company" className="text-xs sm:text-sm">Company</TabsTrigger>
+          <TabsTrigger value="invoice" className="text-xs sm:text-sm">Invoice</TabsTrigger>
           <TabsTrigger value="users" className="text-xs sm:text-sm">Users</TabsTrigger>
           <TabsTrigger value="limits" className="text-xs sm:text-sm">Usage Limits</TabsTrigger>
           <TabsTrigger value="activity" className="text-xs sm:text-sm">Staff Activity</TabsTrigger>
@@ -631,6 +632,189 @@ export function SettingsPage() {
                 <div className="flex gap-3 p-2 rounded bg-muted/50"><Badge variant="outline">Data Entry</Badge><span className="text-muted-foreground">Can create new entries. Cannot edit or delete existing entries.</span></div>
                 <div className="flex gap-3 p-2 rounded bg-muted/50"><Badge variant="outline">Junior Admin</Badge><span className="text-muted-foreground">Can create, edit, and correct entries. Cannot manage users or settings.</span></div>
                 <div className="flex gap-3 p-2 rounded bg-muted/50"><Badge variant="outline">Main Admin</Badge><span className="text-muted-foreground">Full access. Can manage all data, users, settings, and formulas.</span></div>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ==================== Invoice Customization Tab ==================== */}
+        <TabsContent value="invoice" className="space-y-4">
+          <Card className="border-0 shadow-sm">
+            <CardHeader>
+              <CardTitle className="text-base">Invoice Customization</CardTitle>
+              <CardDescription>Customize how your printed invoices look. Upload your company logo and toggle invoice elements.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {/* Logo Upload */}
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Company Logo</Label>
+                <p className="text-xs text-muted-foreground">Upload your company logo to display on printed invoices (max 2MB, PNG/JPG).</p>
+                <div className="flex items-center gap-4">
+                  {tenant && (tenant as any).logoUrl ? (
+                    <img src={(tenant as any).logoUrl} alt="Logo" className="h-16 w-16 object-contain border rounded" />
+                  ) : (
+                    <div className="h-16 w-16 border rounded flex items-center justify-center text-xs text-muted-foreground">No logo</div>
+                  )}
+                  <div className="flex gap-2">
+                    <label className="cursor-pointer">
+                      <span className="inline-flex items-center justify-center px-4 py-2 text-sm font-medium rounded-md bg-primary text-primary-foreground hover:bg-primary/90">Upload Logo</span>
+                      <input
+                        type="file"
+                        accept="image/png,image/jpeg,image/jpg"
+                        className="hidden"
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0]
+                          if (!file) return
+                          if (file.size > 2 * 1024 * 1024) {
+                            toast({ title: 'File too large', description: 'Maximum 2MB.', variant: 'destructive' })
+                            return
+                          }
+                          const reader = new FileReader()
+                          reader.onload = async () => {
+                            const base64 = reader.result as string
+                            try {
+                              const res = await authFetch('/api/upload-logo', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ tenantId: tenant?.id, logoBase64: base64 }),
+                              })
+                              if (res.ok) {
+                                const data = await res.json()
+                                setTenant({ ...tenant, logoUrl: data.logoUrl } as any)
+                                toast({ title: 'Logo uploaded', description: 'Your company logo is now on all invoices.' })
+                              } else {
+                                toast({ title: 'Upload failed', variant: 'destructive' })
+                              }
+                            } catch {
+                              toast({ title: 'Upload failed', variant: 'destructive' })
+                            }
+                          }
+                          reader.readAsDataURL(file)
+                        }}
+                      />
+                    </label>
+                    {(tenant as any)?.logoUrl && (
+                      <Button variant="outline" size="sm" onClick={async () => {
+                        try {
+                          await authFetch('/api/tenants', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ action: 'update', id: tenant?.id, data: { logoUrl: null }, tenantId: tenant?.id }),
+                          })
+                          setTenant({ ...tenant, logoUrl: null } as any)
+                          toast({ title: 'Logo removed' })
+                        } catch { toast({ title: 'Failed to remove', variant: 'destructive' }) }
+                      }}>Remove</Button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Invoice Toggles */}
+              <div className="space-y-3">
+                <Label className="text-sm font-medium">Invoice Elements</Label>
+                <div className="space-y-2">
+                  {[
+                    { key: 'showLogoInInvoice', label: 'Show logo on invoice' },
+                    { key: 'showQrCode', label: 'Show UPI QR code' },
+                    { key: 'showSignatureInInvoice', label: 'Show signature line' },
+                  ].map(({ key, label }) => (
+                    <label key={key} className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={(tenant as any)?.[key] !== false}
+                        onChange={async (e) => {
+                          try {
+                            await authFetch('/api/tenants', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ action: 'update', id: tenant?.id, data: { [key]: e.target.checked }, tenantId: tenant?.id }),
+                            })
+                            setTenant({ ...tenant, [key]: e.target.checked } as any)
+                            toast({ title: 'Setting updated' })
+                          } catch { toast({ title: 'Update failed', variant: 'destructive' }) }
+                        }}
+                      />
+                      <span className="text-sm">{label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              {/* Custom Footer Text */}
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Custom Invoice Footer Text</Label>
+                <p className="text-xs text-muted-foreground">Leave empty to use the default footer ("Computer-generated by BizBook Pro...").</p>
+                <Input
+                  placeholder="e.g. Thank you for your business! · www.yourcompany.com"
+                  defaultValue={(tenant as any)?.invoiceFooterText || ''}
+                  onBlur={async (e) => {
+                    const val = e.target.value || null
+                    try {
+                      await authFetch('/api/tenants', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ action: 'update', id: tenant?.id, data: { invoiceFooterText: val }, tenantId: tenant?.id }),
+                      })
+                      setTenant({ ...tenant, invoiceFooterText: val } as any)
+                      toast({ title: 'Footer text saved' })
+                    } catch { toast({ title: 'Save failed', variant: 'destructive' }) }
+                  }}
+                />
+              </div>
+
+              {/* Invoice Template Selector */}
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Invoice Template</Label>
+                <p className="text-xs text-muted-foreground">Choose the visual style of your printed invoices.</p>
+                <Select
+                  defaultValue={(tenant as any)?.invoiceTemplate || 'classic'}
+                  onValueChange={async (val) => {
+                    try {
+                      await authFetch('/api/tenants', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ action: 'update', id: tenant?.id, data: { invoiceTemplate: val }, tenantId: tenant?.id }),
+                      })
+                      setTenant({ ...tenant, invoiceTemplate: val } as any)
+                      toast({ title: 'Template updated' })
+                    } catch { toast({ title: 'Update failed', variant: 'destructive' }) }
+                  }}
+                >
+                  <SelectTrigger className="w-full max-w-xs">
+                    <SelectValue placeholder="Select template" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="classic">Classic (Monospace — current)</SelectItem>
+                    <SelectItem value="modern">Modern (Clean Sans-serif — coming soon)</SelectItem>
+                    <SelectItem value="minimal">Minimal (Ultra-clean — coming soon)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Accent Color */}
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Invoice Accent Color</Label>
+                <p className="text-xs text-muted-foreground">Custom hex color for invoice headings and borders (leave empty for black).</p>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="color"
+                    className="h-10 w-14 border rounded cursor-pointer"
+                    defaultValue={(tenant as any)?.invoiceColor || '#000000'}
+                    onChange={async (e) => {
+                      const val = e.target.value
+                      try {
+                        await authFetch('/api/tenants', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ action: 'update', id: tenant?.id, data: { invoiceColor: val }, tenantId: tenant?.id }),
+                        })
+                        setTenant({ ...tenant, invoiceColor: val } as any)
+                      } catch { toast({ title: 'Color update failed', variant: 'destructive' }) }
+                    }}
+                  />
+                  <span className="text-sm text-muted-foreground">{(tenant as any)?.invoiceColor || '#000000 (default black)'}</span>
+                </div>
               </div>
             </CardContent>
           </Card>
