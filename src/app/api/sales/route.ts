@@ -561,6 +561,60 @@ export async function POST(req: NextRequest) {
           }
         }
 
+        // v6.26.3: Reverse old debtor balance + add new debtor balance
+        const oldIsCash = oldSale.partyName.trim().toLowerCase() === 'cash'
+        if (!oldIsCash && oldSale.paymentStatus !== 'RECEIVED') {
+          const oldDue = roundTo2(oldSale.totalAmount - (oldSale.amountReceived || oldSale.amountPaid || 0))
+          if (oldDue > 0) {
+            const oldDebtor = await tx.debtor.findFirst({
+              where: { name: oldSale.partyName, tenantId: access.tenantId, isDeleted: false },
+            })
+            if (oldDebtor) {
+              await tx.debtor.update({
+                where: { id: oldDebtor.id },
+                data: { currentBalance: Math.max(0, roundTo2(oldDebtor.currentBalance - oldDue)) },
+              })
+            }
+          }
+        }
+        // Add new debtor balance
+        const newIsCash = partyName.trim().toLowerCase() === 'cash'
+        if (!newIsCash && data.paymentStatus !== 'RECEIVED') {
+          const newDue = roundTo2((data.totalAmount || oldSale.totalAmount) - (data.amountReceived || 0))
+          if (newDue > 0) {
+            const existingDebtor = await tx.debtor.findFirst({
+              where: { name: partyName, tenantId: access.tenantId, isDeleted: false },
+            })
+            if (existingDebtor) {
+              await tx.debtor.update({
+                where: { id: existingDebtor.id },
+                data: { currentBalance: roundTo2(existingDebtor.currentBalance + newDue) },
+              })
+            } else {
+              await tx.debtor.create({
+                data: {
+                  name: partyName,
+                  address: data.partyAddress || null,
+                  gstNumber: data.partyGst || null,
+                  openingBalance: 0,
+                  currentBalance: newDue,
+                  tenantId: access.tenantId,
+                },
+              })
+            }
+            // Update Party currentBalance
+            const existingParty = await tx.party.findFirst({
+              where: { name: partyName, tenantId: access.tenantId, isDeleted: false },
+            })
+            if (existingParty) {
+              await tx.party.update({
+                where: { id: existingParty.id },
+                data: { currentBalance: roundTo2(existingParty.currentBalance + newDue) },
+              })
+            }
+          }
+        }
+
         await tx.auditLog.create({
           data: {
             tenantId: access.tenantId,
