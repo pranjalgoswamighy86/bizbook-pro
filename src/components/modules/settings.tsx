@@ -834,11 +834,11 @@ export function SettingsPage() {
                     <SelectValue placeholder="Select template" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="classic">Classic (Monospace — black &amp; white)</SelectItem>
-                    <SelectItem value="modern">Modern (Sans-serif — navy accent, side-by-side)</SelectItem>
-                    <SelectItem value="minimal">Minimal (Ultra-clean — lots of whitespace)</SelectItem>
+                    <SelectItem value="classic">Executive (Monospace — black &amp; white)</SelectItem>
+                    <SelectItem value="modern">Luxury Tech (Sans-serif — accent top bar)</SelectItem>
+                    <SelectItem value="minimal">Minimalist (Ultra-clean — whitespace)</SelectItem>
                     <SelectItem value="corporate">Corporate (Dark header bar — bold)</SelectItem>
-                    <SelectItem value="elegant">Elegant (Serif — gold accent, premium)</SelectItem>
+                    <SelectItem value="elegant">Creative Studio (Serif — warm accent, centered)</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
