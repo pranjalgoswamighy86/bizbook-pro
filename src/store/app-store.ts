@@ -56,6 +56,14 @@ export interface Tenant {
   upiId?: string  // v4.102: UPI ID for invoice QR code
   plan: string
   planExpires?: string
+  // v6.26.0: Invoice customization fields
+  logoUrl?: string
+  invoiceTemplate?: string
+  invoiceColor?: string
+  showLogoInInvoice?: boolean
+  showSignatureInInvoice?: boolean
+  showQrCode?: boolean
+  invoiceFooterText?: string
 }
 
 export interface CompanyInfo {

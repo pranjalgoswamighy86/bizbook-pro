@@ -307,7 +307,7 @@ export async function POST(req: NextRequest) {
 
       const companies = await db.userTenant.findMany({
         where: { userId: user.id },
-        include: { tenant: { select: { id: true, name: true, address: true, phone: true, email: true, gstNumber: true, panNumber: true, upiId: true, plan: true, currency: true } } },
+        include: { tenant: { select: { id: true, name: true, address: true, phone: true, email: true, gstNumber: true, panNumber: true, upiId: true, plan: true, currency: true, logoUrl: true, invoiceTemplate: true, invoiceColor: true, showLogoInInvoice: true, showSignatureInInvoice: true, showQrCode: true, invoiceFooterText: true } } },
         orderBy: { createdAt: 'asc' },
       })
 
@@ -315,7 +315,7 @@ export async function POST(req: NextRequest) {
       const token = createSessionToken(user.id, user.email)
       const res = NextResponse.json({
         user: { id: user.id, email: user.email, name: user.name, role: user.role, tenantId: user.tenantId },
-        tenant: { id: tenant.id, name: tenant.name, address: tenant.address, phone: tenant.phone, email: tenant.email, gstNumber: tenant.gstNumber, panNumber: tenant.panNumber, upiId: (tenant as any).upiId, plan: tenant.plan, currency: tenant.currency },
+        tenant: { id: tenant.id, name: tenant.name, address: tenant.address, phone: tenant.phone, email: tenant.email, gstNumber: tenant.gstNumber, panNumber: tenant.panNumber, upiId: (tenant as any).upiId, plan: tenant.plan, currency: tenant.currency, logoUrl: (tenant as any).logoUrl, invoiceTemplate: (tenant as any).invoiceTemplate, invoiceColor: (tenant as any).invoiceColor, showLogoInInvoice: (tenant as any).showLogoInInvoice, showSignatureInInvoice: (tenant as any).showSignatureInInvoice, showQrCode: (tenant as any).showQrCode, invoiceFooterText: (tenant as any).invoiceFooterText },
         companies: companies.map(c => ({ tenantId: c.tenantId, name: c.tenant.name, role: c.role, isOwner: c.isOwner, tenant: c.tenant })),
         sessionToken: token,  // for Bearer header fallback when cookies are blocked
       })
@@ -469,7 +469,7 @@ export async function POST(req: NextRequest) {
 
       const companies = await db.userTenant.findMany({
         where: { userId: user.id },
-        include: { tenant: { select: { id: true, name: true, address: true, phone: true, email: true, gstNumber: true, panNumber: true, upiId: true, plan: true, planExpires: true, currency: true } } },
+        include: { tenant: { select: { id: true, name: true, address: true, phone: true, email: true, gstNumber: true, panNumber: true, upiId: true, plan: true, planExpires: true, currency: true, logoUrl: true, invoiceTemplate: true, invoiceColor: true, showLogoInInvoice: true, showSignatureInInvoice: true, showQrCode: true, invoiceFooterText: true } } },
         orderBy: { createdAt: 'asc' },
       })
 
@@ -544,7 +544,7 @@ export async function POST(req: NextRequest) {
       const token = createSessionToken(user.id, user.email)
       const res = NextResponse.json({
         user: { id: user.id, email: user.email, name: user.name, role: user.role, tenantId: user.tenantId },
-        tenant: { id: defaultTenant.id, name: defaultTenant.name, address: defaultTenant.address, phone: defaultTenant.phone, email: defaultTenant.email, gstNumber: defaultTenant.gstNumber, panNumber: defaultTenant.panNumber, upiId: defaultTenant.upiId, plan: defaultTenant.plan, planExpires: defaultTenant.planExpires?.toISOString(), currency: defaultTenant.currency },
+        tenant: { id: defaultTenant.id, name: defaultTenant.name, address: defaultTenant.address, phone: defaultTenant.phone, email: defaultTenant.email, gstNumber: defaultTenant.gstNumber, panNumber: defaultTenant.panNumber, upiId: defaultTenant.upiId, plan: defaultTenant.plan, planExpires: defaultTenant.planExpires?.toISOString(), currency: defaultTenant.currency, logoUrl: (defaultTenant as any).logoUrl, invoiceTemplate: (defaultTenant as any).invoiceTemplate, invoiceColor: (defaultTenant as any).invoiceColor, showLogoInInvoice: (defaultTenant as any).showLogoInInvoice, showSignatureInInvoice: (defaultTenant as any).showSignatureInInvoice, showQrCode: (defaultTenant as any).showQrCode, invoiceFooterText: (defaultTenant as any).invoiceFooterText },
         companies: companies.map(c => ({
           tenantId: c.tenantId,
           name: c.tenant?.name || '(deleted company)',
@@ -630,7 +630,7 @@ export async function POST(req: NextRequest) {
       // Now check workspace selection (Rule 2.2) — same as login flow
       const companies = await db.userTenant.findMany({
         where: { userId: user.id },
-        include: { tenant: { select: { id: true, name: true, address: true, phone: true, email: true, gstNumber: true, panNumber: true, upiId: true, plan: true, planExpires: true, currency: true } } },
+        include: { tenant: { select: { id: true, name: true, address: true, phone: true, email: true, gstNumber: true, panNumber: true, upiId: true, plan: true, planExpires: true, currency: true, logoUrl: true, invoiceTemplate: true, invoiceColor: true, showLogoInInvoice: true, showSignatureInInvoice: true, showQrCode: true, invoiceFooterText: true } } },
         orderBy: { createdAt: 'asc' },
       })
 
@@ -653,7 +653,7 @@ export async function POST(req: NextRequest) {
       const defaultTenant = user.tenant
       const res = NextResponse.json({
         user: { id: user.id, email: user.email, name: user.name, role: user.role, tenantId: user.tenantId },
-        tenant: { id: defaultTenant.id, name: defaultTenant.name, address: defaultTenant.address, phone: defaultTenant.phone, email: defaultTenant.email, gstNumber: defaultTenant.gstNumber, panNumber: defaultTenant.panNumber, upiId: defaultTenant.upiId, plan: defaultTenant.plan, planExpires: defaultTenant.planExpires?.toISOString(), currency: defaultTenant.currency },
+        tenant: { id: defaultTenant.id, name: defaultTenant.name, address: defaultTenant.address, phone: defaultTenant.phone, email: defaultTenant.email, gstNumber: defaultTenant.gstNumber, panNumber: defaultTenant.panNumber, upiId: defaultTenant.upiId, plan: defaultTenant.plan, planExpires: defaultTenant.planExpires?.toISOString(), currency: defaultTenant.currency, logoUrl: (defaultTenant as any).logoUrl, invoiceTemplate: (defaultTenant as any).invoiceTemplate, invoiceColor: (defaultTenant as any).invoiceColor, showLogoInInvoice: (defaultTenant as any).showLogoInInvoice, showSignatureInInvoice: (defaultTenant as any).showSignatureInInvoice, showQrCode: (defaultTenant as any).showQrCode, invoiceFooterText: (defaultTenant as any).invoiceFooterText },
         companies: companies.map(c => ({
           tenantId: c.tenantId,
           name: c.tenant.name,
@@ -682,7 +682,7 @@ export async function POST(req: NextRequest) {
       const userTenant = await db.userTenant.findUnique({
         where: { userId_tenantId: { userId, tenantId } },
         include: {
-          tenant: { select: { id: true, name: true, address: true, phone: true, email: true, gstNumber: true, panNumber: true, upiId: true, plan: true, planExpires: true, currency: true } },
+          tenant: { select: { id: true, name: true, address: true, phone: true, email: true, gstNumber: true, panNumber: true, upiId: true, plan: true, planExpires: true, currency: true, logoUrl: true, invoiceTemplate: true, invoiceColor: true, showLogoInInvoice: true, showSignatureInInvoice: true, showQrCode: true, invoiceFooterText: true } },
           user: { select: { id: true, email: true, name: true, role: true } },
         },
       })
@@ -695,7 +695,7 @@ export async function POST(req: NextRequest) {
       const token = createSessionToken(userTenant.user.id, userTenant.user.email)
       const companies = await db.userTenant.findMany({
         where: { userId },
-        include: { tenant: { select: { id: true, name: true, address: true, phone: true, email: true, gstNumber: true, panNumber: true, upiId: true, plan: true, planExpires: true, currency: true } } },
+        include: { tenant: { select: { id: true, name: true, address: true, phone: true, email: true, gstNumber: true, panNumber: true, upiId: true, plan: true, planExpires: true, currency: true, logoUrl: true, invoiceTemplate: true, invoiceColor: true, showLogoInInvoice: true, showSignatureInInvoice: true, showQrCode: true, invoiceFooterText: true } } },
         orderBy: { createdAt: 'asc' },
       })
 
@@ -759,7 +759,7 @@ export async function POST(req: NextRequest) {
 
       const companies = await db.userTenant.findMany({
         where: { userId: auth.userId },
-        include: { tenant: { select: { id: true, name: true, address: true, phone: true, email: true, gstNumber: true, panNumber: true, upiId: true, plan: true, currency: true } } },
+        include: { tenant: { select: { id: true, name: true, address: true, phone: true, email: true, gstNumber: true, panNumber: true, upiId: true, plan: true, currency: true, logoUrl: true, invoiceTemplate: true, invoiceColor: true, showLogoInInvoice: true, showSignatureInInvoice: true, showQrCode: true, invoiceFooterText: true } } },
         orderBy: { createdAt: 'asc' },
       })
 
@@ -830,7 +830,7 @@ export async function POST(req: NextRequest) {
 
       const companies = await db.userTenant.findMany({
         where: { userId: auth.userId },
-        include: { tenant: { select: { id: true, name: true, address: true, phone: true, email: true, gstNumber: true, panNumber: true, upiId: true, plan: true, currency: true } } },
+        include: { tenant: { select: { id: true, name: true, address: true, phone: true, email: true, gstNumber: true, panNumber: true, upiId: true, plan: true, currency: true, logoUrl: true, invoiceTemplate: true, invoiceColor: true, showLogoInInvoice: true, showSignatureInInvoice: true, showQrCode: true, invoiceFooterText: true } } },
         orderBy: { createdAt: 'asc' },
       })
 
@@ -885,7 +885,7 @@ export async function POST(req: NextRequest) {
 
       const companies = await db.userTenant.findMany({
         where: { userId: auth.userId, tenant: { isDeleted: false } },
-        include: { tenant: { select: { id: true, name: true, address: true, phone: true, email: true, gstNumber: true, panNumber: true, upiId: true, plan: true, currency: true } } },
+        include: { tenant: { select: { id: true, name: true, address: true, phone: true, email: true, gstNumber: true, panNumber: true, upiId: true, plan: true, currency: true, logoUrl: true, invoiceTemplate: true, invoiceColor: true, showLogoInInvoice: true, showSignatureInInvoice: true, showQrCode: true, invoiceFooterText: true } } },
         orderBy: { createdAt: 'asc' },
       })
 

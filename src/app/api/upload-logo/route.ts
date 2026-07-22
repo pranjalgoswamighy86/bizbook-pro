@@ -3,8 +3,9 @@ import { requireAuthAndRole, writeAuditLog } from '@/lib/api-helpers'
 import { db } from '@/lib/db-soft-delete'
 import fs from 'fs'
 import path from 'path'
+import { execSync } from 'child_process'
 
-// POST /api/upload-logo — uploads a company logo and saves the path to the tenant
+// POST /api/upload-logo — uploads a company logo, compresses to ~25KB, saves to tenant
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
@@ -27,9 +28,9 @@ export async function POST(req: NextRequest) {
     const base64Data = logoBase64.replace(/^data:image\/\w+;base64,/, '')
     const buffer = Buffer.from(base64Data, 'base64')
 
-    // Check file size (max 2MB after base64 decode)
+    // Check file size (max 2MB before compression)
     if (buffer.length > 2 * 1024 * 1024) {
-      return NextResponse.json({ error: 'Logo file too large. Maximum 2MB.' }, { status: 400 })
+      return NextResponse.json({ error: 'Logo file too large. Maximum 2MB before compression.' }, { status: 400 })
     }
 
     // Save to /public/logos/ directory
@@ -38,30 +39,90 @@ export async function POST(req: NextRequest) {
       fs.mkdirSync(logosDir, { recursive: true })
     }
 
-    const filename = `tenant-${tenantId}.${ext}`
-    const filepath = path.join(logosDir, filename)
-    fs.writeFileSync(filepath, buffer)
+    // Save original first
+    const origFilename = `tenant-${tenantId}-orig.${ext}`
+    const origFilepath = path.join(logosDir, origFilename)
+    fs.writeFileSync(origFilepath, buffer)
 
-    const logoUrl = `/logos/${filename}`
+    // Compress to ~25KB using sharp (if available) or ImageMagick
+    const finalFilename = `tenant-${tenantId}.${ext}`
+    const finalFilepath = path.join(logosDir, finalFilename)
 
-    // Update tenant record
-    await db.tenant.update({
-      where: { id: tenantId },
-      data: { logoUrl },
-    })
+    try {
+      // Try sharp first — it's installed in the project
+      const sharp = require('sharp')
+      
+      // Start with reasonable dimensions and quality, then reduce until under 25KB
+      let quality = 80
+      let width = 400
+      let compressedBuffer = buffer
 
-    await writeAuditLog({
-      tenantId: access.tenantId,
-      userId: access.userId,
-      userName: access.user.name,
-      action: 'UPDATE',
-      entityType: 'Tenant',
-      entityId: tenantId,
-      entityName: 'Logo Upload',
-      changes: { logoUrl },
-    })
+      for (let attempt = 0; attempt < 10; attempt++) {
+        compressedBuffer = await sharp(origFilepath)
+          .resize(width, null, { withoutEnlargement: true })
+          .jpeg({ quality, mozjpeg: true })
+          .toBuffer()
 
-    return NextResponse.json({ success: true, logoUrl })
+        if (compressedBuffer.length <= 25 * 1024) break
+
+        // Reduce quality first, then width
+        if (quality > 30) {
+          quality -= 10
+        } else if (width > 100) {
+          width -= 50
+          quality = 80
+        } else {
+          break // Can't compress further
+        }
+      }
+
+      // Save as .jpg for better compression
+      const jpgFilename = `tenant-${tenantId}.jpg`
+      const jpgFilepath = path.join(logosDir, jpgFilename)
+      fs.writeFileSync(jpgFilepath, compressedBuffer)
+
+      // Remove original
+      try { fs.unlinkSync(origFilepath) } catch {}
+
+      // Remove old format file if exists
+      try { fs.unlinkSync(finalFilepath) } catch {}
+
+      const logoUrl = `/logos/${jpgFilename}`
+      const finalSizeKB = (compressedBuffer.length / 1024).toFixed(1)
+
+      // Update tenant record
+      await db.tenant.update({
+        where: { id: tenantId },
+        data: { logoUrl },
+      })
+
+      await writeAuditLog({
+        tenantId: access.tenantId,
+        userId: access.userId,
+        userName: access.user.name,
+        action: 'UPDATE',
+        entityType: 'Tenant',
+        entityId: tenantId,
+        entityName: 'Logo Upload',
+        changes: { logoUrl, sizeKB: finalSizeKB },
+      })
+
+      return NextResponse.json({ success: true, logoUrl, sizeKB: finalSizeKB })
+    } catch (sharpError: any) {
+      // Fallback: just save the original (no compression)
+      console.warn('Sharp compression failed, saving original:', sharpError?.message)
+      
+      fs.renameSync(origFilepath, finalFilepath)
+      const logoUrl = `/logos/${finalFilename}`
+      const finalSizeKB = (buffer.length / 1024).toFixed(1)
+
+      await db.tenant.update({
+        where: { id: tenantId },
+        data: { logoUrl },
+      })
+
+      return NextResponse.json({ success: true, logoUrl, sizeKB: finalSizeKB })
+    }
   } catch (error: any) {
     console.error('Logo upload error:', error)
     return NextResponse.json({ error: 'Failed to upload logo' }, { status: 500 })
