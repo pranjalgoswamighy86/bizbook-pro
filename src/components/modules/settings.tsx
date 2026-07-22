@@ -57,6 +57,118 @@ export function SettingsPage() {
   const [dbPath, setDbPath] = useState('')
   const [tenantCreatedAt, setTenantCreatedAt] = useState('')
 
+  // --- Invoice Customization State ---
+  const [invoiceSettings, setInvoiceSettings] = useState({
+    showLogoInInvoice: true,
+    showQrCode: true,
+    showSignatureInInvoice: true,
+    invoiceFooterText: '',
+    invoiceTemplate: 'classic',
+    invoiceColor: '#000000',
+  })
+  const [invoiceSettingsLoading, setInvoiceSettingsLoading] = useState(false)
+  const [logoUploading, setLogoUploading] = useState(false)
+
+  // Load invoice settings from tenant on mount
+  useEffect(() => {
+    if (tenant) {
+      setInvoiceSettings({
+        showLogoInInvoice: (tenant as any).showLogoInInvoice !== false,
+        showQrCode: (tenant as any).showQrCode !== false,
+        showSignatureInInvoice: (tenant as any).showSignatureInInvoice !== false,
+        invoiceFooterText: (tenant as any).invoiceFooterText || '',
+        invoiceTemplate: (tenant as any).invoiceTemplate || 'classic',
+        invoiceColor: (tenant as any).invoiceColor || '#000000',
+      })
+    }
+  }, [tenant])
+
+  // Save all invoice settings at once
+  const handleSaveInvoiceSettings = async () => {
+    if (!tenant) return
+    setInvoiceSettingsLoading(true)
+    try {
+      const res = await authFetch('/api/tenants', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'update',
+          id: tenant.id,
+          tenantId: tenant.id,
+          data: invoiceSettings,
+        }),
+      })
+      if (res.ok) {
+        const data = await res.json()
+        if (data.tenant) setTenant(data.tenant)
+        toast({ title: 'Invoice settings saved', description: 'Your invoice customization will persist after refresh.' })
+      } else {
+        toast({ title: 'Save failed', variant: 'destructive' })
+      }
+    } catch {
+      toast({ title: 'Save failed', variant: 'destructive' })
+    }
+    setInvoiceSettingsLoading(false)
+  }
+
+  // Upload logo
+  const handleLogoUpload = async (file: File) => {
+    if (!tenant || !file) return
+    if (file.size > 2 * 1024 * 1024) {
+      toast({ title: 'File too large', description: 'Maximum 2MB.', variant: 'destructive' })
+      return
+    }
+    setLogoUploading(true)
+    const reader = new FileReader()
+    reader.onload = async () => {
+      const base64 = reader.result as string
+      try {
+        const res = await authFetch('/api/upload-logo', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tenantId: tenant.id, logoBase64: base64 }),
+        })
+        if (res.ok) {
+          const data = await res.json()
+          // Re-fetch tenant to get the updated logoUrl
+          const tenantRes = await authFetch('/api/tenants', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'get', id: tenant.id, tenantId: tenant.id }),
+          })
+          if (tenantRes.ok) {
+            const tenantData = await tenantRes.json()
+            if (tenantData.tenant) setTenant(tenantData.tenant)
+          }
+          toast({ title: 'Logo uploaded', description: `Compressed to ${data.sizeKB}KB. Saved permanently.` })
+        } else {
+          toast({ title: 'Upload failed', variant: 'destructive' })
+        }
+      } catch {
+        toast({ title: 'Upload failed', variant: 'destructive' })
+      }
+      setLogoUploading(false)
+    }
+    reader.readAsDataURL(file)
+  }
+
+  // Remove logo
+  const handleLogoRemove = async () => {
+    if (!tenant) return
+    try {
+      const res = await authFetch('/api/tenants', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'update', id: tenant.id, tenantId: tenant.id, data: { logoUrl: null } }),
+      })
+      if (res.ok) {
+        const data = await res.json()
+        if (data.tenant) setTenant(data.tenant)
+        toast({ title: 'Logo removed', description: 'Saved permanently.' })
+      }
+    } catch { toast({ title: 'Failed to remove', variant: 'destructive' }) }
+  }
+
   // --- Change Password (know current password) ---
   const [changeStep, setChangeStep] = useState<PasswordChangeStep>('idle')
   const [currentPassword, setCurrentPassword] = useState('')
@@ -642,13 +754,13 @@ export function SettingsPage() {
           <Card className="border-0 shadow-sm">
             <CardHeader>
               <CardTitle className="text-base">Invoice Customization</CardTitle>
-              <CardDescription>Customize how your printed invoices look. Upload your company logo and toggle invoice elements.</CardDescription>
+              <CardDescription>Customize how your printed invoices look. Upload your company logo and toggle invoice elements. Click Save to persist settings.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
               {/* Logo Upload */}
               <div className="space-y-2">
                 <Label className="text-sm font-medium">Company Logo</Label>
-                <p className="text-xs text-muted-foreground">Upload your company logo to display on printed invoices (max 2MB, PNG/JPG).</p>
+                <p className="text-xs text-muted-foreground">Upload your company logo to display on printed invoices (max 2MB, PNG/JPG). Logo is automatically compressed to ~25KB.</p>
                 <div className="flex items-center gap-4">
                   {tenant && (tenant as any).logoUrl ? (
                     <img src={(tenant as any).logoUrl} alt="Logo" className="h-16 w-16 object-contain border rounded" />
@@ -657,54 +769,22 @@ export function SettingsPage() {
                   )}
                   <div className="flex gap-2">
                     <label className="cursor-pointer">
-                      <span className="inline-flex items-center justify-center px-4 py-2 text-sm font-medium rounded-md bg-primary text-primary-foreground hover:bg-primary/90">Upload Logo</span>
+                      <span className="inline-flex items-center justify-center px-4 py-2 text-sm font-medium rounded-md bg-primary text-primary-foreground hover:bg-primary/90">
+                        {logoUploading ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null}
+                        Upload Logo
+                      </span>
                       <input
                         type="file"
                         accept="image/png,image/jpeg,image/jpg"
                         className="hidden"
-                        onChange={async (e) => {
+                        onChange={(e) => {
                           const file = e.target.files?.[0]
-                          if (!file) return
-                          if (file.size > 2 * 1024 * 1024) {
-                            toast({ title: 'File too large', description: 'Maximum 2MB.', variant: 'destructive' })
-                            return
-                          }
-                          const reader = new FileReader()
-                          reader.onload = async () => {
-                            const base64 = reader.result as string
-                            try {
-                              const res = await authFetch('/api/upload-logo', {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ tenantId: tenant?.id, logoBase64: base64 }),
-                              })
-                              if (res.ok) {
-                                const data = await res.json()
-                                setTenant({ ...tenant, logoUrl: data.logoUrl } as any)
-                                toast({ title: 'Logo uploaded', description: 'Your company logo is now on all invoices.' })
-                              } else {
-                                toast({ title: 'Upload failed', variant: 'destructive' })
-                              }
-                            } catch {
-                              toast({ title: 'Upload failed', variant: 'destructive' })
-                            }
-                          }
-                          reader.readAsDataURL(file)
+                          if (file) handleLogoUpload(file)
                         }}
                       />
                     </label>
                     {(tenant as any)?.logoUrl && (
-                      <Button variant="outline" size="sm" onClick={async () => {
-                        try {
-                          await authFetch('/api/tenants', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ action: 'update', id: tenant?.id, data: { logoUrl: null }, tenantId: tenant?.id }),
-                          })
-                          setTenant({ ...tenant, logoUrl: null } as any)
-                          toast({ title: 'Logo removed' })
-                        } catch { toast({ title: 'Failed to remove', variant: 'destructive' }) }
-                      }}>Remove</Button>
+                      <Button variant="outline" size="sm" onClick={handleLogoRemove}>Remove</Button>
                     )}
                   </div>
                 </div>
@@ -715,25 +795,15 @@ export function SettingsPage() {
                 <Label className="text-sm font-medium">Invoice Elements</Label>
                 <div className="space-y-2">
                   {[
-                    { key: 'showLogoInInvoice', label: 'Show logo on invoice' },
-                    { key: 'showQrCode', label: 'Show UPI QR code' },
-                    { key: 'showSignatureInInvoice', label: 'Show signature line' },
+                    { key: 'showLogoInInvoice' as const, label: 'Show logo on invoice' },
+                    { key: 'showQrCode' as const, label: 'Show UPI QR code' },
+                    { key: 'showSignatureInInvoice' as const, label: 'Show signature line' },
                   ].map(({ key, label }) => (
                     <label key={key} className="flex items-center gap-2 cursor-pointer">
                       <input
                         type="checkbox"
-                        checked={(tenant as any)?.[key] !== false}
-                        onChange={async (e) => {
-                          try {
-                            await authFetch('/api/tenants', {
-                              method: 'POST',
-                              headers: { 'Content-Type': 'application/json' },
-                              body: JSON.stringify({ action: 'update', id: tenant?.id, data: { [key]: e.target.checked }, tenantId: tenant?.id }),
-                            })
-                            setTenant({ ...tenant, [key]: e.target.checked } as any)
-                            toast({ title: 'Setting updated' })
-                          } catch { toast({ title: 'Update failed', variant: 'destructive' }) }
-                        }}
+                        checked={invoiceSettings[key]}
+                        onChange={(e) => setInvoiceSettings(prev => ({ ...prev, [key]: e.target.checked }))}
                       />
                       <span className="text-sm">{label}</span>
                     </label>
@@ -747,19 +817,8 @@ export function SettingsPage() {
                 <p className="text-xs text-muted-foreground">Leave empty to use the default footer ("Computer-generated by BizBook Pro...").</p>
                 <Input
                   placeholder="e.g. Thank you for your business! · www.yourcompany.com"
-                  defaultValue={(tenant as any)?.invoiceFooterText || ''}
-                  onBlur={async (e) => {
-                    const val = e.target.value || null
-                    try {
-                      await authFetch('/api/tenants', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ action: 'update', id: tenant?.id, data: { invoiceFooterText: val }, tenantId: tenant?.id }),
-                      })
-                      setTenant({ ...tenant, invoiceFooterText: val } as any)
-                      toast({ title: 'Footer text saved' })
-                    } catch { toast({ title: 'Save failed', variant: 'destructive' }) }
-                  }}
+                  value={invoiceSettings.invoiceFooterText}
+                  onChange={(e) => setInvoiceSettings(prev => ({ ...prev, invoiceFooterText: e.target.value }))}
                 />
               </div>
 
@@ -768,18 +827,8 @@ export function SettingsPage() {
                 <Label className="text-sm font-medium">Invoice Template</Label>
                 <p className="text-xs text-muted-foreground">Choose the visual style of your printed invoices.</p>
                 <Select
-                  defaultValue={(tenant as any)?.invoiceTemplate || 'classic'}
-                  onValueChange={async (val) => {
-                    try {
-                      await authFetch('/api/tenants', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ action: 'update', id: tenant?.id, data: { invoiceTemplate: val }, tenantId: tenant?.id }),
-                      })
-                      setTenant({ ...tenant, invoiceTemplate: val } as any)
-                      toast({ title: 'Template updated' })
-                    } catch { toast({ title: 'Update failed', variant: 'destructive' }) }
-                  }}
+                  value={invoiceSettings.invoiceTemplate}
+                  onValueChange={(val) => setInvoiceSettings(prev => ({ ...prev, invoiceTemplate: val }))}
                 >
                   <SelectTrigger className="w-full max-w-xs">
                     <SelectValue placeholder="Select template" />
@@ -800,21 +849,23 @@ export function SettingsPage() {
                   <input
                     type="color"
                     className="h-10 w-14 border rounded cursor-pointer"
-                    defaultValue={(tenant as any)?.invoiceColor || '#000000'}
-                    onChange={async (e) => {
-                      const val = e.target.value
-                      try {
-                        await authFetch('/api/tenants', {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({ action: 'update', id: tenant?.id, data: { invoiceColor: val }, tenantId: tenant?.id }),
-                        })
-                        setTenant({ ...tenant, invoiceColor: val } as any)
-                      } catch { toast({ title: 'Color update failed', variant: 'destructive' }) }
-                    }}
+                    value={invoiceSettings.invoiceColor}
+                    onChange={(e) => setInvoiceSettings(prev => ({ ...prev, invoiceColor: e.target.value }))}
                   />
-                  <span className="text-sm text-muted-foreground">{(tenant as any)?.invoiceColor || '#000000 (default black)'}</span>
+                  <span className="text-sm text-muted-foreground">{invoiceSettings.invoiceColor}</span>
                 </div>
+              </div>
+
+              {/* Save Button */}
+              <div className="flex justify-end pt-2 border-t">
+                <Button
+                  className="bg-emerald-600 hover:bg-emerald-700"
+                  onClick={handleSaveInvoiceSettings}
+                  disabled={invoiceSettingsLoading}
+                >
+                  {invoiceSettingsLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                  Save Invoice Settings
+                </Button>
               </div>
             </CardContent>
           </Card>
