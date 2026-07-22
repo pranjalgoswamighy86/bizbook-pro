@@ -617,6 +617,26 @@ export function SaleRegister() {
     }
 
     // v6.27.0: Use template engine — 5 selectable invoice templates
+    // v6.27.3: CRITICAL FIX — pass `invoiceTemplate` so the engine renders the
+    // template the user actually saved. Previously this field was missing, so
+    // `generateInvoiceHtml` always fell back to 'classic' (black & white),
+    // ignoring any Modern / Minimal / Corporate / Elegant selection.
+    //
+    // v6.27.3: CRITICAL FIX — convert logoUrl to an ABSOLUTE URL before
+    // passing it in. Logos are saved as relative paths like `/logos/tenant-xxx.jpg`.
+    // The print HTML is written into a popup window whose `document.location`
+    // is `about:blank`, so a relative URL resolves against `about:blank` and
+    // the image fails to load (showing the alt text "Logo" as a broken image).
+    // Same applies to the hidden-iframe fallback. Building an absolute URL
+    // from `window.location.origin` makes the logo resolve correctly in any
+    // rendering context (popup, iframe, or PDF generator).
+    const relativeLogoUrl = (tenant as any)?.logoUrl || ''
+    const absoluteLogoUrl = relativeLogoUrl
+      ? (relativeLogoUrl.startsWith('http') || relativeLogoUrl.startsWith('data:'))
+        ? relativeLogoUrl
+        : `${window.location.origin}${relativeLogoUrl.startsWith('/') ? '' : '/'}${relativeLogoUrl}`
+      : ''
+
     const printHtml = generateInvoiceHtml({
       invoiceNumber: sale.invoiceNumber,
       date: sale.date,
@@ -641,7 +661,8 @@ export function SaleRegister() {
       email: tenant?.email,
       gstNumber: tenant?.gstNumber,
       upiId: tenant?.upiId,
-      logoUrl: (tenant as any)?.logoUrl,
+      logoUrl: absoluteLogoUrl,
+      invoiceTemplate: (tenant as any)?.invoiceTemplate,
       invoiceColor: (tenant as any)?.invoiceColor,
       showLogoInInvoice: (tenant as any)?.showLogoInInvoice,
       showSignatureInInvoice: (tenant as any)?.showSignatureInInvoice,
