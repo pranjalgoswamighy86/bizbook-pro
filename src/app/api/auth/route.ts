@@ -22,6 +22,45 @@ import {
 import { requireAuth, requireAuthAndRole, writeAuditLog } from '@/lib/api-helpers'
 // -----------------------------------
 
+// =====================================================================
+// v6.27.2: Tenant field whitelist for client-facing responses.
+// CRITICAL: Every API that returns a `tenant` object to the client MUST
+// use this helper. Previously, `switch-company`, `add-company`, and
+// `register` returned a tenant WITHOUT invoice customization fields
+// (logoUrl, invoiceTemplate, invoiceColor, showLogoInInvoice,
+// showQrCode, showSignatureInInvoice, invoiceFooterText). When the
+// frontend `switchCompany()` action replaced the store's tenant with
+// this stripped object, the localStorage persistence layer overwrote
+// the saved invoice settings — causing them to revert to defaults on
+// the next page refresh. This helper ensures every tenant payload is
+// complete and consistent.
+// =====================================================================
+function serializeTenant(t: any) {
+  if (!t) return null
+  return {
+    id: t.id,
+    name: t.name,
+    address: t.address,
+    phone: t.phone,
+    email: t.email,
+    gstNumber: t.gstNumber,
+    panNumber: t.panNumber,
+    upiId: t.upiId,
+    plan: t.plan,
+    planExpires: t.planExpires instanceof Date ? t.planExpires.toISOString() : (t.planExpires ?? null),
+    currency: t.currency,
+    // v6.27.2: Always include invoice customization fields — missing fields
+    // cause the frontend store to lose saved settings on company switch / refresh
+    logoUrl: t.logoUrl ?? null,
+    invoiceTemplate: t.invoiceTemplate ?? null,
+    invoiceColor: t.invoiceColor ?? null,
+    showLogoInInvoice: t.showLogoInInvoice ?? null,
+    showSignatureInInvoice: t.showSignatureInInvoice ?? null,
+    showQrCode: t.showQrCode ?? null,
+    invoiceFooterText: t.invoiceFooterText ?? null,
+  }
+}
+
 /**
  * Normalize phone number for consistent comparison.
  * Strips all non-digit characters and tries to produce a canonical form.
@@ -396,7 +435,10 @@ export async function POST(req: NextRequest) {
       const token = createSessionToken(user.id, user.email)
       const res = NextResponse.json({
         user: { id: user.id, email: user.email, name: user.name, role: user.role, tenantId: user.tenantId },
-        tenant: { id: tenant.id, name: tenant.name, address: tenant.address, phone: tenant.phone, email: tenant.email, gstNumber: tenant.gstNumber, panNumber: tenant.panNumber, upiId: tenant.upiId, plan: tenant.plan, currency: tenant.currency },
+        // v6.27.2: Use serializeTenant() so freshly registered accounts
+        // also carry invoice customization fields (null defaults) — keeps
+        // the frontend store shape consistent across all auth flows.
+        tenant: serializeTenant(tenant),
         sessionToken: token,  // for Bearer header fallback when cookies are blocked
       })
       setSessionCookie(res, token)
@@ -843,7 +885,9 @@ export async function POST(req: NextRequest) {
 
       return NextResponse.json({
         success: true,
-        tenant: { id: tenant.id, name: tenant.name, address: tenant.address, phone: tenant.phone, email: tenant.email, gstNumber: tenant.gstNumber, panNumber: tenant.panNumber, upiId: tenant.upiId, plan: tenant.plan, currency: tenant.currency },
+        // v6.27.2: include invoice customization fields so the frontend
+        // store does not lose them when the user adds a new company.
+        tenant: serializeTenant(tenant),
         companies: companies.map(c => ({ tenantId: c.tenantId, name: c.tenant.name, role: c.role, isOwner: c.isOwner, tenant: c.tenant })),
       })
     }
@@ -875,9 +919,14 @@ export async function POST(req: NextRequest) {
         data: { tenantId },
       })
 
+      // v6.27.2: CRITICAL FIX — return ALL tenant fields, including the
+      // invoice customization fields (logoUrl, invoiceTemplate, etc.).
+      // Previously this endpoint stripped them, so the frontend store
+      // would overwrite the persisted tenant with a stripped version
+      // and saved invoice settings would revert to defaults on refresh.
       return NextResponse.json({
         success: true,
-        tenant: { id: userTenant.tenant.id, name: userTenant.tenant.name, address: userTenant.tenant.address, phone: userTenant.tenant.phone, email: userTenant.tenant.email, gstNumber: userTenant.tenant.gstNumber, panNumber: userTenant.tenant.panNumber, upiId: userTenant.tenant.upiId, plan: userTenant.tenant.plan, planExpires: userTenant.tenant.planExpires?.toISOString(), currency: userTenant.tenant.currency },
+        tenant: serializeTenant(userTenant.tenant),
       })
     }
 

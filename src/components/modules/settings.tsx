@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { useAppStore, canManage, getRoleLabel, type UserRole } from '@/store/app-store'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -58,32 +58,79 @@ export function SettingsPage() {
   const [tenantCreatedAt, setTenantCreatedAt] = useState('')
 
   // --- Invoice Customization State ---
-  const [invoiceSettings, setInvoiceSettings] = useState({
+  // v6.27.2: EXPLICIT-SAVE-ONLY MODEL
+  // ---------------------------------
+  // The local `invoiceSettings` state is a DRAFT — edits made in the form
+  // update this draft but are NOT written to the API or to localStorage.
+  // The draft is committed to the backend ONLY when the user clicks the
+  // explicit "Save Invoice Settings" button (handleSaveInvoiceSettings).
+  //
+  // If the user navigates away without saving, the component unmounts
+  // and the draft is discarded — the next time they open Settings, the
+  // form re-syncs from the canonical tenant in the store (which only
+  // contains explicitly-saved values). This satisfies the requirement:
+  //   "Uncommitted changes on blur or click-away must be discarded."
+  //
+  // The `savedInvoiceSettingsRef` mirrors the last-known-saved snapshot
+  // so we can compute a `isDirty` flag for the UI ("Unsaved changes"
+  // badge + "Discard" button).
+  const DEFAULT_INVOICE_SETTINGS = {
     showLogoInInvoice: true,
     showQrCode: true,
     showSignatureInInvoice: true,
     invoiceFooterText: '',
     invoiceTemplate: 'classic',
     invoiceColor: '#000000',
+  }
+  const buildInvoiceSettingsFromTenant = (t: any) => ({
+    showLogoInInvoice: t?.showLogoInInvoice !== false,
+    showQrCode: t?.showQrCode !== false,
+    showSignatureInInvoice: t?.showSignatureInInvoice !== false,
+    invoiceFooterText: t?.invoiceFooterText || '',
+    invoiceTemplate: t?.invoiceTemplate || 'classic',
+    invoiceColor: t?.invoiceColor || '#000000',
   })
+  const [invoiceSettings, setInvoiceSettings] = useState(DEFAULT_INVOICE_SETTINGS)
+  // Ref holding the last snapshot taken from the tenant in the store.
+  // Used to (a) skip no-op useEffect re-syncs that would wipe a dirty
+  // draft, and (b) compute the isDirty flag.
+  const savedInvoiceSettingsRef = useRef(DEFAULT_INVOICE_SETTINGS)
   const [invoiceSettingsLoading, setInvoiceSettingsLoading] = useState(false)
   const [logoUploading, setLogoUploading] = useState(false)
 
-  // Load invoice settings from tenant on mount
+  // v6.27.2: Hydrate the draft from the tenant in the store. We deliberately
+  // do NOT re-run this effect on every tenant change — that would discard
+  // in-progress edits whenever the user clicks Save (Save updates the tenant
+  // → effect re-fires → draft gets reset, but the values are identical so
+  // nothing visible happens). Instead, we hydrate only when the saved
+  // snapshot actually differs from what we already have. This keeps the
+  // draft stable while the user is editing, and re-syncs cleanly when the
+  // tenant genuinely changes (company switch, save, logo upload, etc.).
   useEffect(() => {
-    if (tenant) {
-      setInvoiceSettings({
-        showLogoInInvoice: (tenant as any).showLogoInInvoice !== false,
-        showQrCode: (tenant as any).showQrCode !== false,
-        showSignatureInInvoice: (tenant as any).showSignatureInInvoice !== false,
-        invoiceFooterText: (tenant as any).invoiceFooterText || '',
-        invoiceTemplate: (tenant as any).invoiceTemplate || 'classic',
-        invoiceColor: (tenant as any).invoiceColor || '#000000',
-      })
-    }
+    if (!tenant) return
+    const next = buildInvoiceSettingsFromTenant(tenant)
+    const prev = savedInvoiceSettingsRef.current
+    // Shallow-compare every field; only update if something actually changed
+    const changed = (Object.keys(next) as (keyof typeof next)[]).some(
+      (k) => next[k] !== prev[k]
+    )
+    if (!changed) return
+    savedInvoiceSettingsRef.current = next
+    setInvoiceSettings(next)
   }, [tenant])
 
-  // Save all invoice settings at once
+  // v6.27.2: Compute dirty flag for the UI
+  const invoiceSettingsDirty = (Object.keys(invoiceSettings) as (keyof typeof invoiceSettings)[]).some(
+    (k) => invoiceSettings[k] !== savedInvoiceSettingsRef.current[k]
+  )
+
+  // v6.27.2: Explicit "Discard" — reset draft back to the last-saved snapshot
+  const handleDiscardInvoiceSettings = () => {
+    setInvoiceSettings(savedInvoiceSettingsRef.current)
+    toast({ title: 'Changes discarded', description: 'Reverted to your last saved invoice settings.' })
+  }
+
+  // Save all invoice settings at once — ONLY triggered by the Save button
   const handleSaveInvoiceSettings = async () => {
     if (!tenant) return
     setInvoiceSettingsLoading(true)
@@ -100,8 +147,14 @@ export function SettingsPage() {
       })
       if (res.ok) {
         const data = await res.json()
+        // The API returns the FULL updated tenant (with all invoice fields
+        // because /api/tenants update whitelists them). setTenant pushes
+        // the new tenant into the zustand store + persists it to
+        // localStorage, so the saved state survives a page refresh.
         if (data.tenant) setTenant(data.tenant)
-        toast({ title: 'Invoice settings saved', description: 'Your invoice customization will persist after refresh.' })
+        // Update the saved-snapshot ref so the dirty flag clears
+        savedInvoiceSettingsRef.current = buildInvoiceSettingsFromTenant(data.tenant || tenant)
+        toast({ title: 'Invoice settings saved', description: 'Your invoice customization will persist after refresh and apply to all printed invoices.' })
       } else {
         toast({ title: 'Save failed', variant: 'destructive' })
       }
@@ -858,16 +911,43 @@ export function SettingsPage() {
                 </div>
               </div>
 
-              {/* Save Button */}
-              <div className="flex justify-end pt-2 border-t">
-                <Button
-                  className="bg-emerald-600 hover:bg-emerald-700"
-                  onClick={handleSaveInvoiceSettings}
-                  disabled={invoiceSettingsLoading}
-                >
-                  {invoiceSettingsLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-                  Save Invoice Settings
-                </Button>
+              {/* Save / Discard — v6.27.2 explicit-save-only model */}
+              <div className="flex items-center justify-between gap-3 pt-2 border-t flex-wrap">
+                <div className="text-xs text-muted-foreground flex items-center gap-2">
+                  {invoiceSettingsDirty ? (
+                    <>
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-300 font-medium">
+                        <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+                        Unsaved changes
+                      </span>
+                      <span>Click “Save” to persist, or “Discard” to revert. Unsaved edits are lost if you leave this page.</span>
+                    </>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 font-medium">
+                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                      All changes saved
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={handleDiscardInvoiceSettings}
+                    disabled={!invoiceSettingsDirty || invoiceSettingsLoading}
+                    title="Revert form to the last saved values"
+                  >
+                    Discard
+                  </Button>
+                  <Button
+                    className="bg-emerald-600 hover:bg-emerald-700"
+                    onClick={handleSaveInvoiceSettings}
+                    disabled={invoiceSettingsLoading || !invoiceSettingsDirty}
+                    title={invoiceSettingsDirty ? 'Save invoice customization to the database' : 'Nothing to save'}
+                  >
+                    {invoiceSettingsLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                    Save Invoice Settings
+                  </Button>
+                </div>
               </div>
             </CardContent>
           </Card>

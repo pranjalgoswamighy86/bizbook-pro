@@ -146,7 +146,18 @@ export const useAppStore = create<AppState>()(
           sessionToken: null,
         }),
       switchCompany: (tenant) =>
-        set({ tenant, currentView: 'dashboard' }),
+        // v6.27.2: DEFENSIVE MERGE — never let a partial tenant payload
+        // (e.g. from an older API that strips invoice fields) wipe out
+        // already-persisted invoice customization settings. Merge new
+        // fields on top of the existing tenant; only fields actually
+        // present in the new payload overwrite the old ones. This is a
+        // safety net on top of serializeTenant() in the API routes.
+        set((state) => ({
+          tenant: state.tenant
+            ? { ...state.tenant, ...tenant }
+            : tenant,
+          currentView: 'dashboard',
+        })),
       setPendingImportFile: (file) =>
         set({ pendingImportFile: file }),
     }),

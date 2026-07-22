@@ -55,6 +55,10 @@ export interface TenantData {
   gstNumber?: string | null
   upiId?: string | null
   logoUrl?: string | null
+  // v6.27.2: added `invoiceTemplate` to the interface so the selector at
+  // the bottom of this file type-checks. The value is one of:
+  //   'classic' | 'modern' | 'minimal' | 'corporate' | 'elegant'
+  invoiceTemplate?: string | null
   invoiceColor?: string | null
   showLogoInInvoice?: boolean
   showSignatureInInvoice?: boolean
