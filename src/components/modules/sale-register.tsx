@@ -16,6 +16,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { formatCurrency, formatDate, getDateFilterRange } from '@/lib/formulas'
 import { isInterStateSupply } from '@/lib/gst-utils'
+import { generateInvoiceHtml } from '@/lib/invoice-templates'
 import { Plus, Pencil, Trash2, Eye, ChevronDown, X, Loader2, CheckCircle2, Printer, Package, FileCheck, Sparkles } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import { PartySuggest } from '@/components/app/party-suggest'
@@ -615,148 +616,38 @@ export function SaleRegister() {
       return n
     }
 
-    const printHtml = `<!DOCTYPE html>
-<html>
-<head>
-  <title>Invoice - ${sale.invoiceNumber}</title>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-    @page { margin: 5%; }
-    body { font-family: 'Courier New', monospace; color: #000; width: 90%; margin: 0 auto; padding: 2mm; font-weight: 900; }
-    .header { text-align: center; margin-bottom: 3mm; border-bottom: 3px solid #000; padding-bottom: 2mm; }
-    .header h1 { font-size: 20px; font-weight: 900; color: #000; }
-    .header p { font-size: 11px; color: #000; margin-top: 2px; font-weight: 900; }
-    .inv-meta { text-align: center; margin-bottom: 3mm; }
-    .inv-meta .inv-no { font-size: 16px; font-weight: 900; color: #000; }
-    .inv-meta .inv-date { font-size: 12px; color: #000; font-weight: 700; }
-    .inv-meta .badge { display: inline-block; padding: 3px 10px; border: 2px solid #000; font-size: 11px; font-weight: 900; color: #000; margin-top: 2px; }
-    .parties { margin-bottom: 3mm; }
-    .party { margin-bottom: 2mm; }
-    .party .lbl { font-size: 10px; text-transform: uppercase; color: #000; font-weight: 900; border-bottom: 1px solid #000; padding-bottom: 1px; margin-bottom: 2px; }
-    .party .name { font-size: 14px; font-weight: 900; color: #000; }
-    .party .detail { font-size: 11px; color: #000; font-weight: 700; word-break: break-word; }
-    .items-section { margin-bottom: 3mm; }
-    .items-header { display: flex; border-bottom: 2px solid #000; padding-bottom: 2px; margin-bottom: 2px; }
-    .items-header .col-no { width: 8%; font-size: 10px; font-weight: 900; color: #000; text-transform: uppercase; }
-    .items-header .col-item { width: 54%; font-size: 10px; font-weight: 900; color: #000; text-transform: uppercase; }
-    .items-header .col-hsn { width: 20%; font-size: 10px; font-weight: 900; color: #000; text-transform: uppercase; text-align: center; }
-    .items-header .col-qty { width: 18%; font-size: 10px; font-weight: 900; color: #000; text-transform: uppercase; text-align: right; }
-    .item-row { display: flex; border-bottom: 1px solid #000; padding: 3px 0; }
-    .item-row .col-no { width: 8%; font-size: 11px; font-weight: 700; color: #000; }
-    .item-row .col-item { width: 54%; font-size: 11px; font-weight: 700; color: #000; word-break: break-word; }
-    .item-row .col-item .item-name { font-weight: 900; }
-    .item-row .col-item .item-details { font-size: 10px; margin-top: 1px; font-weight: 700; }
-    .item-row .col-hsn { width: 20%; font-size: 11px; font-weight: 700; color: #000; text-align: center; border: 1px solid #000; margin: 0 2px; }
-    .item-row .col-qty { width: 18%; font-size: 11px; font-weight: 700; color: #000; text-align: right; }
-    .totals { margin-bottom: 3mm; }
-    .totals .row { display: flex; justify-content: space-between; padding: 3px 0; font-size: 12px; color: #000; border-bottom: 1px solid #000; font-weight: 700; }
-    .totals .grand { font-size: 15px; font-weight: 900; border-top: 3px solid #000; border-bottom: 3px solid #000; padding: 5px 0; margin-top: 2px; color: #000; }
-    .totals .due { color: #000; font-weight: 900; }
-    .notes { margin: 2mm 0; padding: 2mm; border: 2px solid #000; font-size: 11px; color: #000; font-weight: 700; word-break: break-word; }
-    .qr { text-align: center; margin: 2mm 0; }
-    .qr img { width: 80px; height: 80px; border: 2px solid #000; }
-    .qr .label { font-size: 11px; font-weight: 900; color: #000; margin-top: 2px; }
-    .sig { margin-top: 4mm; text-align: center; }
-    .sig .line { border-top: 2px solid #000; width: 60%; margin: 0 auto 2px; }
-    .sig p { font-size: 11px; font-weight: 900; color: #000; }
-    .sig small { font-size: 10px; color: #000; font-weight: 700; }
-    .footer { margin-top: 4mm; padding-top: 2mm; border-top: 2px solid #000; text-align: center; font-size: 10px; color: #000; font-weight: 700; }
-    @media print {
-      @page { margin: 5%; }
-      body { width: 90%; padding: 0; }
-    }
-  </style>
-</head>
-<body>
-  <div class="header">
-    ${(tenant as any)?.logoUrl && (tenant as any)?.showLogoInInvoice !== false
-      ? `<img src="${(tenant as any).logoUrl}" alt="Logo" style="max-height:80px;max-width:200px;margin-bottom:5px;object-fit:contain;" />`
-      : ''}
-    <h1>${tenant?.name || 'BizBook Pro'}</h1>
-    ${tenant?.address ? `<p>${tenant.address}</p>` : ''}
-    ${tenant?.phone ? `<p>Ph: ${tenant.phone}</p>` : ''}
-    ${tenant?.email ? `<p>Email: ${tenant.email}</p>` : ''}
-    ${tenant?.gstNumber ? `<p>GSTIN: ${tenant.gstNumber}</p>` : ''}
-  </div>
-
-  <div class="inv-meta">
-    <div class="inv-no">#${sale.invoiceNumber}</div>
-    <div class="inv-date">${fmtDate(new Date(sale.date))}</div>
-    <div class="badge">${statusLabel(sale.paymentStatus)}</div>
-  </div>
-
-  <div class="parties">
-    <div class="party">
-      <div class="lbl">Bill To</div>
-      <div class="name">${sale.partyName}</div>
-      ${sale.partyAddress ? `<div class="detail">${sale.partyAddress}</div>` : ''}
-      ${sale.partyGst ? `<div class="detail">GSTIN: ${sale.partyGst}</div>` : ''}
-    </div>
-  </div>
-
-  <div class="items-section">
-    <div class="items-header">
-      <div class="col-no">#</div>
-      <div class="col-item">Item</div>
-      <div class="col-hsn">HSN</div>
-      <div class="col-qty">Qty</div>
-    </div>
-    ${parsedItems.map((item, i) => `
-    <div class="item-row">
-      <div class="col-no">${i + 1}</div>
-      <div class="col-item">
-        <div class="item-name">${item.name}${item.saleItemType === 'SERVICE' ? ' [SVC]' : ''}${item.category ? ` <span style="font-size:10px;font-style:italic;font-weight:700;">(${item.category})</span>` : ''}</div>
-        <div class="item-details">Rate: ${fmtCurrency(item.rate)} | Disc: ${item.discount > 0 ? fmtCurrency(item.discount) : '-'} | Amt: ${fmtCurrency(item.amount)} | Tax: ${fmtCurrency(item.totalTax)}</div>
-        <div class="item-details" style="font-weight:900;">Total: ${fmtCurrency(item.total)}</div>
-      </div>
-      <div class="col-hsn">${item.hsn || '-'}</div>
-      <div class="col-qty">${item.qty} ${item.unit || ''}</div>
-    </div>`).join('')}
-  </div>
-
-  <div class="totals">
-    <div class="row"><span>Subtotal</span><span>${fmtCurrency(sale.subtotal)}</span></div>
-    ${(() => {
-      // v6.25.1: Compute discount from actual amounts — works even if discountPercent wasn't saved
-      const discPercent = (sale as any).discountPercent || 0
-      const effectiveDiscount = sale.subtotal - (sale.totalAmount - sale.gstAmount)
-      if (discPercent > 0) {
-        const discAmt = Math.round(sale.subtotal * discPercent / 100 * 100) / 100
-        const taxable = sale.subtotal - discAmt
-        return `<div class="row"><span>Discount (${discPercent}%)</span><span>-${fmtCurrency(discAmt)}</span></div>
-                <div class="row"><span>Taxable Amount</span><span>${fmtCurrency(taxable)}</span></div>`
-      } else if (effectiveDiscount > 0.01) {
-        // Discount was applied but discountPercent wasn't saved — show the effective discount
-        const computedPercent = Math.round(effectiveDiscount / sale.subtotal * 100 * 10) / 10
-        return `<div class="row"><span>Discount (${computedPercent}%)</span><span>-${fmtCurrency(effectiveDiscount)}</span></div>
-                <div class="row"><span>Taxable Amount</span><span>${fmtCurrency(sale.subtotal - effectiveDiscount)}</span></div>`
-      }
-      return ''
-    })()}
-    <div class="row"><span>Tax</span><span>${fmtCurrency(sale.gstAmount)}</span></div>
-    <div class="row grand"><span>GRAND TOTAL</span><span>${fmtCurrency(sale.totalAmount)}</span></div>
-    <div class="row"><span>Received</span><span>${fmtCurrency(sale.amountReceived || sale.amountPaid)}</span></div>
-    <div class="row due"><span>Balance Due</span><span>${fmtCurrency(sale.totalAmount - (sale.amountReceived || sale.amountPaid))}</span></div>
-  </div>
-
-  ${sale.notes ? `<div class="notes"><strong>Notes:</strong> ${sale.notes}</div>` : ''}
-
-  ${upiQrCode ? `<div class="qr"><img src="${upiQrCode}" alt="UPI QR" /><div class="label">Scan to Pay ${fmtCurrency(qrPayAmount)}</div></div>` : ''}
-
-  ${(tenant as any)?.showSignatureInInvoice !== false ? `
-  <div class="sig">
-    <div class="line"></div>
-    <p>Authorised Signatory</p>
-    <small>For ${tenant?.name || 'Business'}</small>
-  </div>` : ''}
-
-  <div class="footer">
-    ${(tenant as any)?.invoiceFooterText || `Computer-generated by BizBook Pro · Tahigo International · ${new Date().toLocaleString('en-IN')}`}
-  </div>
-
-<script>window.onload = function() { setTimeout(function() { window.print(); }, 300); };</script>
-</body>
-</html>`
+    // v6.27.0: Use template engine — 5 selectable invoice templates
+    const printHtml = generateInvoiceHtml({
+      invoiceNumber: sale.invoiceNumber,
+      date: sale.date,
+      partyName: sale.partyName,
+      partyAddress: sale.partyAddress,
+      partyGst: sale.partyGst,
+      items: parsedItems,
+      subtotal: sale.subtotal,
+      gstAmount: sale.gstAmount,
+      totalAmount: sale.totalAmount,
+      amountReceived: sale.amountReceived,
+      amountPaid: sale.amountPaid,
+      discountPercent: (sale as any).discountPercent || 0,
+      paymentStatus: sale.paymentStatus,
+      invoiceStatus: sale.invoiceStatus,
+      notes: sale.notes,
+      upiAmount: sale.upiAmount,
+    }, {
+      name: tenant?.name || 'BizBook Pro',
+      address: tenant?.address,
+      phone: tenant?.phone,
+      email: tenant?.email,
+      gstNumber: tenant?.gstNumber,
+      upiId: tenant?.upiId,
+      logoUrl: (tenant as any)?.logoUrl,
+      invoiceColor: (tenant as any)?.invoiceColor,
+      showLogoInInvoice: (tenant as any)?.showLogoInInvoice,
+      showSignatureInInvoice: (tenant as any)?.showSignatureInInvoice,
+      showQrCode: (tenant as any)?.showQrCode,
+      invoiceFooterText: (tenant as any)?.invoiceFooterText,
+    })
 
     const printWindow = window.open('', '_blank', 'width=900,height=700')
     if (printWindow) {
