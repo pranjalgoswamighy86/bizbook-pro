@@ -553,19 +553,30 @@ if (fs.existsSync(genBuildDir)) { rmRecursive(genBuildDir); console.log("[POSTBU
 const binaryJs = path.join(nmDest, "@prisma", "client", "runtime", "binary.js");
 if (fs.existsSync(binaryJs)) { fs.unlinkSync(binaryJs); console.log("[POSTBUILD] ✅ Removed @prisma/client/runtime/binary.js"); }
 
-// 10h: Remove xlsx .mjs and .extendscript.js (keep .js and .min.js)
+// 10h: Remove xlsx .mjs and .extendscript.js
+// v6.27.5: CRITICAL FIX — do NOT delete xlsx.js (the package's `main` entry).
+// Previously this deleted `xlsx.js` too, which made `await import('xlsx')`
+// fail in the standalone production build with "Cannot find module 'xlsx'".
+// Now we only remove the genuinely-unused .mjs and .extendscript.js variants.
 const xlsxDir2 = path.join(nmDest, "xlsx");
 if (fs.existsSync(xlsxDir2)) {
-  for (const f of ['xlsx.mjs', 'xlsx.js', 'dist/xlsx.extendscript.js']) {
+  for (const f of ['xlsx.mjs', 'dist/xlsx.extendscript.js']) {  // 'xlsx.js' REMOVED — it is the main entry
     const fp = path.join(xlsxDir2, f);
     if (fs.existsSync(fp)) fs.unlinkSync(fp);
   }
-  console.log("[POSTBUILD] ✅ Removed xlsx .mjs and .extendscript.js");
+  console.log("[POSTBUILD] ✅ Removed xlsx .mjs and .extendscript.js (kept xlsx.js — main entry)");
 }
 
-// 10i: Remove pdfjs-dist .mjs (keep .js)
+// 10i: pdfjs-dist .mjs
+// v6.27.5: CRITICAL FIX — do NOT delete pdfjs-dist/legacy/build/pdf.mjs.
+// pdf-parse@2.x is an ESM-only package that internally dynamic-imports this
+// .mjs file. Deleting it makes every `pdf-parse()` call crash in production.
+// The size savings (~200KB) are not worth breaking PDF text extraction.
+// (If size is critical, delete the .map file instead — already done by step 9e.)
 const pdfjsMjs = path.join(nmDest, "pdfjs-dist", "legacy", "build", "pdf.mjs");
-if (fs.existsSync(pdfjsMjs)) { fs.unlinkSync(pdfjsMjs); console.log("[POSTBUILD] ✅ Removed pdfjs-dist .mjs"); }
+if (fs.existsSync(pdfjsMjs)) {
+  console.log("[POSTBUILD] ✅ Kept pdfjs-dist .mjs (required by pdf-parse@2.x — v6.27.5 fix)");
+}
 
 // Final size
 console.log(`[POSTBUILD] Final standalone size: ${getDirSize(STANDALONE_DIR)}`);

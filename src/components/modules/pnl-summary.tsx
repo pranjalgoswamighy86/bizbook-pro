@@ -14,6 +14,10 @@ interface PnLData {
   totalCostOfGoods: number
   grossProfit: number
   totalExpenses: number
+  // v6.27.5: totalSalaries is returned by the API (reports/route.ts:55) but was
+  // missing from this interface, so the net-profit math (which subtracts salaries)
+  // was invisible to users. Now included so we can render a dedicated Salaries row.
+  totalSalaries?: number
   netProfit: number
   totalGstCollected: number
   totalGstPaid: number
@@ -130,6 +134,13 @@ export function PnLSummary() {
                 <div className="flex justify-between font-semibold"><span>Total Operating Expenses</span><span className="text-red-700">-{formatCurrency(data.totalExpenses, tenant?.currency)}</span></div>
                 <p className="text-xs text-muted-foreground">{data.expenseCount} expense entries</p>
               </div>
+
+              {/* v6.27.5: Show salaries as a separate line so net-profit math is visible */}
+              {data.totalSalaries ? (
+                <div className="bg-orange-50 dark:bg-orange-950 p-3 rounded-lg">
+                  <div className="flex justify-between font-semibold"><span>Staff Salaries</span><span className="text-red-700">-{formatCurrency(data.totalSalaries, tenant?.currency)}</span></div>
+                </div>
+              ) : null}
 
               <div className="border-l-4 border-emerald-600 pl-3 py-3 bg-emerald-50 dark:bg-emerald-950 rounded-r-lg">
                 <div className="flex justify-between font-bold text-lg"><span>Net Profit</span><span className={data.netProfit >= 0 ? 'text-emerald-700' : 'text-red-700'}>{formatCurrency(data.netProfit, tenant?.currency)}</span></div>

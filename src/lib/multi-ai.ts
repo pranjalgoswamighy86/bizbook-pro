@@ -6,6 +6,20 @@ interface AIProvider {
   analyzeVision?: (imageBase64: string, prompt: string) => Promise<string>;
 }
 
+// v6.27.5: Helper — parses a `data:<mime>;base64,<payload>` string into
+// { mimeType, rawBase64 }. If the input is already raw base64 (no prefix),
+// returns mimeType 'image/jpeg' as a safe default. Used by OpenAI and Gemini
+// vision providers so they don't double-wrap the data URL.
+function parseImageDataUrl(imageBase64: string): { mimeType: string; rawBase64: string } {
+  // Match data URL prefix without the 's' (dotAll) flag — use [\s\S] to match
+  // any character including newlines, for compatibility with older TS targets.
+  const match = imageBase64.match(/^data:([^;]+);base64,([\s\S]+)$/)
+  if (match) {
+    return { mimeType: match[1], rawBase64: match[2] }
+  }
+  return { mimeType: 'image/jpeg', rawBase64: imageBase64 }
+}
+
 // ---------- DeepSeek (Primary) ----------
 class DeepSeekProvider implements AIProvider {
   name = 'DeepSeek';
@@ -75,13 +89,17 @@ class OpenAIProvider implements AIProvider {
 
   async analyzeVision(imageBase64: string, prompt: string): Promise<string> {
     if (!this.apiKey) throw new Error('OpenAI API key missing');
+    // v6.27.5: strip data-URL prefix if present and use the real MIME type.
+    // Previously this hardcoded `data:image/jpeg;base64,${imageBase64}` which
+    // produced a malformed URL when imageBase64 was already a data URL.
+    const { mimeType, rawBase64 } = parseImageDataUrl(imageBase64)
     const url = 'https://api.openai.com/v1/chat/completions';
     const res = await axios.post(url, {
       model: 'gpt-4o-mini',
       messages: [
         { role: 'user', content: [
           { type: 'text', text: prompt },
-          { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${imageBase64}` } }
+          { type: 'image_url', image_url: { url: `data:${mimeType};base64,${rawBase64}` } }
         ]}
       ],
       max_tokens: 2000,
@@ -115,12 +133,16 @@ class GeminiProvider implements AIProvider {
 
   async analyzeVision(imageBase64: string, prompt: string): Promise<string> {
     if (!this.apiKey) throw new Error('Gemini API key missing');
+    // v6.27.5: Gemini expects raw base64 in inline_data.data — NOT a data URL.
+    // Previously the entire `data:image/jpeg;base64,...` string was passed,
+    // which Gemini rejected.
+    const { mimeType, rawBase64 } = parseImageDataUrl(imageBase64)
     const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${this.apiKey}`;
     const res = await axios.post(url, {
       contents: [{
         parts: [
           { text: prompt },
-          { inline_data: { mime_type: 'image/jpeg', data: imageBase64 } }
+          { inline_data: { mime_type: mimeType, data: rawBase64 } }
         ]
       }]
     }, { timeout: 45000 });
@@ -181,6 +203,20 @@ export async function analyzeWithAI(
     try {
       const { getZaiClient } = await import('@/lib/zai-client')
       const zai = await getZaiClient()
+      // v6.27.5: If imageBase64 is set, use createVision (the dedicated vision
+      // endpoint) instead of create — otherwise the image is silently dropped.
+      if (imageBase64) {
+        const response = await zai.chat.completions.createVision({
+          messages: [
+            { role: 'user', content: [
+              { type: 'text', text: prompt },
+              { type: 'image_url', image_url: { url: imageBase64 } },
+            ]},
+          ],
+          thinking: { type: 'disabled' },
+        })
+        return { provider: 'ZAI (vision fallback)', result: response.choices[0]?.message?.content || 'No response' }
+      }
       const response = await zai.chat.completions.create({
         messages: [
           { role: 'system', content: 'You are a helpful assistant for BizBook Pro accounting software.' },
@@ -217,6 +253,20 @@ export async function analyzeWithAI(
   try {
     const { getZaiClient } = await import('@/lib/zai-client')
     const zai = await getZaiClient()
+    // v6.27.5: If imageBase64 is set, use createVision — otherwise the image
+    // is silently dropped and ZAI returns a hallucinated text-only response.
+    if (imageBase64) {
+      const response = await zai.chat.completions.createVision({
+        messages: [
+          { role: 'user', content: [
+            { type: 'text', text: prompt },
+            { type: 'image_url', image_url: { url: imageBase64 } },
+          ]},
+        ],
+        thinking: { type: 'disabled' },
+      })
+      return { provider: 'ZAI (emergency vision fallback)', result: response.choices[0]?.message?.content || 'No response' }
+    }
     const response = await zai.chat.completions.create({
       messages: [
         { role: 'system', content: 'You are a helpful assistant for BizBook Pro accounting software. Respond in English only.' },

@@ -527,19 +527,31 @@ export async function POST(req: NextRequest) {
 
       const { id, tenantId: tid } = body
 
-      // Reverse inventory + payables before deleting
+      // v6.27.5: Wrap the entire reversal + soft-delete in a transaction so
+      // the GL stays consistent with the operational tables. Previously the
+      // inventory reversal, payable reversal, and soft-delete were three
+      // independent operations with no JE reversal at all — leaving orphaned
+      // Dr Purchases / Dr GST Input / Cr Creditors entries in the GL forever.
       const purchase = await db.purchase.findUnique({ where: { id } })
-      if (purchase) {
+      if (!purchase) {
+        return NextResponse.json({ error: 'Purchase not found' }, { status: 404 })
+      }
+      if (purchase.tenantId !== access.tenantId) {
+        return NextResponse.json({ error: 'Not authorized' }, { status: 403 })
+      }
+
+      await db.$transaction(async (tx) => {
+        // Reverse inventory
         try {
           const items = JSON.parse(purchase.items || '[]')
           for (const item of items) {
             if (!item.name || !item.qty || item.qty <= 0) continue
             const tid2 = tid || purchase.tenantId
-            const allItems = await db.inventoryItem.findMany({ where: { tenantId: tid2 } })
+            const allItems = await tx.inventoryItem.findMany({ where: { tenantId: tid2 } })
             const existingItem = allItems.find(i => i.name.toLowerCase() === item.name.toLowerCase())
             if (existingItem) {
               const newStock = Math.max(0, existingItem.currentStock - (item.qty || 0))
-              await db.inventoryItem.update({
+              await tx.inventoryItem.update({
                 where: { id: existingItem.id },
                 data: { currentStock: newStock, value: roundTo2(newStock * existingItem.purchasePrice) }
               })
@@ -555,11 +567,11 @@ export async function POST(req: NextRequest) {
           if (!isCash && purchase.paymentStatus !== 'PAID') {
             const due = roundTo2(purchase.totalAmount - (purchase.amountPaid || 0))
             if (due > 0) {
-              const creditor = await db.creditor.findFirst({
+              const creditor = await tx.creditor.findFirst({
                 where: { name: purchase.partyName, tenantId: tid || purchase.tenantId }
               })
               if (creditor) {
-                await db.creditor.update({
+                await tx.creditor.update({
                   where: { id: creditor.id },
                   data: { currentBalance: Math.max(0, roundTo2(creditor.currentBalance - due)) }
                 })
@@ -569,9 +581,44 @@ export async function POST(req: NextRequest) {
         } catch (payableError) {
           console.error('Payables reverse error (purchase delete):', payableError)
         }
-      }
 
-      await db.purchase.update({ where: { id }, data: { isDeleted: true, deletedAt: new Date() } })
+        // v6.27.5: CRITICAL FIX — reverse the original auto-posted Journal Entry.
+        // Previously this was missing, so soft-deleted purchases left orphaned
+        // Dr Purchases / Dr GST Input / Cr Creditors entries in the GL forever,
+        // causing Trial Balance to drift from P&L.
+        const originalJE = await tx.journalEntry.findFirst({
+          where: { sourceType: 'PURCHASE', sourceId: purchase.id, tenantId: access.tenantId },
+          include: { lines: true },
+        })
+        if (originalJE) {
+          await tx.journalEntry.create({
+            data: {
+              entryDate: new Date(),
+              reference: `REVERSAL-${originalJE.reference || purchase.id.slice(0, 8)}`,
+              description: `Reversal of purchase ${purchase.invoiceNumber} (deleted)`,
+              sourceType: 'MANUAL',
+              isPosted: true,
+              tenantId: access.tenantId,
+              createdBy: access.userId,
+              lines: {
+                create: originalJE.lines.map((l: any) => ({
+                  accountId: l.accountId,
+                  debit: l.credit,
+                  credit: l.debit,
+                  description: `Reversal: ${l.description || ''}`,
+                })),
+              },
+            },
+          })
+        }
+
+        // Soft-delete the purchase
+        await tx.purchase.update({
+          where: { id: purchase.id },
+          data: { isDeleted: true, deletedAt: new Date() },
+        })
+      })
+
       // v4.155: Auto Excel backup after purchase delete
       triggerAutoBackup(tenantId, 'purchase:delete')
       return NextResponse.json({ success: true })

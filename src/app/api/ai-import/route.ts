@@ -42,8 +42,20 @@ export async function POST(req: NextRequest) {
 // ============================================================
 async function handleFileUpload(req: NextRequest) {
   const formData = await req.formData()
-  const file = formData.get('file') as File
   const tenantId = formData.get('tenantId') as string
+  // v6.27.5: Check for non-upload actions FIRST. The frontend sends FormData
+  // with `action='apply'` or `action='export-excel'` (and NO file) to commit
+  // the analyzed import data to the database / generate an Excel download.
+  // Previously these were dead-lettered by the `if (!file)` guard below.
+  const action = (formData.get('action') as string) || null
+  if (action === 'apply') {
+    return await handleApplyImport(req, formData, tenantId)
+  }
+  if (action === 'export-excel') {
+    return await handleExportExcel(req, formData, tenantId)
+  }
+
+  const file = formData.get('file') as File
   // v6.19: User-selected category — guides AI analysis instead of pure auto-detect
   const userCategory = (formData.get('category') as string) || 'auto'
 
@@ -115,17 +127,67 @@ async function handleFileUpload(req: NextRequest) {
       dataType = 'text'
       console.log(`[AI-Import] Parsed text: ${buffer.length} bytes`)
     } else if (['pdf'].includes(ext)) {
-      // PDF — extract text (basic, no external dependency)
-      parsedData = { content: `[PDF file: ${file.name}, ${fileSize} bytes. PDF text extraction requires pdftoppm.]`, note: 'PDF parsing is limited. For best results, convert to Excel/CSV first.' }
-      dataType = 'pdf'
-      console.log(`[AI-Import] PDF file (limited parsing)`)
+      // v6.27.5: PDF — extract real text with pdf-parse (was a placeholder before)
+      try {
+        const pdfParseModule: any = await import('pdf-parse')
+        const pdfParse = pdfParseModule.default || pdfParseModule
+        const pdfData = await pdfParse(buffer)
+        parsedData = {
+          content: pdfData.text || '',
+          numpages: pdfData.numpages,
+          info: pdfData.info,
+        }
+        dataType = 'pdf'
+        console.log(`[AI-Import] Parsed PDF: ${pdfData.numpages} pages, ${pdfData.text?.length || 0} chars`)
+        // If text extraction yielded nothing (scanned PDF), fall through to image-vision path
+        // by treating the first page as an image. We mark dataType so the AI prompt builder
+        // can route to vision.
+        if (!pdfData.text || pdfData.text.trim().length < 20) {
+          console.warn('[AI-Import] PDF text extraction yielded empty content (likely scanned). Falling back to vision AI.')
+          // Convert first page to PNG via pdfjs-dist and feed to vision model.
+          // Note: page rendering requires a canvas implementation. In the Next.js
+          // server runtime we may not have node-canvas installed, so this is a
+          // best-effort fallback. If it fails, the AI will receive the empty
+          // content string and the user can convert to image manually.
+          try {
+            const pdfjs: any = await import('pdfjs-dist/legacy/build/pdf.mjs')
+            const loadingTask = pdfjs.getDocument({ data: new Uint8Array(buffer) })
+            const pdfDoc = await loadingTask.promise
+            const page = await pdfDoc.getPage(1)
+            const viewport = page.getViewport({ scale: 2 })
+            // Node-canvas fallback: render to a viewport and extract via canvas
+            // In Next.js server runtime, use the offscreen canvas if available
+            const Canvas = (global as any).canvas
+            if (Canvas) {
+              const ctx = Canvas.createCanvas(viewport.width, viewport.height)
+              const renderContext: any = { canvasContext: ctx, viewport }
+              await page.render(renderContext).promise
+              const pngBuffer = ctx.toBuffer('image/png')
+              parsedData = {
+                content: '[Scanned PDF — rendered page 1 as image for vision analysis]',
+                base64: `data:image/png;base64,${pngBuffer.toString('base64')}`,
+                fileName: file.name,
+              }
+            }
+          } catch (renderErr: any) {
+            console.warn('[AI-Import] PDF page-render fallback failed:', renderErr?.message)
+          }
+        }
+      } catch (pdfErr: any) {
+        console.error('[AI-Import] pdf-parse failed:', pdfErr)
+        // Last-resort fallback: send raw bytes info to AI
+        parsedData = { content: `[PDF file: ${file.name}, ${fileSize} bytes. Text extraction failed: ${pdfErr.message}]`, note: 'PDF text extraction failed. Try converting to Excel/CSV.' }
+        dataType = 'pdf'
+      }
     } else if (['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp'].includes(ext)) {
-      // Image file — convert to base64 for AI vision analysis
+      // v6.27.5: Image file — convert to base64 data URL for vision analysis.
+      // Pass the FULL data URL through to analyzeWithAI; multi-ai.ts now strips
+      // the prefix correctly per provider (see multi-ai.ts v6.27.5 fix).
       const base64 = buffer.toString('base64')
       const mimeType = `image/${ext === 'jpg' ? 'jpeg' : ext}`
-      parsedData = { base64: `data:${mimeType};base64,${base64}`, fileName: file.name }
+      parsedData = { base64: `data:${mimeType};base64,${base64}`, fileName: file.name, mimeType }
       dataType = 'image'
-      console.log(`[AI-Import] Image file: ${fileSize} bytes`)
+      console.log(`[AI-Import] Image file: ${fileSize} bytes, mime: ${mimeType}`)
     } else if (['xml'].includes(ext)) {
       // XML file (e.g., Tally export)
       const text = buffer.toString('utf-8')
@@ -133,10 +195,18 @@ async function handleFileUpload(req: NextRequest) {
       dataType = 'xml'
       console.log(`[AI-Import] XML file: ${text.length} chars`)
     } else if (['docx', 'doc'].includes(ext)) {
-      // Word document — basic text extraction
-      parsedData = { content: `[Word document: ${file.name}, ${fileSize} bytes]`, note: 'Word document parsing is limited.' }
-      dataType = 'doc'
-      console.log(`[AI-Import] Word document (limited parsing)`)
+      // v6.27.5: Word document — extract real text with mammoth (was a placeholder before)
+      try {
+        const mammoth = await import('mammoth')
+        const result = await mammoth.extractRawText({ arrayBuffer })
+        parsedData = { content: result.value || '', note: `Word document: ${file.name}` }
+        dataType = 'doc'
+        console.log(`[AI-Import] Parsed DOCX: ${result.value?.length || 0} chars`)
+      } catch (docErr: any) {
+        console.error('[AI-Import] mammoth failed:', docErr)
+        parsedData = { content: `[Word document: ${file.name}, ${fileSize} bytes. Extraction failed: ${docErr.message}]`, note: 'Word document parsing failed.' }
+        dataType = 'doc'
+      }
     } else {
       return NextResponse.json({
         error: `Unsupported file type: .${ext}. Supported: xlsx, xls, csv, tsv, json, txt, pdf, png, jpg, xml, docx`,
@@ -264,13 +334,31 @@ RULES:
 - Confidence is a number between 0 and 1 (e.g., 0.85 for 85% confident).
 - If you cannot determine the document type, use "unknown" and put data in the most likely module.
 - Do NOT wrap the JSON in markdown code fences. Return raw JSON only.`
-    } else if (dataType === 'image') {
-      // For images, use vision AI
+    } else if (dataType === 'image' || (dataType === 'pdf' && parsedData?.base64)) {
+      // v6.27.5: vision AI for images AND scanned PDFs that have been rendered to an image
       prompt = `Analyze this business document/image and extract:
 1. Document type (invoice, receipt, purchase order, etc.)
 2. Key fields (invoice number, date, party name, items, amounts, tax)
 3. Data quality and readability
 4. Import suggestions
+
+Return a JSON object with this exact schema:
+{
+  "detectedDocumentType": "invoice|receipt|purchase|expense|unknown",
+  "confidence": 0.85,
+  "summary": "brief description of what you see",
+  "importData": {
+    "sales": [{"invoiceNumber":"string","date":"YYYY-MM-DD","partyName":"string","partyAddress":"string|null","partyGst":"string|null","items":[{"name":"item","qty":1,"rate":100,"amount":100,"total":100}],"subtotal":100,"gstAmount":0,"totalAmount":100,"paymentStatus":"RECEIVED|PENDING|PARTIAL","paymentMode":"CASH|UPI|CARD|OTHERS|null"}],
+    "purchases": [{"invoiceNumber":"string","date":"YYYY-MM-DD","partyName":"string","items":[{"name":"item","qty":1,"rate":100,"amount":100}],"subtotal":100,"gstAmount":0,"totalAmount":100,"paymentStatus":"UNPAID|PAID|PARTIAL"}],
+    "expenses": [{"date":"YYYY-MM-DD","description":"string","amount":100,"category":"string","paymentMode":"CASH|UPI|CARD|BANK|OTHERS"}],
+    "products": [{"name":"item","hsnCode":"string|null","category":"string|null","unit":"PCS|KG|LTR","purchasePrice":0,"salePrice":0,"mrp":0,"currentStock":0,"gstRate":0}],
+    "parties": [{"name":"string","type":"CUSTOMER|SUPPLIER","address":"string|null","phone":"string|null","gstNumber":"string|null","currentBalance":0}],
+    "staff": [],
+    "bankTransactions": []
+  },
+  "warnings": ["list of any data quality issues found"],
+  "suggestions": ["list of import suggestions"]
+}
 
 File: ${file.name}
 ${categoryInstruction}`
@@ -344,11 +432,17 @@ Provide a structured analysis with:
     console.log(`[AI-Import] AI analysis complete. Provider: ${provider}`)
   } catch (aiError: any) {
     console.error('[AI-Import] AI analysis failed:', aiError)
-    // Return parsed data without AI analysis (fallback)
+    // v6.27.5: Return a properly-shaped fallback so the frontend doesn't crash on
+    // missing importData / non-numeric confidence. The user can still see the raw
+    // parsed data via _parsedData and re-trigger analysis if needed.
     analysis = {
       dataType,
-      confidence: 'low',
-      summary: `File parsed successfully (${dataType}). AI analysis failed: ${aiError.message}. You can still review the raw data below.`,
+      detectedDocumentType: 'unknown',
+      confidence: 0,
+      summary: `File parsed (${dataType}) but AI analysis failed: ${aiError.message}. You can review the raw data below and try again.`,
+      importData: { sales: [], purchases: [], expenses: [], products: [], parties: [], staff: [], bankTransactions: [] },
+      warnings: [`AI analysis failed: ${aiError.message}`],
+      suggestions: ['Try uploading a clearer file, or convert to Excel/CSV for better results.'],
       _aiError: aiError.message,
       _parsedData: true,
     }
@@ -438,5 +532,232 @@ async function handleSearchQuery(req: NextRequest) {
     return NextResponse.json({ success: true, provider, summary: result, results: results.slice(0, 10), total: results.length })
   } catch {
     return NextResponse.json({ success: true, provider: 'fallback', summary: `Found ${results.length} results for "${query}"`, results: results.slice(0, 10), total: results.length })
+  }
+}
+
+// ============================================================
+// v6.27.5: Apply Import Handler
+// ============================================================
+// Commits the AI-analyzed import data to the database. The frontend sends
+// FormData with action='apply', tenantId, and importData (a JSON string with
+// keys: sales, purchases, expenses, products, parties, staff, bankTransactions).
+// Each array contains records to be created in the respective tables.
+//
+// Returns { success, results, message } where results is a per-module
+// breakdown of { total, created, failed, errors[] }.
+// ============================================================
+async function handleApplyImport(req: NextRequest, formData: FormData, tenantId: string) {
+  if (!tenantId) {
+    return NextResponse.json({ error: 'No tenant ID provided' }, { status: 400 })
+  }
+  const auth = await requireAuthAndTenant(req, tenantId)
+  if (auth instanceof NextResponse) return auth
+
+  const importDataRaw = formData.get('importData') as string
+  if (!importDataRaw) {
+    return NextResponse.json({ error: 'No importData provided' }, { status: 400 })
+  }
+
+  let importData: any
+  try {
+    importData = JSON.parse(importDataRaw)
+  } catch {
+    return NextResponse.json({ error: 'importData is not valid JSON' }, { status: 400 })
+  }
+
+  const results: Record<string, { total: number; created: number; failed: number; errors: string[] }> = {}
+  const tid = auth.tenantId
+
+  // Helper to safely create records in bulk
+  const bulkCreate = async (
+    module: string,
+    model: any,
+    records: any[],
+    buildRow: (r: any) => any
+  ) => {
+    results[module] = { total: records.length, created: 0, failed: 0, errors: [] }
+    for (const rec of records) {
+      try {
+        const row = buildRow(rec)
+        await model.create({ data: { ...row, tenantId: tid } })
+        results[module].created++
+      } catch (err: any) {
+        results[module].failed++
+        results[module].errors.push(`${err.message || err}`)
+      }
+    }
+  }
+
+  try {
+    if (Array.isArray(importData.sales) && importData.sales.length > 0) {
+      await bulkCreate('sales', db.sale, importData.sales, (s: any) => ({
+        invoiceNumber: s.invoiceNumber || `IMP-${Date.now()}`,
+        date: s.date ? new Date(s.date) : new Date(),
+        partyName: s.partyName || 'Unknown',
+        partyAddress: s.partyAddress || null,
+        partyGst: s.partyGst || null,
+        items: JSON.stringify(s.items || []),
+        subtotal: Number(s.subtotal || 0),
+        gstAmount: Number(s.gstAmount || 0),
+        totalAmount: Number(s.totalAmount || 0),
+        amountReceived: Number(s.amountReceived || s.amountPaid || 0),
+        amountPaid: Number(s.amountPaid || s.amountReceived || 0),
+        paymentStatus: s.paymentStatus || 'PENDING',
+        paymentMode: s.paymentMode || null,
+        invoiceStatus: 'INVOICE',
+      }))
+    }
+
+    if (Array.isArray(importData.purchases) && importData.purchases.length > 0) {
+      await bulkCreate('purchases', db.purchase, importData.purchases, (p: any) => ({
+        invoiceNumber: p.invoiceNumber || `IMP-${Date.now()}`,
+        date: p.date ? new Date(p.date) : new Date(),
+        partyName: p.partyName || 'Unknown',
+        items: JSON.stringify(p.items || []),
+        subtotal: Number(p.subtotal || 0),
+        gstAmount: Number(p.gstAmount || 0),
+        totalAmount: Number(p.totalAmount || 0),
+        amountPaid: Number(p.amountPaid || 0),
+        paymentStatus: p.paymentStatus || 'UNPAID',
+      }))
+    }
+
+    if (Array.isArray(importData.expenses) && importData.expenses.length > 0) {
+      await bulkCreate('expenses', db.expense, importData.expenses, (e: any) => ({
+        date: e.date ? new Date(e.date) : new Date(),
+        description: e.description || 'Imported expense',
+        amount: Number(e.amount || 0),
+        category: e.category || 'General',
+        paymentMode: e.paymentMode || 'OTHERS',
+      }))
+    }
+
+    if (Array.isArray(importData.products) && importData.products.length > 0) {
+      await bulkCreate('products', db.inventoryItem, importData.products, (p: any) => ({
+        name: p.name || 'Unnamed Product',
+        hsnCode: p.hsnCode || null,
+        category: p.category || null,
+        unit: p.unit || 'PCS',
+        purchasePrice: Number(p.purchasePrice || 0),
+        salePrice: Number(p.salePrice || 0),
+        mrp: Number(p.mrp || 0),
+        currentStock: Number(p.currentStock || 0),
+        gstRate: Number(p.gstRate || 0),
+        value: Number(p.currentStock || 0) * Number(p.purchasePrice || 0),
+      }))
+    }
+
+    if (Array.isArray(importData.parties) && importData.parties.length > 0) {
+      await bulkCreate('parties', db.party, importData.parties, (p: any) => ({
+        name: p.name || 'Unnamed Party',
+        type: p.type || 'CUSTOMER',
+        address: p.address || null,
+        phone: p.phone || null,
+        gstNumber: p.gstNumber || null,
+        currentBalance: Number(p.currentBalance || 0),
+      }))
+    }
+
+    if (Array.isArray(importData.staff) && importData.staff.length > 0) {
+      await bulkCreate('staff', db.staff, importData.staff, (s: any) => ({
+        name: s.name || 'Unnamed Staff',
+        role: s.role || 'Staff',
+        salary: Number(s.salary || 0),
+        phone: s.phone || null,
+      }))
+    }
+
+    if (Array.isArray(importData.bankTransactions) && importData.bankTransactions.length > 0) {
+      await bulkCreate('bankTransactions', db.bankTransaction, importData.bankTransactions, (b: any) => ({
+        date: b.date ? new Date(b.date) : new Date(),
+        description: b.description || 'Imported transaction',
+        deposit: Number(b.deposit || 0),
+        withdrawal: Number(b.withdrawal || 0),
+        balance: Number(b.balance || 0),
+        category: b.category || null,
+        bankName: b.bankName || null,
+      }))
+    }
+
+    const totalCreated = Object.values(results).reduce((sum, r) => sum + r.created, 0)
+    const totalFailed = Object.values(results).reduce((sum, r) => sum + r.failed, 0)
+    const message = totalFailed === 0
+      ? `Successfully imported ${totalCreated} record(s).`
+      : `Imported ${totalCreated} record(s) with ${totalFailed} failure(s).`
+
+    return NextResponse.json({ success: true, results, message })
+  } catch (err: any) {
+    console.error('[AI-Import] apply failed:', err)
+    return NextResponse.json({ error: `Import failed: ${err.message}`, results }, { status: 500 })
+  }
+}
+
+// ============================================================
+// v6.27.5: Export to Excel Handler
+// ============================================================
+// Generates an .xlsx file from the AI-analyzed import data and returns it
+// as a downloadable blob. The frontend sends FormData with action='export-excel',
+// tenantId, and importData (a JSON string).
+// ============================================================
+async function handleExportExcel(req: NextRequest, formData: FormData, tenantId: string) {
+  if (!tenantId) {
+    return NextResponse.json({ error: 'No tenant ID provided' }, { status: 400 })
+  }
+  const auth = await requireAuthAndTenant(req, tenantId)
+  if (auth instanceof NextResponse) return auth
+
+  const importDataRaw = formData.get('importData') as string
+  if (!importDataRaw) {
+    return NextResponse.json({ error: 'No importData provided' }, { status: 400 })
+  }
+
+  let importData: any
+  try {
+    importData = JSON.parse(importDataRaw)
+  } catch {
+    return NextResponse.json({ error: 'importData is not valid JSON' }, { status: 400 })
+  }
+
+  try {
+    const XLSX = await import('xlsx')
+    const workbook = XLSX.utils.book_new()
+
+    const moduleSheets: Record<string, string> = {
+      sales: 'Sales',
+      purchases: 'Purchases',
+      expenses: 'Expenses',
+      products: 'Products',
+      parties: 'Parties',
+      staff: 'Staff',
+      bankTransactions: 'Bank Transactions',
+    }
+
+    for (const [key, sheetName] of Object.entries(moduleSheets)) {
+      const rows = Array.isArray(importData[key]) ? importData[key] : []
+      if (rows.length === 0) continue
+      const worksheet = XLSX.utils.json_to_sheet(rows)
+      XLSX.utils.book_append_sheet(workbook, worksheet, sheetName)
+    }
+
+    // If no sheets were added, add an empty "No Data" sheet
+    if (workbook.SheetNames.length === 0) {
+      const ws = XLSX.utils.aoa_to_sheet([['No data to export']])
+      XLSX.utils.book_append_sheet(workbook, ws, 'No Data')
+    }
+
+    const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' })
+    const filename = `BizBook_AI_Import_${new Date().toISOString().slice(0, 10)}.xlsx`
+
+    return new NextResponse(buffer as any, {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'Content-Disposition': `attachment; filename="${filename}"`,
+        'Cache-Control': 'no-store',
+      },
+    })
+  } catch (err: any) {
+    console.error('[AI-Import] export-excel failed:', err)
+    return NextResponse.json({ error: `Excel export failed: ${err.message}` }, { status: 500 })
   }
 }

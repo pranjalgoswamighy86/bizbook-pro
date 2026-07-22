@@ -47,7 +47,11 @@ export async function POST(req: NextRequest) {
         db.salaryPayment.aggregate({ where: salaryDateFilter, _sum: { amount: true }, _count: true }),
       ])
 
-      const totalRevenue = salesAgg._sum.totalAmount || 0
+      // v6.27.5: CRITICAL FIX — use subtotal (excl GST) for revenue, not totalAmount.
+      // Previously revenue included GST collected, which overstated gross profit
+      // by the entire GST liability. GST is a liability (payable to government),
+      // not revenue. COGS was already correctly using subtotal.
+      const totalRevenue = salesAgg._sum.subtotal || 0
       const totalCostOfGoods = purchasesAgg._sum.subtotal || 0
       const totalGstPaid = purchasesAgg._sum.gstAmount || 0
       const totalGstCollected = salesAgg._sum.gstAmount || 0
@@ -94,6 +98,12 @@ export async function POST(req: NextRequest) {
     }
 
     if (action === 'day-report') {
+      // v6.27.5: SECURITY FIX — add authentication. Previously this action
+      // had no auth check, allowing unauthenticated access to full daily
+      // transaction lists (sales, purchases, expenses, receipts, payments).
+      const access = await requireAuthAndTenant(req, tenantId)
+      if (access instanceof NextResponse) return access
+
       const { date } = body
       const start = new Date(date)
       const end = new Date(start.getTime() + 86400000)
@@ -133,6 +143,12 @@ export async function POST(req: NextRequest) {
     }
 
     if (action === 'balance-sheet') {
+      // v6.27.5: SECURITY FIX — add authentication. Previously this action
+      // had no auth check, allowing unauthenticated disclosure of the full
+      // financial position (assets, liabilities, equity) of any tenant.
+      const access = await requireAuthAndTenant(req, tenantId)
+      if (access instanceof NextResponse) return access
+
       const [inventory, debtors, creditors, bankBalance, allSales, allPurchases, allExpenses] = await Promise.all([
         db.inventoryItem.findMany({ where: { tenantId, isDeleted: false } }),
         db.debtor.findMany({ where: { tenantId, isDeleted: false } }),
@@ -180,9 +196,9 @@ export async function POST(req: NextRequest) {
 
       // v4.59: Use aggregate for dashboard totals (DB-side computation)
       // Was: findMany → load all records → reduce in JS — much slower
-      const [salesAgg, purchaseAgg, expenseAgg, invAgg, debtorAgg, creditorAgg, bankTxns, receiptsAgg, paymentsAgg, lowStockCount] = await Promise.all([
-        db.sale.aggregate({ where: dateFilter, _sum: { totalAmount: true, amountPaid: true }, _count: true }),
-        db.purchase.aggregate({ where: dateFilter, _sum: { totalAmount: true, amountPaid: true }, _count: true }),
+      const [salesAgg, purchaseAgg, expenseAgg, invAgg, debtorAgg, creditorAgg, bankTxns, receiptsAgg, paymentsAgg, lowStockCount, salaryAgg] = await Promise.all([
+        db.sale.aggregate({ where: dateFilter, _sum: { totalAmount: true, amountPaid: true, subtotal: true, gstAmount: true }, _count: true }),
+        db.purchase.aggregate({ where: dateFilter, _sum: { totalAmount: true, amountPaid: true, subtotal: true }, _count: true }),
         db.expense.aggregate({ where: dateFilter, _sum: { amount: true }, _count: true }),
         db.inventoryItem.aggregate({ where: { tenantId, isDeleted: false }, _sum: { value: true }, _count: true }),
         db.debtor.aggregate({ where: { tenantId, isDeleted: false }, _sum: { currentBalance: true } }),
@@ -192,19 +208,31 @@ export async function POST(req: NextRequest) {
         db.receipt.aggregate({ where: dateFilter, _sum: { amount: true }, _count: true }),
         db.payment.aggregate({ where: dateFilter, _sum: { amount: true }, _count: true }),
         db.inventoryItem.count({ where: { tenantId, isDeleted: false, currentStock: { lte: 0 } } }),
+        // v6.27.5: Include salary payments in the dashboard net-profit calculation.
+        // Use the dashboard's date filter on paidDate so salaries respect the
+        // selected date range (was missing — caused dashboard net profit to
+        // differ from P&L by the entire salary expense).
+        db.salaryPayment.aggregate({
+          where: { tenantId, isDeleted: false, paidDate: startDate && endDate ? { gte: new Date(startDate), lt: new Date(endDate) } : undefined },
+          _sum: { amount: true },
+        }),
       ])
 
       const totalSales = salesAgg._sum.totalAmount || 0
       const totalPurchases = purchaseAgg._sum.totalAmount || 0
       const totalExpenses = expenseAgg._sum.amount || 0
+      // v6.27.5: guard against _sum being null when there are no salary payments
+      const totalSalaries = (salaryAgg._sum && 'amount' in salaryAgg._sum ? (salaryAgg._sum as any).amount : 0) || 0
       const totalInventoryValue = invAgg._sum.value || 0
-      const debtorBalances = debtorAgg._sum.currentBalance || 0
-      const unpaidSales = (salesAgg._sum.totalAmount || 0) - (salesAgg._sum.amountPaid || 0)
-      const totalReceivable = debtorBalances + unpaidSales
 
-      const creditorBalances = creditorAgg._sum.currentBalance || 0
-      const unpaidPurchases = (purchaseAgg._sum.totalAmount || 0) - (purchaseAgg._sum.amountPaid || 0)
-      const totalPayable = creditorBalances + unpaidPurchases
+      // v6.27.5: CRITICAL FIX — remove double-counting of receivables/payables.
+      // Previously the dashboard summed `Debtor.currentBalance` AND
+      // `Sale.totalAmount - Sale.amountPaid`. But the Sale CREATE flow already
+      // writes the unpaid amount into `Debtor.currentBalance` (sales/route.ts:242-277),
+      // so the same ₹X was counted twice. Same for purchases → creditors.
+      // Now we use ONLY the Debtor/Creditor balances, which are the canonical AP/AR.
+      const totalReceivable = debtorAgg._sum.currentBalance || 0
+      const totalPayable = creditorAgg._sum.currentBalance || 0
       const totalReceipts = receiptsAgg._sum.amount || 0
       const totalPayments = paymentsAgg._sum.amount || 0
 
@@ -234,12 +262,19 @@ export async function POST(req: NextRequest) {
         totalSales,
         totalPurchases,
         totalExpenses,
+        totalSalaries,
         totalInventoryValue,
         totalReceivable,
         totalPayable,
         totalReceipts,
         totalPayments,
-        netProfit: totalSales - totalPurchases - totalExpenses,
+        // v6.27.5: CRITICAL FIX — align dashboard net profit with P&L.
+        // Previously: totalSales (incl GST) - totalPurchases (incl GST) - totalExpenses.
+        // This double-counted GST (GST collected counted as revenue, GST paid counted as expense)
+        // and omitted salaries entirely. Now uses:
+        //   revenue (excl GST) - COGS (excl GST) - operating expenses - salaries
+        // which matches the P&L calculation at reports/route.ts:50-57.
+        netProfit: (salesAgg._sum.subtotal || 0) - (purchaseAgg._sum.subtotal || 0) - totalExpenses - totalSalaries,
         lowStockCount,
         inventoryCount: invAgg._count || 0,
         recentBankTxns: bankTxns,

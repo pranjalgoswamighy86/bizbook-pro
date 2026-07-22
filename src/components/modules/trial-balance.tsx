@@ -11,9 +11,11 @@ import { Loader2, Download } from 'lucide-react'
 import { authFetch } from '@/lib/auth-fetch'
 
 interface AccountBalance {
-  accountCode: string
-  accountName: string
-  accountType: string
+  // v6.27.5: field names now match the /api/ledger trial-balance response
+  // (backend returns `code`, `name`, `type` — NOT `accountCode`, `accountName`, `accountType`).
+  code: string
+  name: string
+  type: string
   debit: number
   credit: number
 }
@@ -30,21 +32,25 @@ export function TrialBalance() {
     setLoading(true)
     try {
       const range = getDateFilterRange(dateFilter)
-      const res = await authFetch('/api/journal-entries', {
+      // v6.27.5: CRITICAL FIX — call /api/ledger (which has the trial-balance
+      // action), NOT /api/journal-entries (which doesn't handle this action
+      // and returns 400 "Invalid action"). Also send `asOfDate` (not start/end)
+      // and read the correct response fields (`lines`, `totals.debit`,
+      // `totals.credit`, `totals.isBalanced`).
+      const res = await authFetch('/api/ledger', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: 'trial-balance',
           tenantId: tenant.id,
-          startDate: range.start.toISOString(),
-          endDate: range.end.toISOString(),
+          asOfDate: range.end.toISOString(),
         }),
       })
       if (res.ok) {
         const data = await res.json()
-        setAccounts(data.accounts || [])
-        setTotalDebit(data.totalDebit || 0)
-        setTotalCredit(data.totalCredit || 0)
+        setAccounts(data.lines || [])
+        setTotalDebit(data.totals?.debit || 0)
+        setTotalCredit(data.totals?.credit || 0)
       }
     } catch (err) {
       console.error('Trial balance error:', err)
@@ -56,9 +62,9 @@ export function TrialBalance() {
   useEffect(() => { fetchTrialBalance() }, [fetchTrialBalance])
 
   const exportData = accounts.map(a => ({
-    'Account Code': a.accountCode,
-    'Account Name': a.accountName,
-    'Type': a.accountType,
+    'Account Code': a.code,
+    'Account Name': a.name,
+    'Type': a.type,
     'Debit': a.debit || '',
     'Credit': a.credit || '',
   }))
@@ -87,10 +93,10 @@ export function TrialBalance() {
                   </TableHeader>
                   <TableBody>
                     {accounts.map((acc) => (
-                      <TableRow key={acc.accountCode} className="hover:bg-muted/30 h-12">
-                        <TableCell className="text-sm px-4 py-3 font-mono">{acc.accountCode}</TableCell>
-                        <TableCell className="text-sm px-4 py-3 font-medium">{acc.accountName}</TableCell>
-                        <TableCell className="text-sm px-4 py-3 text-muted-foreground">{acc.accountType}</TableCell>
+                      <TableRow key={acc.code} className="hover:bg-muted/30 h-12">
+                        <TableCell className="text-sm px-4 py-3 font-mono">{acc.code}</TableCell>
+                        <TableCell className="text-sm px-4 py-3 font-medium">{acc.name}</TableCell>
+                        <TableCell className="text-sm px-4 py-3 text-muted-foreground">{acc.type}</TableCell>
                         <TableCell className="text-right text-sm px-4 py-3 font-semibold">
                           {acc.debit > 0 ? formatCurrency(acc.debit, tenant?.currency) : ''}
                         </TableCell>
@@ -112,7 +118,7 @@ export function TrialBalance() {
                     {/* Balance check */}
                     <TableRow className={Math.abs(totalDebit - totalCredit) < 0.01 ? 'bg-emerald-50 dark:bg-emerald-950/20' : 'bg-rose-50 dark:bg-rose-950/20'}>
                       <TableCell colSpan={3} className="text-sm px-4 py-3 text-right font-semibold">
-                        {Math.abs(totalDebit - totalCredit) < 0.01 ? '✅ BALANCED' : '⚠️ NOT BALANCED'}:
+                        {Math.abs(totalDebit - totalCredit) < 0.01 ? 'BALANCED' : 'NOT BALANCED'}:
                       </TableCell>
                       <TableCell colSpan={2} className="text-sm px-4 py-3 text-center font-bold">
                         Difference: {formatCurrency(Math.abs(totalDebit - totalCredit), tenant?.currency)}

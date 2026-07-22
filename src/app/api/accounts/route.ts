@@ -61,10 +61,19 @@ export async function POST(req: NextRequest) {
       const { id, data } = body
       if (!id) return NextResponse.json({ error: 'Account ID required' }, { status: 400 })
 
+      // v6.27.5: SECURITY FIX — verify the account belongs to this tenant
+      // BEFORE updating. Previously the update used only `id` in the where
+      // clause, allowing a user authenticated for tenant A to update any
+      // account in tenant B by knowing the account ID.
+      const existingAccount = await db.account.findFirst({ where: { id, tenantId: access.tenantId } })
+      if (!existingAccount) {
+        return NextResponse.json({ error: 'Account not found' }, { status: 404 })
+      }
+
       // If changing accountCode, check for duplicate
       if (data.accountCode) {
         const existing = await db.account.findFirst({
-          where: { accountCode: data.accountCode, tenantId, NOT: { id } }
+          where: { accountCode: data.accountCode, tenantId: access.tenantId, NOT: { id } }
         })
         if (existing) {
           return NextResponse.json({ error: `Account code ${data.accountCode} already exists` }, { status: 409 })
@@ -93,6 +102,14 @@ export async function POST(req: NextRequest) {
 
       const { id } = body
       if (!id) return NextResponse.json({ error: 'Account ID required' }, { status: 400 })
+
+      // v6.27.5: SECURITY FIX — verify the account belongs to this tenant
+      // BEFORE deleting. Previously the delete used only `id` in the where
+      // clause, allowing cross-tenant deletion.
+      const existingAccount = await db.account.findFirst({ where: { id, tenantId: access.tenantId } })
+      if (!existingAccount) {
+        return NextResponse.json({ error: 'Account not found' }, { status: 404 })
+      }
 
       // Check if account has any journal entry lines
       const lineCount = await db.journalEntryLine.count({ where: { accountId: id } })
@@ -133,8 +150,14 @@ export async function POST(req: NextRequest) {
     }
 
     if (action === 'seed-defaults') {
+      // v6.27.5: SECURITY FIX — add auth + role check. Previously this action
+      // only checked if the tenant existed, allowing any user (or unauthenticated
+      // caller) to seed accounts for any tenant.
+      const access = await requireAuthAndRole(req, tenantId, ['MAIN_ADMIN', 'JUNIOR_ADMIN'])
+      if (access instanceof NextResponse) return access
+
       // Seed a standard Indian Chart of Accounts for a new tenant
-      const existingCount = await db.account.count({ where: { tenantId } })
+      const existingCount = await db.account.count({ where: { tenantId: access.tenantId } })
       if (existingCount > 0) {
         return NextResponse.json({ error: 'Chart of accounts already exists for this business', count: existingCount }, { status: 400 })
       }
@@ -148,10 +171,22 @@ export async function POST(req: NextRequest) {
         { accountCode: '10400', name: 'Inventory', type: 'Asset', description: 'Stock in hand' },
         { accountCode: '10500', name: 'Prepaid Expenses', type: 'Asset', description: 'Advance payments' },
         { accountCode: '10600', name: 'Fixed Assets', type: 'Asset', description: 'Property, plant, equipment' },
+        // v6.27.5: Add GST Input Credit sub-accounts (used by purchase auto-posting
+        // when GSTINs are available — purchases/route.ts:244-246). Previously these
+        // were created on-the-fly and invisible in the CoA UI.
+        { accountCode: '10601', name: 'CGST Input Credit', type: 'Asset', description: 'Central GST paid on purchases (recoverable)' },
+        { accountCode: '10602', name: 'SGST Input Credit', type: 'Asset', description: 'State GST paid on purchases (recoverable)' },
+        { accountCode: '10603', name: 'IGST Input Credit', type: 'Asset', description: 'Integrated GST paid on purchases (recoverable)' },
         // Liabilities
         { accountCode: '20000', name: 'Liabilities', type: 'Liability', description: 'All liabilities' },
         { accountCode: '20100', name: 'Accounts Payable', type: 'Liability', description: 'Money owed to suppliers' },
-        { accountCode: '20200', name: 'GST Payable', type: 'Liability', description: 'GST collected but not yet remitted' },
+        { accountCode: '20200', name: 'GST Payable', type: 'Liability', description: 'GST collected but not yet remitted (fallback)' },
+        // v6.27.5: Add GST Payable sub-accounts (used by sale auto-posting
+        // when GSTINs are available — sales/route.ts:307-309). Previously these
+        // were created on-the-fly and invisible in the CoA UI.
+        { accountCode: '20201', name: 'CGST Payable', type: 'Liability', description: 'Central GST collected on sales' },
+        { accountCode: '20202', name: 'SGST Payable', type: 'Liability', description: 'State GST collected on sales' },
+        { accountCode: '20203', name: 'IGST Payable', type: 'Liability', description: 'Integrated GST collected on sales' },
         { accountCode: '20300', name: 'TDS Payable', type: 'Liability', description: 'Tax deducted at source' },
         { accountCode: '20400', name: 'Loans', type: 'Liability', description: 'Outstanding loans' },
         { accountCode: '20500', name: 'Accrued Expenses', type: 'Liability', description: 'Expenses incurred but not yet paid' },
@@ -171,7 +206,13 @@ export async function POST(req: NextRequest) {
         { accountCode: '50300', name: 'Rent Expense', type: 'Expense', description: 'Office/warehouse rent' },
         { accountCode: '50400', name: 'Salary Expense', type: 'Expense', description: 'Employee salaries' },
         { accountCode: '50500', name: 'Utility Expenses', type: 'Expense', description: 'Electricity, water, internet' },
-        { accountCode: '50600', name: 'GST Input Credit', type: 'Expense', description: 'GST paid on purchases (recoverable)' },
+        // v6.27.5: CRITICAL FIX — 50600 GST Input Credit is now an Asset (not Expense).
+        // GST Input is a current asset (receivable from the government), never an
+        // expense. The old `type: 'Expense'` caused GST paid on purchases to be
+        // booked as an expense, overstating P&L expenses and understating BS assets.
+        // NOTE: This account is only used as a FALLBACK when purchase items don't
+        // have GSTIN breakdown. The split accounts 10601/10602/10603 are preferred.
+        { accountCode: '50600', name: 'GST Input Credit (Fallback)', type: 'Asset', description: 'GST paid on purchases (recoverable) — fallback when no HSN split' },
         { accountCode: '50700', name: 'Office Supplies', type: 'Expense', description: 'Stationery, consumables' },
         { accountCode: '50800', name: 'Travel Expense', type: 'Expense', description: 'Business travel' },
         { accountCode: '50900', name: 'Depreciation', type: 'Expense', description: 'Asset depreciation' },
@@ -180,7 +221,7 @@ export async function POST(req: NextRequest) {
       ]
 
       const accounts = await db.account.createMany({
-        data: defaultAccounts.map(a => ({ ...a, tenantId })),
+        data: defaultAccounts.map(a => ({ ...a, tenantId: access.tenantId })),
       })
 
       return NextResponse.json({ created: accounts.count, message: 'Default Chart of Accounts seeded' })

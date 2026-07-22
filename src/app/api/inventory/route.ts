@@ -131,15 +131,53 @@ export async function POST(req: NextRequest) {
     }
 
     if (action === 'adjust-stock') {
+      // v6.27.5: CRITICAL SECURITY FIX — add auth + tenant check + negative-stock guard.
+      // Previously this action had NO authentication, NO tenant verification, and
+      // allowed stock to go negative — contradicting the v4.9 anti-negative-stock
+      // rule enforced in the sale flow.
+      const access = await requireAuthAndTenant(req, tenantId)
+      if (access instanceof NextResponse) return access
+
       const { id, quantity, type } = body // type: 'in' or 'out'
-      const item = await db.inventoryItem.findUnique({ where: { id } })
+      if (!id || !quantity || !type) {
+        return NextResponse.json({ error: 'id, quantity, and type (in/out) are required' }, { status: 400 })
+      }
+      if (type !== 'in' && type !== 'out') {
+        return NextResponse.json({ error: "type must be 'in' or 'out'" }, { status: 400 })
+      }
+      if (quantity <= 0) {
+        return NextResponse.json({ error: 'quantity must be positive' }, { status: 400 })
+      }
+
+      // Verify the item belongs to this tenant
+      const item = await db.inventoryItem.findFirst({ where: { id, tenantId: access.tenantId } })
       if (!item) return NextResponse.json({ error: 'Item not found' }, { status: 404 })
 
       const newStock = type === 'in' ? item.currentStock + quantity : item.currentStock - quantity
+      // v6.27.5: Negative-stock guard — prevents corruption from manual adjustments
+      if (newStock < 0) {
+        return NextResponse.json({
+          error: `Insufficient stock. Current: ${item.currentStock}, attempted to remove: ${quantity}.`,
+        }, { status: 400 })
+      }
+
       const updated = await db.inventoryItem.update({
         where: { id },
         data: { currentStock: newStock, value: newStock * item.purchasePrice },
       })
+
+      // Audit log
+      await writeAuditLog({
+        tenantId: access.tenantId,
+        userId: access.userId,
+        userName: access.user.name,
+        action: 'UPDATE',
+        entityType: 'InventoryItem',
+        entityId: id,
+        entityName: item.name,
+        changes: { action: 'adjust-stock', type, quantity, oldStock: item.currentStock, newStock },
+      }).catch(() => {})
+
       return NextResponse.json({ item: updated })
     }
 

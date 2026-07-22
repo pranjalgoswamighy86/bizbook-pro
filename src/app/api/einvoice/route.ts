@@ -218,6 +218,12 @@ export async function POST(req: NextRequest) {
     }
 
     if (action === 'update-status') {
+      // v6.27.5: SECURITY FIX — add authentication. Previously this action
+      // had no auth check, allowing anyone to overwrite the IRN/AckNo/Status
+      // on any sale in any tenant.
+      const access = await requireAuthAndTenant(req, tenantId)
+      if (access instanceof NextResponse) return access
+
       // Update e-invoice status after IRP response
       const { saleId, irn, ackNo, ackDate, qrCodeText, status } = body
       if (!saleId) {
@@ -225,7 +231,7 @@ export async function POST(req: NextRequest) {
       }
 
       const sale = await db.sale.findUnique({ where: { id: saleId } })
-      if (!sale || sale.tenantId !== tenantId) {
+      if (!sale || sale.tenantId !== access.tenantId) {
         return NextResponse.json({ error: 'Sale not found' }, { status: 404 })
       }
 
@@ -418,11 +424,15 @@ export async function POST(req: NextRequest) {
     }
 
     if (action === 'update-purchase-status') {
+      // v6.27.5: SECURITY FIX — add authentication (was missing).
+      const access = await requireAuthAndTenant(req, tenantId)
+      if (access instanceof NextResponse) return access
+
       const { purchaseId, irn, ackNo, ackDate, qrCodeText, status } = body
       if (!purchaseId) return NextResponse.json({ error: 'Purchase ID required' }, { status: 400 })
 
       const purchase = await db.purchase.findUnique({ where: { id: purchaseId } })
-      if (!purchase || purchase.tenantId !== tenantId) return NextResponse.json({ error: 'Purchase not found' }, { status: 404 })
+      if (!purchase || purchase.tenantId !== access.tenantId) return NextResponse.json({ error: 'Purchase not found' }, { status: 404 })
 
       const updateData: Record<string, unknown> = { einvoiceStatus: status || 'GENERATED' }
       if (irn) updateData.einvoiceIrn = irn
