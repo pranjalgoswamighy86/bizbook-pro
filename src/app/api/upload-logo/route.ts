@@ -1,11 +1,44 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthAndRole, writeAuditLog } from '@/lib/api-helpers'
 import { db } from '@/lib/db-soft-delete'
-import fs from 'fs'
-import path from 'path'
-import { execSync } from 'child_process'
 
-// POST /api/upload-logo — uploads a company logo, compresses to ~25KB, saves to tenant
+// =====================================================================
+// POST /api/upload-logo — uploads a company logo, compresses to ~25KB,
+// stores as a base64 DATA URI directly in the tenant.logoUrl column.
+// =====================================================================
+// v6.27.4: CRITICAL ARCHITECTURE FIX
+// ----------------------------------
+// Previously this route wrote the compressed image to /public/logos/
+// on disk and stored a RELATIVE path (/logos/tenant-xxx.jpg) in the DB.
+// That approach had TWO fatal flaws on Railway (and any containerized
+// platform):
+//
+//   1. EPHEMERAL FILESYSTEM — Railway containers lose any files written
+//      outside a persistent volume on every redeploy. Uploaded logos
+//      vanished whenever the app re-deployed.
+//
+//   2. STANDALONE BUILD MISMATCH — Next.js standalone build (used by
+//      this app) serves static files from .next/standalone/public/,
+//      which is populated at BUILD time by postbuild.js. Runtime
+//      writes to /app/public/logos/ are NOT served by the standalone
+//      server, so the URL returned a 404.
+//
+// Both flaws caused the invoice print engine to receive a logo URL
+// that 404'd, and the broken <img> tag rendered as the alt text
+// "Logo" — exactly what the user reported.
+//
+// FIX: compress the image with sharp, then store the compressed
+// bytes as a `data:image/jpeg;base64,...` URI directly in the
+// tenant.logoUrl column. This:
+//   - Survives container restarts (data lives in PostgreSQL)
+//   - Works in any rendering context (popup, iframe, PDF generator)
+//     because data: URIs are self-contained
+//   - Requires no filesystem dependency
+//
+// The ~25KB compressed JPEG becomes a ~33KB base64 string, which is
+// well within PostgreSQL's text capacity.
+// =====================================================================
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
@@ -24,7 +57,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Invalid image format. Must be a valid image data URL.' }, { status: 400 })
     }
 
-    const ext = matches[1] === 'jpeg' ? 'jpg' : matches[1]
     const base64Data = logoBase64.replace(/^data:image\/\w+;base64,/, '')
     const buffer = Buffer.from(base64Data, 'base64')
 
@@ -33,32 +65,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Logo file too large. Maximum 2MB before compression.' }, { status: 400 })
     }
 
-    // Save to /public/logos/ directory
-    const logosDir = path.join(process.cwd(), 'public', 'logos')
-    if (!fs.existsSync(logosDir)) {
-      fs.mkdirSync(logosDir, { recursive: true })
-    }
-
-    // Save original first
-    const origFilename = `tenant-${tenantId}-orig.${ext}`
-    const origFilepath = path.join(logosDir, origFilename)
-    fs.writeFileSync(origFilepath, buffer)
-
-    // Compress to ~25KB using sharp (if available) or ImageMagick
-    const finalFilename = `tenant-${tenantId}.${ext}`
-    const finalFilepath = path.join(logosDir, finalFilename)
+    // Compress to ~25KB using sharp
+    let quality = 80
+    let width = 400
+    let compressedBuffer = buffer
 
     try {
-      // Try sharp first — it's installed in the project
       const sharp = require('sharp')
-      
-      // Start with reasonable dimensions and quality, then reduce until under 25KB
-      let quality = 80
-      let width = 400
-      let compressedBuffer = buffer
-
       for (let attempt = 0; attempt < 10; attempt++) {
-        compressedBuffer = await sharp(origFilepath)
+        compressedBuffer = await sharp(buffer)
           .resize(width, null, { withoutEnlargement: true })
           .jpeg({ quality, mozjpeg: true })
           .toBuffer()
@@ -75,54 +90,34 @@ export async function POST(req: NextRequest) {
           break // Can't compress further
         }
       }
-
-      // Save as .jpg for better compression
-      const jpgFilename = `tenant-${tenantId}.jpg`
-      const jpgFilepath = path.join(logosDir, jpgFilename)
-      fs.writeFileSync(jpgFilepath, compressedBuffer)
-
-      // Remove original
-      try { fs.unlinkSync(origFilepath) } catch {}
-
-      // Remove old format file if exists
-      try { fs.unlinkSync(finalFilepath) } catch {}
-
-      const logoUrl = `/logos/${jpgFilename}`
-      const finalSizeKB = (compressedBuffer.length / 1024).toFixed(1)
-
-      // Update tenant record
-      await db.tenant.update({
-        where: { id: tenantId },
-        data: { logoUrl },
-      })
-
-      await writeAuditLog({
-        tenantId: access.tenantId,
-        userId: access.userId,
-        userName: access.user.name,
-        action: 'UPDATE',
-        entityType: 'Tenant',
-        entityId: tenantId,
-        entityName: 'Logo Upload',
-        changes: { logoUrl, sizeKB: finalSizeKB },
-      })
-
-      return NextResponse.json({ success: true, logoUrl, sizeKB: finalSizeKB })
     } catch (sharpError: any) {
-      // Fallback: just save the original (no compression)
-      console.warn('Sharp compression failed, saving original:', sharpError?.message)
-      
-      fs.renameSync(origFilepath, finalFilepath)
-      const logoUrl = `/logos/${finalFilename}`
-      const finalSizeKB = (buffer.length / 1024).toFixed(1)
-
-      await db.tenant.update({
-        where: { id: tenantId },
-        data: { logoUrl },
-      })
-
-      return NextResponse.json({ success: true, logoUrl, sizeKB: finalSizeKB })
+      // Sharp unavailable — use original buffer (still works, just larger)
+      console.warn('Sharp compression failed, using original image:', sharpError?.message)
+      compressedBuffer = buffer
     }
+
+    // v6.27.4: Store as base64 DATA URI directly in the database.
+    // This survives container restarts and works in any rendering context.
+    const finalSizeKB = (compressedBuffer.length / 1024).toFixed(1)
+    const logoUrl = `data:image/jpeg;base64,${compressedBuffer.toString('base64')}`
+
+    await db.tenant.update({
+      where: { id: tenantId },
+      data: { logoUrl },
+    })
+
+    await writeAuditLog({
+      tenantId: access.tenantId,
+      userId: access.userId,
+      userName: access.user.name,
+      action: 'UPDATE',
+      entityType: 'Tenant',
+      entityId: tenantId,
+      entityName: 'Logo Upload',
+      changes: { logoUrl: '[base64 data URI]', sizeKB: finalSizeKB },
+    })
+
+    return NextResponse.json({ success: true, logoUrl, sizeKB: finalSizeKB })
   } catch (error: any) {
     console.error('Logo upload error:', error)
     return NextResponse.json({ error: 'Failed to upload logo' }, { status: 500 })

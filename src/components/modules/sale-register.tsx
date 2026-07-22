@@ -622,20 +622,40 @@ export function SaleRegister() {
     // `generateInvoiceHtml` always fell back to 'classic' (black & white),
     // ignoring any Modern / Minimal / Corporate / Elegant selection.
     //
-    // v6.27.3: CRITICAL FIX — convert logoUrl to an ABSOLUTE URL before
-    // passing it in. Logos are saved as relative paths like `/logos/tenant-xxx.jpg`.
-    // The print HTML is written into a popup window whose `document.location`
-    // is `about:blank`, so a relative URL resolves against `about:blank` and
-    // the image fails to load (showing the alt text "Logo" as a broken image).
-    // Same applies to the hidden-iframe fallback. Building an absolute URL
-    // from `window.location.origin` makes the logo resolve correctly in any
-    // rendering context (popup, iframe, or PDF generator).
-    const relativeLogoUrl = (tenant as any)?.logoUrl || ''
-    const absoluteLogoUrl = relativeLogoUrl
-      ? (relativeLogoUrl.startsWith('http') || relativeLogoUrl.startsWith('data:'))
-        ? relativeLogoUrl
-        : `${window.location.origin}${relativeLogoUrl.startsWith('/') ? '' : '/'}${relativeLogoUrl}`
-      : ''
+    // v6.27.4: CRITICAL FIX — logo asset binding.
+    // Logos are now stored as base64 DATA URIs in tenant.logoUrl (see
+    // /api/upload-logo v6.27.4 refactor). Data URIs are self-contained and
+    // work in any rendering context (popup, iframe, PDF generator), so they
+    // pass through unchanged.
+    //
+    // For backwards compatibility with logos uploaded before v6.27.4 (which
+    // were stored as relative paths like `/logos/tenant-xxx.jpg` on disk):
+    //   - Relative `/logos/...` paths are DROPPED entirely. They referenced
+    //     files on the container filesystem that were wiped on every Railway
+    //     redeploy, so they would 404 and render as a broken-image placeholder
+    //     showing the alt text "Logo". Dropping them makes the print engine
+    //     cleanly omit the logo block instead.
+    //   - The user can re-upload their logo once (Settings → Invoice
+    //     Customization → Upload Logo) to get the new data-URI storage and
+    //     have it persist forever.
+    //   - Already-absolute URLs (https://...) and data: URIs pass through.
+    const rawLogoUrl = (tenant as any)?.logoUrl || ''
+    const absoluteLogoUrl = (() => {
+      if (!rawLogoUrl) return ''
+      // data: URIs (v6.27.4+ upload-logo) and absolute https URLs pass through
+      if (rawLogoUrl.startsWith('data:') || rawLogoUrl.startsWith('http://') || rawLogoUrl.startsWith('https://')) {
+        return rawLogoUrl
+      }
+      // Legacy relative /logos/... paths — these referenced files on the
+      // ephemeral container filesystem and will 404. Drop them so the print
+      // engine omits the logo block cleanly instead of showing a broken img.
+      if (rawLogoUrl.startsWith('/logos/') || rawLogoUrl.startsWith('logos/')) {
+        console.warn('[PRINT] Skipping legacy relative logo URL — re-upload logo in Settings to enable. Path was:', rawLogoUrl)
+        return ''
+      }
+      // Any other relative path — convert to absolute as a best-effort
+      return `${window.location.origin}${rawLogoUrl.startsWith('/') ? '' : '/'}${rawLogoUrl}`
+    })()
 
     const printHtml = generateInvoiceHtml({
       invoiceNumber: sale.invoiceNumber,
