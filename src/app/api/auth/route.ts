@@ -720,6 +720,13 @@ export async function POST(req: NextRequest) {
           plan: userTenant.tenant.plan,
           planExpires: userTenant.tenant.planExpires?.toISOString(),
           currency: userTenant.tenant.currency,
+          logoUrl: (userTenant.tenant as any).logoUrl,
+          invoiceTemplate: (userTenant.tenant as any).invoiceTemplate,
+          invoiceColor: (userTenant.tenant as any).invoiceColor,
+          showLogoInInvoice: (userTenant.tenant as any).showLogoInInvoice,
+          showSignatureInInvoice: (userTenant.tenant as any).showSignatureInInvoice,
+          showQrCode: (userTenant.tenant as any).showQrCode,
+          invoiceFooterText: (userTenant.tenant as any).invoiceFooterText,
         },
         companies: companies.map(c => ({
           tenantId: c.tenantId,
