@@ -515,61 +515,74 @@ export function SaleRegister() {
   const handleGenerateEinvoice = async (sale: Sale) => {
     if (!tenant) return
     try {
+      // v6.28.0: CRITICAL FIX — call the REAL IRP integration (submit-to-irp)
+      // instead of the fake-hash generate-payload flow. Previously this handler
+      // generated a SHA-256 hash locally, stored it as the "IRN", and marked the
+      // sale as 'GENERATED' — without ever contacting the IRP. The real IRP
+      // integration in irp-integration.ts was correctly implemented but never
+      // invoked from the frontend.
+      //
+      // Now we call submit-to-irp, which:
+      //   - If IRP credentials are configured (LIVE mode): submits to NIC,
+      //     persists the real IRN/AckNo/AckDate/SignedQR, and returns success.
+      //   - If IRP is NOT configured (MANUAL mode): returns the INV-01 payload
+      //     for the user to submit via their GSP portal manually.
+      //   - On LIVE error: returns the error message.
       const res = await authFetch('/api/einvoice', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'generate-payload', tenantId: tenant.id, saleId: sale.id }),
+        body: JSON.stringify({ action: 'submit-to-irp', tenantId: tenant.id, saleId: sale.id }),
       })
       const data = await res.json()
-      if (res.ok) {
-        // Auto-update the sale's e-invoice status to GENERATED locally
-        // (The actual IRN/AckNo/AckDate come from IRP after the user submits the payload)
-        try {
-          await authFetch('/api/einvoice', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              action: 'update-status',
-              tenantId: tenant.id,
-              saleId: sale.id,
-              irn: data.irnHash,
-              status: 'GENERATED',
-            }),
-          })
-          // Refresh sales list to show the green checkmark
-          fetchSales()
-        } catch {
-          // Non-fatal — the payload was generated, status update can be retried
-          console.warn('Failed to auto-update e-invoice status')
-        }
 
-        // Show the e-invoice JSON in a new window for the user to submit to IRP
+      if (res.ok && data.success && data.mode === 'LIVE') {
+        // Real IRN generated — refresh the sales list to show the green checkmark
+        fetchSales()
+        toast({
+          title: 'E-Invoice Generated (LIVE)',
+          description: `IRN: ${data.irn?.slice(0, 24)}... | Ack No: ${data.ackNo || 'N/A'}`,
+        })
+        return
+      }
+
+      if (res.ok && data.mode === 'MANUAL' && data.inv01Payload) {
+        // IRP not configured — show the payload for manual submission to GSP portal
         const einvoiceWindow = window.open('', '_blank', 'width=900,height=700')
         if (einvoiceWindow) {
           einvoiceWindow.document.write(`<!DOCTYPE html><html><head><title>E-Invoice - ${sale.invoiceNumber}</title>
-          <style>body{font-family:monospace;padding:20px;font-size:12px;}pre{background:#f5f5f5;padding:15px;border-radius:8px;overflow-x:auto;white-space:pre-wrap;word-break:break-all;}h2{color:#10b981;margin-bottom:10px;}.info{margin-bottom:15px;padding:10px;background:#f0fdf4;border-radius:6px;border:1px solid #10b981;}.step{margin:10px 0;padding:10px;background:#fef3c7;border-radius:6px;border-left:4px solid #f59e0b;}</style></head><body>
-          <h2>GST E-Invoice Payload (INV-01 Schema)</h2>
-          <div class="info"><strong>Invoice:</strong> ${sale.invoiceNumber} | <strong>IRN Hash:</strong> ${data.irnHash?.slice(0, 16)}... | <strong>Generated:</strong> ${new Date().toLocaleString()}</div>
+          <style>body{font-family:monospace;padding:20px;font-size:12px;}pre{background:#f5f5f5;padding:15px;border-radius:8px;overflow-x:auto;white-space:pre-wrap;word-break:break-all;}h2{color:#10b981;margin-bottom:10px;}.info{margin-bottom:15px;padding:10px;background:#f0fdf4;border-radius:6px;border:1px solid #10b981;}.step{margin:10px 0;padding:10px;background:#fef3c7;border-radius:6px;border-left:4px solid #f59e0b;}.warn{margin:10px 0;padding:10px;background:#fef2f2;border-radius:6px;border-left:4px solid #ef4444;}</style></head><body>
+          <h2>GST E-Invoice Payload (INV-01 Schema) — MANUAL MODE</h2>
+          <div class="warn"><strong>IRP credentials not configured.</strong> The system could not submit directly to NIC. You must submit this payload manually via your GSP/IRP portal.</div>
+          <div class="info"><strong>Invoice:</strong> ${sale.invoiceNumber} | <strong>Generated:</strong> ${new Date().toLocaleString()}</div>
           <div class="step"><strong>Next steps:</strong>
             <ol style="margin:8px 0 0 20px;padding:0;">
               <li>Copy the JSON below</li>
               <li>Log in to your IRP/GSP portal (e.g., NIC, Clear, Master India)</li>
               <li>Submit the JSON to generate the official IRN</li>
               <li>Copy the IRN, Ack No, and Ack Date from the IRP response</li>
-              <li>Return to BizBook Pro and update the e-invoice status with those values</li>
+              <li>Return to BizBook Pro → open the sale → click "Update E-Invoice Status" and paste those values</li>
             </ol>
           </div>
-          <pre>${JSON.stringify(data.payload, null, 2)}</pre>
+          <pre>${JSON.stringify(data.inv01Payload, null, 2)}</pre>
           <div style="margin-top:15px;"><button onclick="navigator.clipboard.writeText(document.querySelector('pre').textContent);this.textContent='Copied!';setTimeout(()=>this.textContent='Copy JSON',2000)" style="padding:8px 20px;background:#10b981;color:white;border:none;border-radius:6px;cursor:pointer;font-size:14px;">Copy JSON</button></div>
           </body></html>`)
           einvoiceWindow.document.close()
         }
-        toast({ title: 'E-Invoice Payload Generated', description: 'Submit the JSON to your IRP/GSP portal to get the official IRN' })
-      } else {
-        toast({ title: 'E-Invoice Error', description: data.error, variant: 'destructive' })
+        toast({
+          title: 'E-Invoice Payload Generated (MANUAL)',
+          description: 'IRP not configured. Submit the JSON to your GSP portal manually.',
+        })
+        return
       }
+
+      // Live error or unexpected response
+      toast({
+        title: 'E-Invoice Error',
+        description: data.error || 'Failed to generate e-invoice. Check IRP credentials and try again.',
+        variant: 'destructive',
+      })
     } catch {
-      toast({ title: 'Error', description: 'Failed to generate e-invoice payload', variant: 'destructive' })
+      toast({ title: 'Error', description: 'Failed to generate e-invoice', variant: 'destructive' })
     }
   }
 

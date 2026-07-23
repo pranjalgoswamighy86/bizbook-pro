@@ -149,36 +149,121 @@ export async function POST(req: NextRequest) {
       const access = await requireAuthAndTenant(req, tenantId)
       if (access instanceof NextResponse) return access
 
-      const [inventory, debtors, creditors, bankBalance, allSales, allPurchases, allExpenses] = await Promise.all([
-        db.inventoryItem.findMany({ where: { tenantId, isDeleted: false } }),
-        db.debtor.findMany({ where: { tenantId, isDeleted: false } }),
-        db.creditor.findMany({ where: { tenantId, isDeleted: false } }),
-        db.bankTransaction.findMany({ where: { tenantId, isDeleted: false } }),
-        db.sale.findMany({ where: { tenantId, isDeleted: false } }),
-        db.purchase.findMany({ where: { tenantId, isDeleted: false } }),
-        db.expense.findMany({ where: { tenantId, isDeleted: false } }),
-      ])
+      // v6.28.0: CRITICAL REWRITE — read from the General Ledger instead of
+      // operational tables. Previously this action summed Sale/Purchase/Expense/
+      // Inventory/Debtor/Creditor tables directly, bypassing the double-entry
+      // system entirely. This caused:
+      //   - BS to never balance (assets ≠ liabilities + equity)
+      //   - BS to drift from Trial Balance (which DOES read the GL)
+      //   - Double-counting (Debtor.currentBalance + Sale.totalAmount - amountPaid)
+      //   - GST collected counted as revenue (inflated retained earnings)
+      //   - No support for asOfDate (always summed all-time data)
+      //
+      // Now we aggregate JournalEntryLine by Account.type, filtered by
+      // isPosted:true and entryDate < asOfDate. This makes the BS reconcilable
+      // with the Trial Balance by construction.
+      const { asOfDate } = body
+      const entryDateFilter: Record<string, unknown> = { tenantId: access.tenantId, isPosted: true }
+      if (asOfDate) {
+        entryDateFilter.entryDate = { lt: new Date(asOfDate) }
+      }
 
-      const totalInventoryValue = inventory.reduce((s, x) => s + x.value, 0)
-      const totalDebtors = debtors.reduce((s, x) => s + x.currentBalance, 0) + allSales.reduce((s, x) => s + (x.totalAmount - x.amountPaid), 0)
-      const totalCreditors = creditors.reduce((s, x) => s + x.currentBalance, 0) + allPurchases.reduce((s, x) => s + (x.totalAmount - x.amountPaid), 0)
-      const lastBankBalance = bankBalance.length > 0 ? bankBalance[bankBalance.length - 1].balance : 0
+      // Fetch all accounts for this tenant
+      const accounts = await db.account.findMany({
+        where: { tenantId: access.tenantId, isActive: true },
+        orderBy: [{ type: 'asc' }, { accountCode: 'asc' }],
+      })
 
-      const totalRevenue = allSales.reduce((s, x) => s + x.totalAmount, 0)
-      const totalCOGS = allPurchases.reduce((s, x) => s + x.subtotal, 0)
-      const totalExpenseAmount = allExpenses.reduce((s, x) => s + x.amount, 0)
-      const retainedEarnings = totalRevenue - totalCOGS - totalExpenseAmount
+      // Aggregate all JELines per account in a single query (avoids N+1)
+      const grouped = await db.journalEntryLine.groupBy({
+        by: ['accountId'],
+        where: { entry: entryDateFilter },
+        _sum: { debit: true, credit: true },
+      })
 
-      const totalAssets = totalInventoryValue + totalDebtors + lastBankBalance
-      const totalLiabilities = totalCreditors
-      const equity = retainedEarnings
+      // Build a map of accountId → net balance
+      const balanceByAccount: Record<string, number> = {}
+      for (const g of grouped) {
+        const debit = g._sum.debit || 0
+        const credit = g._sum.credit || 0
+        balanceByAccount[g.accountId] = Math.round((debit - credit) * 100) / 100
+      }
+
+      // Helper: sum balances for accounts of a given type, optionally filtered by code prefix
+      const sumByType = (type: string, codePrefixes?: string[]) => {
+        return accounts
+          .filter(a => a.type === type && (!codePrefixes || codePrefixes.some(p => a.accountCode.startsWith(p))))
+          .reduce((s, a) => s + (balanceByAccount[a.id] || 0), 0)
+      }
+      // Helper: get a single account balance by code
+      const balanceByCode = (code: string): number => {
+        const acc = accounts.find(a => a.accountCode === code)
+        return acc ? (balanceByAccount[acc.id] || 0) : 0
+      }
+
+      // v6.28.0: Asset balances are debit-natured (positive = debit balance).
+      // Liability and Equity balances are credit-natured (positive = credit balance,
+      // so debit - credit gives a negative number; we negate for display).
+      const cashBalance = Math.max(0, balanceByCode('10100'))
+      const bankBalance = Math.max(0, balanceByCode('10200'))
+      const accountsReceivable = Math.max(0, balanceByCode('10300'))
+      const inventoryBalance = Math.max(0, balanceByCode('10400'))
+      const gstInputCredit = Math.max(0,
+        balanceByCode('10601') + balanceByCode('10602') + balanceByCode('10603') + balanceByCode('50600'))
+      const otherAssets = Math.max(0,
+        sumByType('Asset', ['10500', '10600', '10700', '10800', '10900'])
+        - cashBalance - bankBalance - accountsReceivable - inventoryBalance - gstInputCredit)
+
+      const totalAssets = cashBalance + bankBalance + accountsReceivable + inventoryBalance + gstInputCredit + otherAssets
+
+      const accountsPayable = Math.max(0, -balanceByCode('20100'))
+      const gstPayable = Math.max(0,
+        -(balanceByCode('20200') + balanceByCode('20201') + balanceByCode('20202') + balanceByCode('20203')))
+      const tdsPayable = Math.max(0, -balanceByCode('20300'))
+      const loans = Math.max(0, -balanceByCode('20400'))
+      const accruedExpenses = Math.max(0, -balanceByCode('20500'))
+      const otherLiabilities = Math.max(0,
+        -(sumByType('Liability', ['20600', '20700', '20800', '20900']))
+        - accountsPayable - gstPayable - tdsPayable - loans - accruedExpenses)
+
+      const totalLiabilities = accountsPayable + gstPayable + tdsPayable + loans + accruedExpenses + otherLiabilities
+
+      const capital = Math.max(0, -balanceByCode('30100'))
+      const retainedEarnings = Math.max(0, -balanceByCode('30200'))
+      const drawings = Math.max(0, balanceByCode('30300')) // contra-equity, debit balance
+      const totalEquity = capital + retainedEarnings - drawings
 
       return NextResponse.json({
-        assets: { inventory: totalInventoryValue, debtors: totalDebtors, bankBalance: lastBankBalance, total: totalAssets },
-        liabilities: { creditors: totalCreditors, total: totalLiabilities },
-        equity: { retainedEarnings: equity, total: equity },
+        asOfDate: asOfDate || null,
+        assets: {
+          cash: cashBalance,
+          bankBalance,
+          accountsReceivable,
+          inventory: inventoryBalance,
+          gstInputCredit,
+          other: otherAssets,
+          total: totalAssets,
+        },
+        liabilities: {
+          accountsPayable,
+          gstPayable,
+          tdsPayable,
+          loans,
+          accruedExpenses,
+          other: otherLiabilities,
+          total: totalLiabilities,
+        },
+        equity: {
+          capital,
+          retainedEarnings,
+          drawings,
+          total: totalEquity,
+        },
         totalAssetsLiabilities: totalAssets,
-        totalLiabilitiesEquity: totalLiabilities + equity,
+        totalLiabilitiesEquity: totalLiabilities + totalEquity,
+        isBalanced: Math.abs(totalAssets - (totalLiabilities + totalEquity)) < 0.01,
+        // v6.28.0: include the difference so the UI can show it
+        difference: Math.round((totalAssets - totalLiabilities - totalEquity) * 100) / 100,
       })
     }
 

@@ -20,7 +20,7 @@ import { authFetch } from '@/lib/auth-fetch'
 interface StaffMember {
   id: string; name: string; phone: string | null; email: string | null; role: string | null
   department: string | null; salary: number; joinDate: string | null; isActive: boolean
-  salaryPayments: Array<{ id: string; month: string; amount: number; paidDate: string; paymentMode: string }>
+  salaryPayments: Array<{ id: string; month: string; amount: number; paidDate: string; paymentMode: string; status?: string }>
   fingerprintId?: string | null
   biometricType?: string
 }
@@ -32,8 +32,15 @@ export function StaffSalary() {
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [showSalary, setShowSalary] = useState(false)
+  // v6.28.0: salaryMode controls the two-step flow:
+  //   'pay' = direct payment (legacy, Dr Expense / Cr Cash)
+  //   'accrue' = Step 1 only (Dr Expense / Cr AP, status=DUE)
+  //   'disburse' = Step 2 (Dr AP / Cr Cash, clears a DUE salary)
+  const [salaryMode, setSalaryMode] = useState<'pay' | 'accrue' | 'disburse'>('pay')
   const [editingId, setEditingId] = useState<string | null>(null)
   const [selectedStaffId, setSelectedStaffId] = useState<string | null>(null)
+  // v6.28.0: for disburse mode, the ID of the DUE salary payment to clear
+  const [selectedSalaryPaymentId, setSelectedSalaryPaymentId] = useState<string | null>(null)
   const [salaryForm, setSalaryForm] = useState({ month: '', amount: 0, paidDate: new Date().toISOString().split('T')[0], paymentMode: 'BANK', notes: '' })
   const [form, setForm] = useState<{
     name: string; phone: string; email: string; role: string; department: string; salary: number
@@ -86,11 +93,61 @@ export function StaffSalary() {
 
   const handlePaySalary = async () => {
     if (!selectedStaffId || !tenant) return
-    const res = await authFetch('/api/staff', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'pay-salary', staffId: selectedStaffId, tenantId: tenant.id, ...salaryForm, paidDate: new Date(salaryForm.paidDate).toISOString() }),
-    })
-    if (res.ok) { toast({ title: 'Salary paid' }); setShowSalary(false); fetchStaff() }
+    // v6.28.0: Branch on salaryMode to call the right API action.
+    //   'pay' → direct payment (legacy single-entry: Dr Expense / Cr Cash)
+    //   'accrue' → Step 1: Dr Expense / Cr AP, status=DUE, no cash movement
+    //   'disburse' → Step 2: Dr AP / Cr Cash, clears a previously-accrued DUE salary
+    if (salaryMode === 'accrue') {
+      const res = await authFetch('/api/staff', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'accrue-salary',
+          staffId: selectedStaffId,
+          tenantId: tenant.id,
+          month: salaryForm.month,
+          amount: salaryForm.amount,
+          accrualDate: new Date(salaryForm.paidDate).toISOString(),
+          notes: salaryForm.notes,
+        }),
+      })
+      if (res.ok) {
+        toast({ title: 'Salary accrued', description: `₹${salaryForm.amount} accrued as Payable for ${salaryForm.month}. Mark as Paid when disbursed.` })
+        setShowSalary(false); fetchStaff()
+      } else {
+        const data = await res.json().catch(() => ({}))
+        toast({ title: 'Accrual failed', description: data.error || 'Unknown error', variant: 'destructive' })
+      }
+    } else if (salaryMode === 'disburse') {
+      if (!selectedSalaryPaymentId) {
+        toast({ title: 'No salary selected', description: 'Select a DUE salary to disburse.', variant: 'destructive' })
+        return
+      }
+      const res = await authFetch('/api/staff', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'mark-salary-paid',
+          salaryPaymentId: selectedSalaryPaymentId,
+          tenantId: tenant.id,
+          paymentMode: salaryForm.paymentMode,
+          paidDate: new Date(salaryForm.paidDate).toISOString(),
+          notes: salaryForm.notes,
+        }),
+      })
+      if (res.ok) {
+        toast({ title: 'Salary disbursed', description: `Paid via ${salaryForm.paymentMode}. Accounts Payable cleared.` })
+        setShowSalary(false); fetchStaff()
+      } else {
+        const data = await res.json().catch(() => ({}))
+        toast({ title: 'Disbursement failed', description: data.error || 'Unknown error', variant: 'destructive' })
+      }
+    } else {
+      // 'pay' — legacy direct payment
+      const res = await authFetch('/api/staff', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'pay-salary', staffId: selectedStaffId, tenantId: tenant.id, ...salaryForm, paidDate: new Date(salaryForm.paidDate).toISOString() }),
+      })
+      if (res.ok) { toast({ title: 'Salary paid' }); setShowSalary(false); fetchStaff() }
+    }
   }
 
   const totalSalary = staffList.filter((s) => s.isActive).reduce((sum, s) => sum + s.salary, 0)
@@ -128,7 +185,9 @@ export function StaffSalary() {
                     <TableCell><Badge variant={s.isActive ? 'default' : 'secondary'} className={s.isActive ? 'bg-emerald-600' : ''}>{s.isActive ? 'Active' : 'Inactive'}</Badge></TableCell>
                     <TableCell>{s.salaryPayments.length > 0 ? formatDate(s.salaryPayments[0].paidDate) : 'Never'}</TableCell>
                     <TableCell className="text-right"><div className="flex justify-end gap-1">
-                      {canEdit(user?.role || 'VIEW_ONLY') && <Button variant="ghost" size="icon" className="h-8 w-8" title="Pay Salary" onClick={() => { setSelectedStaffId(s.id); setSalaryForm({ month: new Date().toISOString().slice(0, 7), amount: s.salary, paidDate: new Date().toISOString().split('T')[0], paymentMode: 'BANK', notes: '' }); setShowSalary(true) }}><CalendarDays className="h-4 w-4 text-emerald-600" /></Button>}
+                      {canEdit(user?.role || 'VIEW_ONLY') && <Button variant="ghost" size="icon" className="h-8 w-8" title="Accrue Salary (Step 1 — record as Payable)" onClick={() => { setSelectedStaffId(s.id); setSelectedSalaryPaymentId(null); setSalaryMode('accrue'); setSalaryForm({ month: new Date().toISOString().slice(0, 7), amount: s.salary, paidDate: new Date().toISOString().split('T')[0], paymentMode: 'BANK', notes: '' }); setShowSalary(true) }}><CalendarDays className="h-4 w-4 text-amber-600" /></Button>}
+                      {canEdit(user?.role || 'VIEW_ONLY') && s.salaryPayments.some(p => (p as any).status === 'DUE') && <Button variant="ghost" size="icon" className="h-8 w-8" title="Mark Paid (Step 2 — disburse a DUE salary)" onClick={() => { setSelectedStaffId(s.id); const duePayment = s.salaryPayments.find(p => (p as any).status === 'DUE')!; setSelectedSalaryPaymentId(duePayment.id); setSalaryMode('disburse'); setSalaryForm({ month: duePayment.month, amount: duePayment.amount, paidDate: new Date().toISOString().split('T')[0], paymentMode: 'BANK', notes: '' }); setShowSalary(true) }}><DollarSign className="h-4 w-4 text-emerald-600" /></Button>}
+                      {canEdit(user?.role || 'VIEW_ONLY') && <Button variant="ghost" size="icon" className="h-8 w-8" title="Pay Salary (direct — single entry)" onClick={() => { setSelectedStaffId(s.id); setSelectedSalaryPaymentId(null); setSalaryMode('pay'); setSalaryForm({ month: new Date().toISOString().slice(0, 7), amount: s.salary, paidDate: new Date().toISOString().split('T')[0], paymentMode: 'BANK', notes: '' }); setShowSalary(true) }}><Plus className="h-4 w-4 text-emerald-600" /></Button>}
                       {canCorrect(user?.role || 'VIEW_ONLY') && <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleEdit(s)}><Pencil className="h-4 w-4" /></Button>}
                       {canManage(user?.role || 'VIEW_ONLY') && <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => handleDelete(s.id)}><Trash2 className="h-4 w-4" /></Button>}
                     </div></TableCell>
@@ -216,22 +275,54 @@ export function StaffSalary() {
           </DialogContent>
         </Dialog>
 
-        {/* Salary Payment Dialog */}
+        {/* Salary Payment Dialog — v6.28.0: supports pay / accrue / disburse modes */}
         <Dialog open={showSalary} onOpenChange={setShowSalary}>
           <DialogContent>
-            <DialogHeader><DialogTitle>Pay Salary</DialogTitle></DialogHeader>
+            <DialogHeader>
+              <DialogTitle>
+                {salaryMode === 'accrue' ? 'Accrue Salary (Step 1 — Payable)' :
+                 salaryMode === 'disburse' ? 'Mark Salary Paid (Step 2 — Disburse)' :
+                 'Pay Salary (Direct)'}
+              </DialogTitle>
+            </DialogHeader>
             <div className="space-y-3">
+              {/* v6.28.0: Mode selector so the user can switch between the three flows */}
+              <div className="flex gap-2 p-1 bg-muted rounded-lg">
+                <button type="button" onClick={() => setSalaryMode('accrue')} className={`flex-1 px-3 py-1.5 rounded text-xs font-medium transition ${salaryMode === 'accrue' ? 'bg-amber-100 text-amber-800 border border-amber-300' : 'text-muted-foreground'}`}>1. Accrue</button>
+                <button type="button" onClick={() => setSalaryMode('disburse')} className={`flex-1 px-3 py-1.5 rounded text-xs font-medium transition ${salaryMode === 'disburse' ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' : 'text-muted-foreground'}`}>2. Disburse</button>
+                <button type="button" onClick={() => setSalaryMode('pay')} className={`flex-1 px-3 py-1.5 rounded text-xs font-medium transition ${salaryMode === 'pay' ? 'bg-blue-100 text-blue-800 border border-blue-300' : 'text-muted-foreground'}`}>Direct Pay</button>
+              </div>
+              {salaryMode === 'accrue' && (
+                <p className="text-xs text-amber-700 bg-amber-50 dark:bg-amber-950/30 p-2 rounded border border-amber-200">
+                  Records salary as an Accounts Payable (Creditor). Posts <strong>Dr Salary Expense / Cr Accounts Payable</strong>. No cash leaves the business yet. Use "Disburse" later when you actually pay.
+                </p>
+              )}
+              {salaryMode === 'disburse' && (
+                <p className="text-xs text-emerald-700 bg-emerald-50 dark:bg-emerald-950/30 p-2 rounded border border-emerald-200">
+                  Clears a previously-accrued DUE salary. Posts <strong>Dr Accounts Payable / Cr Cash|Bank</strong> and reduces the staff's Creditor balance.
+                </p>
+              )}
+              {salaryMode === 'pay' && (
+                <p className="text-xs text-blue-700 bg-blue-50 dark:bg-blue-950/30 p-2 rounded border border-blue-200">
+                  Direct single-entry payment. Posts <strong>Dr Salary Expense / Cr Cash|Bank</strong>. Use for immediate cash payments; use Accrue+Disburse for proper accrual accounting.
+                </p>
+              )}
               <div className="grid grid-cols-2 gap-3">
-                <div><Label>Month</Label><Input type="month" value={salaryForm.month} onChange={(e) => setSalaryForm({ ...salaryForm, month: e.target.value })} /></div>
-                <div><Label>Amount</Label><Input type="number" value={salaryForm.amount || ''} onChange={(e) => setSalaryForm({ ...salaryForm, amount: Number(e.target.value) })} /></div>
+                <div><Label>Month</Label><Input type="month" value={salaryForm.month} onChange={(e) => setSalaryForm({ ...salaryForm, month: e.target.value })} disabled={salaryMode === 'disburse'} /></div>
+                <div><Label>Amount</Label><Input type="number" value={salaryForm.amount || ''} onChange={(e) => setSalaryForm({ ...salaryForm, amount: Number(e.target.value) })} disabled={salaryMode === 'disburse'} /></div>
               </div>
               <div className="grid grid-cols-2 gap-3">
-                <div><Label>Paid Date</Label><Input type="date" value={salaryForm.paidDate} onChange={(e) => setSalaryForm({ ...salaryForm, paidDate: e.target.value })} /></div>
-                <div><Label>Payment Mode</Label><Select value={salaryForm.paymentMode} onValueChange={(v) => setSalaryForm({ ...salaryForm, paymentMode: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="CASH">Cash</SelectItem><SelectItem value="BANK">Bank Transfer</SelectItem><SelectItem value="CHEQUE">Cheque</SelectItem></SelectContent></Select></div>
+                <div><Label>{salaryMode === 'accrue' ? 'Accrual Date' : 'Paid Date'}</Label><Input type="date" value={salaryForm.paidDate} onChange={(e) => setSalaryForm({ ...salaryForm, paidDate: e.target.value })} /></div>
+                <div><Label>Payment Mode</Label><Select value={salaryForm.paymentMode} onValueChange={(v) => setSalaryForm({ ...salaryForm, paymentMode: v })} disabled={salaryMode === 'accrue'}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="CASH">Cash</SelectItem><SelectItem value="BANK">Bank Transfer</SelectItem><SelectItem value="CHEQUE">Cheque</SelectItem><SelectItem value="UPI">UPI</SelectItem></SelectContent></Select></div>
               </div>
               <div><Label>Notes</Label><Input value={salaryForm.notes} onChange={(e) => setSalaryForm({ ...salaryForm, notes: e.target.value })} /></div>
             </div>
-            <DialogFooter><Button variant="outline" onClick={() => setShowSalary(false)}>Cancel</Button><Button className="bg-emerald-600 hover:bg-emerald-700" onClick={handlePaySalary}>Pay Salary</Button></DialogFooter>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setShowSalary(false)}>Cancel</Button>
+              <Button className={salaryMode === 'accrue' ? 'bg-amber-600 hover:bg-amber-700' : 'bg-emerald-600 hover:bg-emerald-700'} onClick={handlePaySalary}>
+                {salaryMode === 'accrue' ? 'Accrue Salary' : salaryMode === 'disburse' ? 'Mark as Paid' : 'Pay Salary'}
+              </Button>
+            </DialogFooter>
           </DialogContent>
         </Dialog>
       </div>

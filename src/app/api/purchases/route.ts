@@ -514,6 +514,107 @@ export async function POST(req: NextRequest) {
         console.error('Payables update error (purchase update):', payableError)
       }
 
+      // v6.28.0: CRITICAL FIX — reverse the original auto-posted Journal Entry
+      // and post a new one with the updated purchase amounts. Previously the
+      // UPDATE action reversed inventory + creditor balances but left the
+      // original JE in the GL forever, so the Trial Balance showed pre-edit
+      // amounts while P&L showed post-edit amounts — they could never reconcile.
+      // Mirrors the Sale UPDATE pattern and the Purchase DELETE pattern.
+      try {
+        const originalPurchaseJE = await db.journalEntry.findFirst({
+          where: { sourceType: 'PURCHASE', sourceId: purchase.id, tenantId: access.tenantId },
+          include: { lines: true },
+        })
+        if (originalPurchaseJE) {
+          // Step 1: Create a reversing entry (swap debit/credit) for today's date
+          await db.journalEntry.create({
+            data: {
+              entryDate: new Date(),
+              reference: `REVERSAL-${originalPurchaseJE.reference || purchase.id.slice(0, 8)}`,
+              description: `Reversal of purchase ${purchase.invoiceNumber} (edited)`,
+              sourceType: 'MANUAL',
+              isPosted: true,
+              tenantId: access.tenantId,
+              createdBy: access.userId,
+              lines: {
+                create: originalPurchaseJE.lines.map((l: any) => ({
+                  accountId: l.accountId,
+                  debit: l.credit,
+                  credit: l.debit,
+                  description: `Reversal: ${l.description || ''}`,
+                })),
+              },
+            },
+          })
+
+          // Step 2: Post a new JE with the updated purchase amounts (same logic as CREATE)
+          const accounts = await db.account.findMany({ where: { tenantId: access.tenantId } })
+          const findAccount = (code: string) => accounts.find(a => a.accountCode === code)
+          let creditorsAccount = findAccount('20100')
+          let cashAccount = findAccount('10100')
+          let purchaseAccount = findAccount('50200')
+          let cgstInputAccount = findAccount('10601')
+          let sgstInputAccount = findAccount('10602')
+          let igstInputAccount = findAccount('10603')
+          let gstInputAccount = findAccount('50600')
+
+          if (!creditorsAccount) creditorsAccount = await db.account.create({ data: { accountCode: '20100', name: 'Accounts Payable', type: 'Liability', tenantId: access.tenantId } })
+          if (!cashAccount) cashAccount = await db.account.create({ data: { accountCode: '10100', name: 'Cash', type: 'Asset', tenantId: access.tenantId } })
+          if (!purchaseAccount) purchaseAccount = await db.account.create({ data: { accountCode: '50200', name: 'Purchase Expenses', type: 'Expense', tenantId: access.tenantId } })
+          if (!cgstInputAccount) cgstInputAccount = await db.account.create({ data: { accountCode: '10601', name: 'CGST Input Credit', type: 'Asset', tenantId: access.tenantId } })
+          if (!sgstInputAccount) sgstInputAccount = await db.account.create({ data: { accountCode: '10602', name: 'SGST Input Credit', type: 'Asset', tenantId: access.tenantId } })
+          if (!igstInputAccount) igstInputAccount = await db.account.create({ data: { accountCode: '10603', name: 'IGST Input Credit', type: 'Asset', tenantId: access.tenantId } })
+          if (!gstInputAccount) gstInputAccount = await db.account.create({ data: { accountCode: '50600', name: 'GST Input Credit', type: 'Asset', tenantId: access.tenantId } })
+
+          const newJELines: Array<{ accountId: string; debit: number; credit: number; description: string }> = []
+          const isCashPurchaseUpdated = (purchase.partyName || '').trim().toLowerCase() === 'cash'
+          newJELines.push({ accountId: purchaseAccount!.id, debit: purchase.subtotal, credit: 0, description: `Purchase ${purchase.invoiceNumber} (updated)` })
+
+          if (purchase.gstAmount > 0) {
+            const tenant = await db.tenant.findUnique({ where: { id: access.tenantId } })
+            const tenantGstin = tenant?.gstNumber || ''
+            const partyGst = purchase.partyGst || ''
+            if (tenantGstin && partyGst) {
+              const interState = isInterStateSupply(partyGst, tenantGstin)
+              const { cgst, sgst, igst } = splitGSTAmount(purchase.gstAmount, interState)
+              if (interState) {
+                if (igst > 0) newJELines.push({ accountId: igstInputAccount!.id, debit: roundTo2(igst), credit: 0, description: `IGST on purchase ${purchase.invoiceNumber}` })
+              } else {
+                if (cgst > 0) newJELines.push({ accountId: cgstInputAccount!.id, debit: roundTo2(cgst), credit: 0, description: `CGST on purchase ${purchase.invoiceNumber}` })
+                if (sgst > 0) newJELines.push({ accountId: sgstInputAccount!.id, debit: roundTo2(sgst), credit: 0, description: `SGST on purchase ${purchase.invoiceNumber}` })
+              }
+            } else {
+              newJELines.push({ accountId: gstInputAccount!.id, debit: roundTo2(purchase.gstAmount), credit: 0, description: `GST on purchase ${purchase.invoiceNumber} (GSTINs missing)` })
+            }
+          }
+
+          const amountPaidUpdated = roundTo2(purchase.amountPaid || 0)
+          const amountDueUpdated = roundTo2(purchase.totalAmount - amountPaidUpdated)
+          if (isCashPurchaseUpdated || amountPaidUpdated > 0) {
+            newJELines.push({ accountId: cashAccount!.id, debit: 0, credit: amountPaidUpdated, description: `Cash paid for ${purchase.invoiceNumber}` })
+          }
+          if (!isCashPurchaseUpdated && amountDueUpdated > 0) {
+            newJELines.push({ accountId: creditorsAccount!.id, debit: 0, credit: amountDueUpdated, description: `Payable to ${purchase.partyName} for ${purchase.invoiceNumber}` })
+          }
+
+          await db.journalEntry.create({
+            data: {
+              entryDate: purchase.date,
+              reference: `${purchase.invoiceNumber}-R`,
+              description: `Purchase invoice ${purchase.invoiceNumber} from ${purchase.partyName} (re-posted after edit)`,
+              sourceType: 'PURCHASE',
+              sourceId: purchase.id,
+              isPosted: true,
+              tenantId: access.tenantId,
+              createdBy: access.userId,
+              lines: { create: newJELines },
+            },
+          })
+        }
+      } catch (jeError) {
+        console.error('JE reversal/repost error (purchase update):', jeError)
+      }
+
       // v4.155: Auto Excel backup after purchase update
       triggerAutoBackup(tenantId, 'purchase:update')
       return NextResponse.json({ purchase, inventoryUpdates })

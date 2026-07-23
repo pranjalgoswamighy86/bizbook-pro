@@ -404,11 +404,28 @@ model SalaryPayment {
   paymentMode String   @default("BANK")
   notes       String?
   tenantId    String
+
+  // v6.28.0: Two-step accrual → disbursement flow.
+  // status tracks the lifecycle: DUE (accrued, awaiting payment) → PAID (disbursed).
+  // Legacy records (created before v6.28.0) default to PAID to preserve existing behavior.
+  status      String   @default("PAID")
+  // creditorId links the salary accrual to its Accounts Payable (Creditor) record,
+  // so disbursement can precisely decrement the right creditor balance.
+  creditorId  String?
+  // accrualJEId / disbursementJEId link to the two Journal Entries for audit trail.
+  // Step 1 (accrue): Dr Salary Expense / Cr Accounts Payable → accrualJEId
+  // Step 2 (disburse): Dr Accounts Payable / Cr Cash|Bank → disbursementJEId
+  accrualJEId       String?
+  disbursementJEId  String?
+
   // Soft-delete: records are never truly deleted
   isDeleted   Boolean  @default(false)
   deletedAt   DateTime?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
+  @@index([tenantId, status])
+  @@index([tenantId, staffId, month])
 }
 
 // v4.149: StaffAttendance model — was referenced in 9 places but missing from schema

@@ -615,6 +615,105 @@ export async function POST(req: NextRequest) {
           }
         }
 
+        // v6.28.0: CRITICAL FIX — reverse the original auto-posted Journal Entry
+        // and post a new one with the updated sale amounts. Previously the UPDATE
+        // action reversed inventory + debtor balances but left the original JE in
+        // the GL forever, so the Trial Balance showed pre-edit amounts while P&L
+        // showed post-edit amounts — they could never reconcile.
+        //
+        // This mirrors the Sale DELETE pattern (lines ~716-740) for the reversal,
+        // then re-runs the same JE-creation logic as CREATE (lines ~300-382) with
+        // the updated sale record.
+        const originalSaleJE = await tx.journalEntry.findFirst({
+          where: { sourceType: 'SALE', sourceId: sale.id, tenantId: access.tenantId },
+          include: { lines: true },
+        })
+        if (originalSaleJE) {
+          // Step 1: Create a reversing entry (swap debit/credit) for today's date
+          await tx.journalEntry.create({
+            data: {
+              entryDate: new Date(),
+              reference: `REVERSAL-${originalSaleJE.reference || sale.id.slice(0, 8)}`,
+              description: `Reversal of sale ${sale.invoiceNumber} (edited)`,
+              sourceType: 'MANUAL',
+              isPosted: true,
+              tenantId: access.tenantId,
+              createdBy: access.userId,
+              lines: {
+                create: originalSaleJE.lines.map(l => ({
+                  accountId: l.accountId,
+                  debit: l.credit,
+                  credit: l.debit,
+                  description: `Reversal: ${l.description || ''}`,
+                })),
+              },
+            },
+          })
+
+          // Step 2: Post a new JE with the updated sale amounts (same logic as CREATE)
+          const accounts = await tx.account.findMany({ where: { tenantId: access.tenantId } })
+          const findAccount = (code: string) => accounts.find(a => a.accountCode === code)
+          let debtorsAccount = findAccount('10300')
+          let cashAccount = findAccount('10100')
+          let salesAccount = findAccount('40100')
+          let cgstPayableAccount = findAccount('20201')
+          let sgstPayableAccount = findAccount('20202')
+          let igstPayableAccount = findAccount('20203')
+          let gstPayableAccount = findAccount('20200')
+
+          if (!debtorsAccount) debtorsAccount = await tx.account.create({ data: { accountCode: '10300', name: 'Accounts Receivable', type: 'Asset', tenantId: access.tenantId } })
+          if (!cashAccount) cashAccount = await tx.account.create({ data: { accountCode: '10100', name: 'Cash', type: 'Asset', tenantId: access.tenantId } })
+          if (!salesAccount) salesAccount = await tx.account.create({ data: { accountCode: '40100', name: 'Sales Revenue', type: 'Revenue', tenantId: access.tenantId } })
+          if (!cgstPayableAccount) cgstPayableAccount = await tx.account.create({ data: { accountCode: '20201', name: 'CGST Payable', type: 'Liability', tenantId: access.tenantId } })
+          if (!sgstPayableAccount) sgstPayableAccount = await tx.account.create({ data: { accountCode: '20202', name: 'SGST Payable', type: 'Liability', tenantId: access.tenantId } })
+          if (!igstPayableAccount) igstPayableAccount = await tx.account.create({ data: { accountCode: '20203', name: 'IGST Payable', type: 'Liability', tenantId: access.tenantId } })
+          if (!gstPayableAccount) gstPayableAccount = await tx.account.create({ data: { accountCode: '20200', name: 'GST Payable', type: 'Liability', tenantId: access.tenantId } })
+
+          const newJELines: Array<{ accountId: string; debit: number; credit: number; description: string }> = []
+          const isCashSaleUpdated = (sale.partyName || '').trim().toLowerCase() === 'cash'
+          const amountReceivedUpdated = roundTo2(sale.amountReceived || 0)
+          const amountDueUpdated = roundTo2(sale.totalAmount - amountReceivedUpdated)
+          if (isCashSaleUpdated || amountReceivedUpdated > 0) {
+            newJELines.push({ accountId: cashAccount!.id, debit: amountReceivedUpdated, credit: 0, description: `Cash received for ${sale.invoiceNumber}` })
+          }
+          if (!isCashSaleUpdated && amountDueUpdated > 0) {
+            newJELines.push({ accountId: debtorsAccount!.id, debit: amountDueUpdated, credit: 0, description: `Receivable from ${sale.partyName} for ${sale.invoiceNumber}` })
+          }
+          newJELines.push({ accountId: salesAccount!.id, debit: 0, credit: sale.subtotal, description: `Sale ${sale.invoiceNumber} (updated)` })
+
+          if (sale.gstAmount > 0) {
+            const tenant = await tx.tenant.findUnique({ where: { id: access.tenantId } })
+            const tenantGstin = tenant?.gstNumber || ''
+            const partyGst = sale.partyGst || ''
+            if (tenantGstin && partyGst) {
+              const interState = isInterStateSupply(tenantGstin, partyGst)
+              const { cgst, sgst, igst } = splitGSTAmount(sale.gstAmount, interState)
+              if (interState) {
+                if (igst > 0) newJELines.push({ accountId: igstPayableAccount!.id, debit: 0, credit: roundTo2(igst), description: `IGST on sale ${sale.invoiceNumber}` })
+              } else {
+                if (cgst > 0) newJELines.push({ accountId: cgstPayableAccount!.id, debit: 0, credit: roundTo2(cgst), description: `CGST on sale ${sale.invoiceNumber}` })
+                if (sgst > 0) newJELines.push({ accountId: sgstPayableAccount!.id, debit: 0, credit: roundTo2(sgst), description: `SGST on sale ${sale.invoiceNumber}` })
+              }
+            } else {
+              newJELines.push({ accountId: gstPayableAccount!.id, debit: 0, credit: roundTo2(sale.gstAmount), description: `GST on sale ${sale.invoiceNumber} (GSTINs missing)` })
+            }
+          }
+
+          await tx.journalEntry.create({
+            data: {
+              entryDate: sale.date,
+              reference: `${sale.invoiceNumber}-R`,
+              description: `Sale invoice ${sale.invoiceNumber} to ${sale.partyName} (re-posted after edit)`,
+              sourceType: 'SALE',
+              sourceId: sale.id,
+              isPosted: true,
+              tenantId: access.tenantId,
+              createdBy: access.userId,
+              lines: { create: newJELines },
+            },
+          })
+        }
+
         await tx.auditLog.create({
           data: {
             tenantId: access.tenantId,
