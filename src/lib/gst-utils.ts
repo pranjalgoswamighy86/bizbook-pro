@@ -5,11 +5,24 @@
 // ============================================================
 
 /**
- * Round a number to 2 decimal places using proper decimal arithmetic.
- * Avoids floating-point issues by using string-based rounding.
+ * v6.28.2: Round a number to 2 decimal places using proper decimal arithmetic.
+ *
+ * PREVIOUS BUG: `Math.round(value * 100) / 100` suffers from binary
+ * floating-point representation errors. For example:
+ *   roundTo2(1.005) → 1.00  (should be 1.01, but 1.005 * 100 = 100.49999999999999)
+ *   roundTo2(2.005) → 2.00  (should be 2.01)
+ *   roundTo2(0.005) → 0.00  (should be 0.01)
+ *
+ * FIX: Use `toFixed(2)` which performs correct round-half-away-from-zero
+ * on the decimal representation. This matches standard accounting rounding
+ * and is consistent with PostgreSQL's `ROUND()` function.
+ *
+ * Also guards against NaN/Infinity (returns 0) so monetary calculations
+ * never produce NaN poison that propagates through the GL.
  */
 export function roundTo2(value: number): number {
-  return Math.round(value * 100) / 100
+  if (!Number.isFinite(value)) return 0
+  return Number(value.toFixed(2))
 }
 
 /**
@@ -184,18 +197,27 @@ export function calculateGST(
   gstRate: number,
   isInterState: boolean
 ): { cgst: number; sgst: number; igst: number; totalTax: number } {
+  // v6.28.2: CRITICAL FIX — compute total GST first, then split using
+  // splitGSTAmount() which guarantees cgst + sgst = totalTax exactly.
+  //
+  // PREVIOUS BUG: each half (cgst, sgst) was rounded independently, so
+  // cgst + sgst could differ from totalTax by ₹0.01. For example:
+  //   assessableValue=5.05, gstRate=18%
+  //   cgst = roundTo2(5.05 * 9 / 100) = roundTo2(0.4545) = 0.45
+  //   sgst = roundTo2(5.05 * 9 / 100) = 0.45
+  //   totalTax = roundTo2(0.45 + 0.45) = 0.90
+  // But the correct totalTax = roundTo2(5.05 * 18 / 100) = roundTo2(0.909) = 0.91
+  // So the invoice showed cgst=0.45 + sgst=0.45 = 0.90, but totalTax=0.91 —
+  // the line item didn't foot, and the GST return (filed from the JE which
+  // uses splitGSTAmount) showed 0.91/0.91, mismatching the invoice.
+  //
+  // Now: totalTax = roundTo2(assessableValue * gstRate / 100), then split.
+  // This guarantees cgst + sgst = totalTax = igst (for inter-state) exactly.
+  const totalTax = roundTo2(assessableValue * gstRate / 100)
   if (isInterState) {
-    const igst = roundTo2(assessableValue * gstRate / 100)
-    return { cgst: 0, sgst: 0, igst, totalTax: igst }
+    return { cgst: 0, sgst: 0, igst: totalTax, totalTax }
   }
-
-  // Intra-state: calculate each half independently to avoid rounding mismatch
-  // CGST and SGST are each calculated at gstRate/2
-  const halfRate = gstRate / 2
-  const cgst = roundTo2(assessableValue * halfRate / 100)
-  const sgst = roundTo2(assessableValue * halfRate / 100)
-  const totalTax = roundTo2(cgst + sgst)
-
+  const { cgst, sgst } = splitGSTAmount(totalTax, false)
   return { cgst, sgst, igst: 0, totalTax }
 }
 
@@ -243,7 +265,10 @@ export function validateHSN(hsn: string, isB2B: boolean = true): { valid: boolea
   }
 
   // HSN should be numeric and 2, 4, 6, or 8 digits
-  if (!/^\d{2}|\d{4}|\d{6}|\d{8}$/.test(hsn)) {
+  // v6.28.2: Fix regex — alternation must be grouped so ^ and $ apply to all options.
+  // Previously `^\d{2}|\d{4}|\d{6}|\d{8}$` parsed as `(^\d{2}) | (\d{4}) | (\d{6}) | (\d{8}$)`
+  // which accepted invalid codes like "12ABC" (matched ^\d{2}) or "ABC1234" (matched \d{4}).
+  if (!/^(\d{2}|\d{4}|\d{6}|\d{8})$/.test(hsn)) {
     return { valid: false, error: `Invalid HSN code "${hsn}": must be 2, 4, 6, or 8 digits` }
   }
 

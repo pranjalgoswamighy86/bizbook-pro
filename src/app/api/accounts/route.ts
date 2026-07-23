@@ -198,6 +198,9 @@ export async function POST(req: NextRequest) {
         // Revenue
         { accountCode: '40000', name: 'Revenue', type: 'Revenue', description: 'All income' },
         { accountCode: '40100', name: 'Sales Revenue', type: 'Revenue', description: 'Income from sales of goods/services' },
+        // v6.28.2: Discount Allowed — contra-revenue account used when posting
+        // sale-level discounts so the JE balances (Dr Discount Allowed / Cr Sales).
+        { accountCode: '40150', name: 'Discount Allowed', type: 'Expense', description: 'Invoice-level discounts given to customers (contra-revenue)' },
         { accountCode: '40200', name: 'Other Income', type: 'Revenue', description: 'Non-operating income' },
         // Expenses
         { accountCode: '50000', name: 'Expenses', type: 'Expense', description: 'All expenses' },

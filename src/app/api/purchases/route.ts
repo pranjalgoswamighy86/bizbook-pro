@@ -481,7 +481,7 @@ export async function POST(req: NextRequest) {
             if (creditor) {
               await db.creditor.update({
                 where: { id: creditor.id },
-                data: { currentBalance: Math.max(0, roundTo2(creditor.currentBalance - oldDue)) }
+                data: { currentBalance: roundTo2(creditor.currentBalance - oldDue) }
               })
             }
           }
@@ -674,7 +674,7 @@ export async function POST(req: NextRequest) {
               if (creditor) {
                 await tx.creditor.update({
                   where: { id: creditor.id },
-                  data: { currentBalance: Math.max(0, roundTo2(creditor.currentBalance - due)) }
+                  data: { currentBalance: roundTo2(creditor.currentBalance - due) }
                 })
               }
             }

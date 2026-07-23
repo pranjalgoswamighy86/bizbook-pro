@@ -57,6 +57,11 @@ export function PnLSummary() {
     { 'Particular': 'Cost of Goods (Purchases)', 'Amount': -data.totalCostOfGoods },
     { 'Particular': 'Gross Profit', 'Amount': data.grossProfit },
     { 'Particular': 'Total Expenses', 'Amount': -data.totalExpenses },
+    // v6.28.2: Add Staff Salaries row to the export so the math is consistent.
+    // Previously the export showed Revenue - COGS - Expenses = Net Profit, but
+    // the actual formula subtracts salaries too — so the exported numbers
+    // didn't add up when salaries existed.
+    { 'Particular': 'Staff Salaries', 'Amount': -(data.totalSalaries || 0) },
     { 'Particular': 'Net Profit', 'Amount': data.netProfit },
     { 'Particular': '', 'Amount': 0 },
     { 'Particular': 'GST Collected', 'Amount': data.totalGstCollected },

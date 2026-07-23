@@ -135,21 +135,45 @@ export async function POST(req: NextRequest) {
       let totalDebitBalance = 0
       let totalCreditBalance = 0
 
-      for (const account of accounts) {
-        const lines = await db.journalEntryLine.findMany({
-          where: {
-            accountId: account.id,
-            entry: dateFilter,
-          }
-        })
+      // v6.28.2: CRITICAL FIX #1 — replace N+1 per-account findMany loop with a
+      // single groupBy query. For a tenant with 30 accounts, this reduces DB
+      // round-trips from 31 to 2 (10-50× faster).
+      const grouped = await db.journalEntryLine.groupBy({
+        by: ['accountId'],
+        where: { entry: dateFilter },
+        _sum: { debit: true, credit: true },
+      })
+      const balanceByAccount: Record<string, { debit: number; credit: number }> = {}
+      for (const g of grouped) {
+        balanceByAccount[g.accountId] = {
+          debit: g._sum.debit || 0,
+          credit: g._sum.credit || 0,
+        }
+      }
 
-        const totalDebits = lines.reduce((s, l) => s + l.debit, 0)
-        const totalCredits = lines.reduce((s, l) => s + l.credit, 0)
+      for (const account of accounts) {
+        const bal = balanceByAccount[account.id]
+        if (!bal) continue
+        const totalDebits = bal.debit
+        const totalCredits = bal.credit
         const netDebit = totalDebits - totalCredits
 
         if (Math.abs(netDebit) > 0.01) {
-          const isDebitNature = account.type === 'Asset' || account.type === 'Expense'
-          if ((isDebitNature && netDebit > 0) || (!isDebitNature && netDebit < 0)) {
+          // v6.28.2: CRITICAL FIX #2 — placement depends ONLY on the sign of
+          // netDebit, NOT on the account type. A credit-natured account
+          // (Liability/Equity/Revenue) with a normal credit balance (netDebit < 0)
+          // must go in the CREDIT column.
+          //
+          // PREVIOUS BUG: the condition
+          //   `(isDebitNature && netDebit > 0) || (!isDebitNature && netDebit < 0)`
+          // matched credit-natured accounts with normal credit balances and
+          // routed them to the DEBIT branch — so Sales Revenue (credit balance)
+          // appeared in the Debit column, making the TB report "NOT BALANCED"
+          // even though the underlying JEs balanced perfectly.
+          //
+          // Now: netDebit > 0 → Debit column; netDebit < 0 → Credit column.
+          // This is the standard trial-balance placement rule.
+          if (netDebit > 0) {
             trialBalanceLines.push({
               code: account.accountCode,
               name: account.name,

@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
       // v4.59: Use select to only fetch needed fields (was loading entire records)
       // This reduces DB response size by 80-90% for large tables
       const [sales, purchases, expenses, receipts, payments] = await Promise.all([
-        db.sale.findMany({ where: dateFilter, select: { totalAmount: true, subtotal: true, gstAmount: true, date: true, partyName: true } }),
+        db.sale.findMany({ where: dateFilter, select: { totalAmount: true, subtotal: true, gstAmount: true, discountPercent: true, date: true, partyName: true } }),
         db.purchase.findMany({ where: dateFilter, select: { subtotal: true, gstAmount: true, date: true, partyName: true } }),
         db.expense.findMany({ where: dateFilter, select: { amount: true, category: true, date: true, description: true, paymentMode: true } }),
         db.receipt.findMany({ where: dateFilter, select: { amount: true, date: true, partyName: true, paymentMode: true } }),
@@ -47,11 +47,19 @@ export async function POST(req: NextRequest) {
         db.salaryPayment.aggregate({ where: salaryDateFilter, _sum: { amount: true }, _count: true }),
       ])
 
-      // v6.27.5: CRITICAL FIX — use subtotal (excl GST) for revenue, not totalAmount.
-      // Previously revenue included GST collected, which overstated gross profit
-      // by the entire GST liability. GST is a liability (payable to government),
-      // not revenue. COGS was already correctly using subtotal.
-      const totalRevenue = salesAgg._sum.subtotal || 0
+      // v6.28.2: CRITICAL FIX — account for sale-level discounts in revenue.
+      // Previously, `totalRevenue = salesAgg._sum.subtotal` which is the
+      // PRE-sale-discount subtotal. For a sale with subtotal=₹16,000 and
+      // discountPercent=50, the true revenue is ₹8,000, but the P&L showed
+      // ₹16,000 — overstating revenue and net profit by the discount amount.
+      //
+      // Now: compute post-discount revenue = SUM(subtotal × (1 - discountPercent/100))
+      // using the findMany results (which include discountPercent). This matches
+      // the Sale Register's `taxableAmount` formula exactly.
+      const totalRevenue = Math.round(sales.reduce((sum, s) => {
+        const discount = (s.subtotal || 0) * ((s as any).discountPercent || 0) / 100
+        return sum + (s.subtotal || 0) - discount
+      }, 0) * 100) / 100
       const totalCostOfGoods = purchasesAgg._sum.subtotal || 0
       const totalGstPaid = purchasesAgg._sum.gstAmount || 0
       const totalGstCollected = salesAgg._sum.gstAmount || 0
@@ -304,7 +312,7 @@ export async function POST(req: NextRequest) {
         paymentStatus: { not: 'PAID' },
       }
 
-      const [salesAgg, purchaseAgg, expenseAgg, invAgg, outstandingSales, outstandingPurchases, bankTxns, receiptsAgg, paymentsAgg, lowStockCount, salaryAgg] = await Promise.all([
+      const [salesAgg, purchaseAgg, expenseAgg, invAgg, outstandingSales, outstandingPurchases, salesForPnL, bankTxns, receiptsAgg, paymentsAgg, lowStockCount, salaryAgg] = await Promise.all([
         db.sale.aggregate({ where: dateFilter, _sum: { totalAmount: true, amountPaid: true, subtotal: true, gstAmount: true }, _count: true }),
         db.purchase.aggregate({ where: dateFilter, _sum: { totalAmount: true, amountPaid: true, subtotal: true }, _count: true }),
         db.expense.aggregate({ where: dateFilter, _sum: { amount: true }, _count: true }),
@@ -313,6 +321,8 @@ export async function POST(req: NextRequest) {
         db.sale.findMany({ where: outstandingSaleFilter, select: { totalAmount: true, amountReceived: true, amountPaid: true } }),
         // v6.28.1: fetch outstanding purchases to compute payable from the source of truth
         db.purchase.findMany({ where: outstandingPurchaseFilter, select: { totalAmount: true, amountPaid: true } }),
+        // v6.28.2: fetch sales with discountPercent for post-discount revenue calculation
+        db.sale.findMany({ where: dateFilter, select: { subtotal: true, discountPercent: true } }),
         // v4.59.1: Fix — BankTransaction has deposit/withdrawal/balance, NOT amount/type
         db.bankTransaction.findMany({ where: { tenantId, isDeleted: false }, orderBy: { date: 'desc' }, take: 5, select: { id: true, date: true, description: true, deposit: true, withdrawal: true, balance: true, category: true, bankName: true } }),
         db.receipt.aggregate({ where: dateFilter, _sum: { amount: true }, _count: true }),
@@ -386,13 +396,16 @@ export async function POST(req: NextRequest) {
         totalPayable,
         totalReceipts,
         totalPayments,
-        // v6.27.5: CRITICAL FIX — align dashboard net profit with P&L.
-        // Previously: totalSales (incl GST) - totalPurchases (incl GST) - totalExpenses.
-        // This double-counted GST (GST collected counted as revenue, GST paid counted as expense)
-        // and omitted salaries entirely. Now uses:
-        //   revenue (excl GST) - COGS (excl GST) - operating expenses - salaries
-        // which matches the P&L calculation at reports/route.ts:50-57.
-        netProfit: (salesAgg._sum.subtotal || 0) - (purchaseAgg._sum.subtotal || 0) - totalExpenses - totalSalaries,
+        // v6.28.2: CRITICAL FIX — align dashboard net profit with P&L, AND account
+        // for sale-level discounts. Previously used `salesAgg._sum.subtotal` which
+        // is the PRE-discount subtotal — overstating revenue by the discount amount.
+        // Now computes post-discount revenue from salesForPnL (same formula as P&L).
+        // Formula: postDiscountRevenue - purchaseSubtotal - expenses - salaries
+        // This EXACTLY matches the P&L netProfit (reports/route.ts:68).
+        netProfit: Math.round(salesForPnL.reduce((sum, s) => {
+          const discount = (s.subtotal || 0) * ((s as any).discountPercent || 0) / 100
+          return sum + (s.subtotal || 0) - discount
+        }, 0) * 100) / 100 - (purchaseAgg._sum.subtotal || 0) - totalExpenses - totalSalaries,
         lowStockCount,
         inventoryCount: invAgg._count || 0,
         recentBankTxns: bankTxns,

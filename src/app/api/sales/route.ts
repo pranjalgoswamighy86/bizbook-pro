@@ -340,12 +340,39 @@ export async function POST(req: NextRequest) {
               description: `Receivable from ${sale.partyName} for ${sale.invoiceNumber}`,
             })
           }
+          // v6.28.2: CRITICAL FIX — credit the POST-DISCOUNT revenue (not the
+          // pre-discount subtotal) and add a Discount Allowed debit line so
+          // the JE balances. Previously, crediting sale.subtotal (pre-discount)
+          // while debiting totalAmount (post-discount + tax) caused an imbalance
+          // equal to the discount amount — the Trial Balance would not foot.
+          //
+          // Revenue (post-discount) = totalAmount - gstAmount
+          //   (because totalAmount = taxableAmount + gstAmount, and
+          //    taxableAmount = subtotal - saleDiscountAmount)
+          // Discount Allowed = subtotal - (totalAmount - gstAmount)
+          const postDiscountRevenue = roundTo2(sale.totalAmount - (sale.gstAmount || 0))
+          const discountAllowed = roundTo2((sale.subtotal || 0) - postDiscountRevenue)
           jeLines.push({
             accountId: salesAccount!.id,
             debit: 0,
-            credit: sale.subtotal,
+            credit: postDiscountRevenue,
             description: `Sale ${sale.invoiceNumber}`,
           })
+          // If there's a sale-level discount, post it to Discount Allowed (40150)
+          if (discountAllowed > 0.01) {
+            let discountAllowedAccount = findAccount('40150')
+            if (!discountAllowedAccount) {
+              discountAllowedAccount = await tx.account.create({
+                data: { accountCode: '40150', name: 'Discount Allowed', type: 'Expense', tenantId: access.tenantId, isActive: true }
+              })
+            }
+            jeLines.push({
+              accountId: discountAllowedAccount.id,
+              debit: discountAllowed,
+              credit: 0,
+              description: `Invoice-level discount on ${sale.invoiceNumber}`,
+            })
+          }
 
           if (sale.gstAmount > 0) {
             const tenant = await tx.tenant.findUnique({ where: { id: access.tenantId } })
@@ -572,7 +599,7 @@ export async function POST(req: NextRequest) {
             if (oldDebtor) {
               await tx.debtor.update({
                 where: { id: oldDebtor.id },
-                data: { currentBalance: Math.max(0, roundTo2(oldDebtor.currentBalance - oldDue)) },
+                data: { currentBalance: roundTo2(oldDebtor.currentBalance - oldDue) },
               })
             }
           }
@@ -679,7 +706,20 @@ export async function POST(req: NextRequest) {
           if (!isCashSaleUpdated && amountDueUpdated > 0) {
             newJELines.push({ accountId: debtorsAccount!.id, debit: amountDueUpdated, credit: 0, description: `Receivable from ${sale.partyName} for ${sale.invoiceNumber}` })
           }
-          newJELines.push({ accountId: salesAccount!.id, debit: 0, credit: sale.subtotal, description: `Sale ${sale.invoiceNumber} (updated)` })
+          // v6.28.2: CRITICAL FIX — credit post-discount revenue + add Discount Allowed
+          // (same fix as CREATE path above, so UPDATE JEs balance identically)
+          const postDiscountRevenueUpd = roundTo2(sale.totalAmount - (sale.gstAmount || 0))
+          const discountAllowedUpd = roundTo2((sale.subtotal || 0) - postDiscountRevenueUpd)
+          newJELines.push({ accountId: salesAccount!.id, debit: 0, credit: postDiscountRevenueUpd, description: `Sale ${sale.invoiceNumber} (updated)` })
+          if (discountAllowedUpd > 0.01) {
+            let discountAllowedAccountUpd = findAccount('40150')
+            if (!discountAllowedAccountUpd) {
+              discountAllowedAccountUpd = await tx.account.create({
+                data: { accountCode: '40150', name: 'Discount Allowed', type: 'Expense', tenantId: access.tenantId, isActive: true }
+              })
+            }
+            newJELines.push({ accountId: discountAllowedAccountUpd.id, debit: discountAllowedUpd, credit: 0, description: `Invoice-level discount on ${sale.invoiceNumber} (updated)` })
+          }
 
           if (sale.gstAmount > 0) {
             const tenant = await tx.tenant.findUnique({ where: { id: access.tenantId } })
@@ -805,7 +845,7 @@ export async function POST(req: NextRequest) {
             if (debtor) {
               await tx.debtor.update({
                 where: { id: debtor.id },
-                data: { currentBalance: Math.max(0, roundTo2(debtor.currentBalance - due)) },
+                data: { currentBalance: roundTo2(debtor.currentBalance - due) },
               })
             }
           }

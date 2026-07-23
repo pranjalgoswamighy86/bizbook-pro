@@ -15,7 +15,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { formatCurrency, formatDate, getDateFilterRange } from '@/lib/formulas'
-import { isInterStateSupply } from '@/lib/gst-utils'
+import { isInterStateSupply, roundTo2 } from '@/lib/gst-utils'
 import { generateInvoiceHtml } from '@/lib/invoice-templates'
 import { Plus, Pencil, Trash2, Eye, ChevronDown, X, Loader2, CheckCircle2, Printer, Package, FileCheck, Sparkles } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
@@ -155,14 +155,29 @@ export function SaleRegister() {
   }, [tenant])
 
   // ===== COMPUTED VALUES (must be declared before useEffect that references them) =====
+  // v6.28.2: CRITICAL FIX — sale-level discount is now applied BEFORE tax
+  // computation, per Section 15(3) of the CGST Act. Previously, `totalTax`
+  // was computed on the pre-sale-discount subtotal, so GST was over-collected
+  // by (discountAmount × gstRate). Now we:
+  //   1. Compute subtotal = sum of per-item post-item-discount amounts
+  //   2. Apply sale-level discount to get taxableAmount
+  //   3. Recompute totalTax proportionally on taxableAmount
+  //   4. totalAmount = taxableAmount + recomputedTotalTax
+  //
+  // Example: subtotal=₹16,000, discountPercent=50%, GST=18%
+  //   OLD (buggy): taxable=₹8,000, tax=₹2,880 (on ₹16,000), total=₹10,880 ❌
+  //   NEW (correct): taxable=₹8,000, tax=₹1,440 (on ₹8,000), total=₹9,440 ✓
   const subtotal = items.reduce((s, i) => s + i.amount, 0)
-  const totalTax = items.reduce((s, i) => s + i.totalTax, 0)
+  const itemLevelTotalTax = items.reduce((s, i) => s + i.totalTax, 0)
   const totalDiscount = items.reduce((s, i) => s + i.discount, 0)
-  // v6.25.0: Sale-level discount percentage — Grand Total = Subtotal - Discount + Tax
   const saleDiscountPercent = form.discountPercent || 0
-  const saleDiscountAmount = Math.round(subtotal * saleDiscountPercent / 100 * 100) / 100
-  const taxableAmount = subtotal - saleDiscountAmount
-  const totalAmount = taxableAmount + totalTax
+  const saleDiscountAmount = roundTo2(subtotal * saleDiscountPercent / 100)
+  const taxableAmount = roundTo2(subtotal - saleDiscountAmount)
+  // Recompute tax on the post-discount taxable amount. If no sale-level discount,
+  // the ratio is 1.0 and totalTax = itemLevelTotalTax (unchanged).
+  const taxRatio = subtotal > 0 ? taxableAmount / subtotal : 0
+  const totalTax = roundTo2(itemLevelTotalTax * taxRatio)
+  const totalAmount = roundTo2(taxableAmount + totalTax)
 
   // v4.62.1: Auto-set payment for Cash sales — Total Amount = Amount Received, Balance Due = 0
   useEffect(() => {
@@ -212,22 +227,32 @@ export function SaleRegister() {
       }
     }
 
+    // v6.28.2: CRITICAL FIX — round each tax amount individually, then sum the
+    // ROUNDED amounts to get totalTax. This guarantees:
+    //   cgst.amount + sgst.amount = totalTax  (line item "foots")
+    //
+    // PREVIOUS BUG: totalTax was the rounded sum of UNROUNDED tax amounts,
+    // so cgst + sgst could differ from totalTax by ₹0.01. For example:
+    //   taxAmount (unrounded) = 0.4545 → rounded amount = 0.45
+    //   totalTax (old) = round(0.4545 + 0.4545) = round(0.909) = 0.91
+    //   But cgst(0.45) + sgst(0.45) = 0.90 ≠ 0.91 → line didn't foot.
+    //
+    // Now: totalTax = sum of rounded amounts = 0.45 + 0.45 = 0.90. ✓
     let runningBase = afterDiscount
-    let totalTax = 0
     const computedTaxes = expandedTaxes.map(tax => {
       const taxBase = tax.percentOn === 'Amount' ? afterDiscount : runningBase
-      const taxAmount = taxBase * (tax.percent / 100)
-      totalTax += taxAmount
+      const taxAmount = roundTo2(taxBase * (tax.percent / 100))
       runningBase += taxAmount
-      return { ...tax, amount: Math.round(taxAmount * 100) / 100 }
+      return { ...tax, amount: taxAmount }
     })
+    const totalTax = roundTo2(computedTaxes.reduce((s, t) => s + t.amount, 0))
 
     return {
       ...item,
-      amount: Math.round(afterDiscount * 100) / 100,
+      amount: roundTo2(afterDiscount),
       taxes: computedTaxes,
-      totalTax: Math.round(totalTax * 100) / 100,
-      total: Math.round((afterDiscount + totalTax) * 100) / 100
+      totalTax,
+      total: roundTo2(afterDiscount + totalTax)
     }
   }
 
@@ -333,8 +358,12 @@ export function SaleRegister() {
       invoiceNumber: sale.invoiceNumber, date: new Date(sale.date).toISOString().split('T')[0],
       partyName: sale.partyName, partyAddress: sale.partyAddress || '', partyGst: sale.partyGst || '',
       paymentStatus: normalizedStatus, amountPaid: sale.amountPaid, amountReceived: sale.amountReceived || sale.amountPaid, notes: sale.notes || '',
-      // v4.66: Preserve payment-related fields on edit (previously lost, causing TS/runtime issues)
-      paymentMode: 'CASH',
+      // v6.28.2: CRITICAL FIX — preserve discountPercent and paymentMode on edit.
+      // Previously, discountPercent was missing (defaulted to 0, silently removing
+      // the discount) and paymentMode was hardcoded to 'CASH' (converting partial/
+      // unpaid invoices to full cash payment on save).
+      discountPercent: sale.discountPercent || 0,
+      paymentMode: (sale.paymentMode as any) || 'CASH',
       ppCash: 0, ppCard: 0, ppUpi: 0, ppOther: 0, ppCredit: 0, ppOtherRemarks: '', paymentRemarks: '',
     })
     try {

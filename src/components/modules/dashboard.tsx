@@ -17,6 +17,9 @@ interface DashboardData {
   totalSales: number
   totalPurchases: number
   totalExpenses: number
+  // v6.28.2: totalSalaries returned by the API but was missing from the interface.
+  // Now included so we can render a 5th KPI card and make the net-profit math visible.
+  totalSalaries?: number
   totalInventoryValue: number
   totalReceivable: number
   totalPayable: number
@@ -77,7 +80,11 @@ export function Dashboard() {
     { title: 'Total Sales', value: data.totalSales, icon: <ShoppingCart className="h-5 w-5" />, color: 'text-emerald-600', bg: 'bg-emerald-50 dark:bg-emerald-950', count: `${data.salesCount} invoices`, arrow: <ArrowUpRight className="h-4 w-4" /> },
     { title: 'Total Purchases', value: data.totalPurchases, icon: <Package className="h-5 w-5" />, color: 'text-orange-600', bg: 'bg-orange-50 dark:bg-orange-950', count: `${data.purchaseCount} invoices`, arrow: <ArrowDownRight className="h-4 w-4" /> },
     { title: 'Total Expenses', value: data.totalExpenses, icon: <Receipt className="h-5 w-5" />, color: 'text-red-600', bg: 'bg-red-50 dark:bg-red-950', count: `${data.expenseCount} entries`, arrow: <ArrowDownRight className="h-4 w-4" /> },
-    { title: 'Net Profit', value: data.netProfit, icon: <TrendingUp className="h-5 w-5" />, color: data.netProfit >= 0 ? 'text-emerald-600' : 'text-red-600', bg: data.netProfit >= 0 ? 'bg-emerald-50 dark:bg-emerald-950' : 'bg-red-50 dark:bg-red-950', count: 'Revenue - Costs', arrow: data.netProfit >= 0 ? <ArrowUpRight className="h-4 w-4" /> : <ArrowDownRight className="h-4 w-4" /> },
+    // v6.28.2: Add Staff Salaries card so the net-profit math is visible.
+    // Without this, users see Sales - Purchases - Expenses ≠ Net Profit and
+    // don't understand why (the missing piece is salaries).
+    { title: 'Staff Salaries', value: data.totalSalaries ?? 0, icon: <UserCheck className="h-5 w-5" />, color: 'text-rose-600', bg: 'bg-rose-50 dark:bg-rose-950', count: 'Compensation', arrow: <ArrowDownRight className="h-4 w-4" /> },
+    { title: 'Net Profit', value: data.netProfit, icon: <TrendingUp className="h-5 w-5" />, color: data.netProfit >= 0 ? 'text-emerald-600' : 'text-red-600', bg: data.netProfit >= 0 ? 'bg-emerald-50 dark:bg-emerald-950' : 'bg-red-50 dark:bg-red-950', count: 'Rev − COGS − OpEx − Salaries', arrow: data.netProfit >= 0 ? <ArrowUpRight className="h-4 w-4" /> : <ArrowDownRight className="h-4 w-4" /> },
     { title: 'Receivable', value: data.totalReceivable, icon: <UserCheck className="h-5 w-5" />, color: 'text-blue-600', bg: 'bg-blue-50 dark:bg-blue-950', count: 'Money to receive' },
     { title: 'Payable', value: data.totalPayable, icon: <UserX className="h-5 w-5" />, color: 'text-amber-600', bg: 'bg-amber-50 dark:bg-amber-950', count: 'Money to pay' },
     { title: 'Inventory Value', value: data.totalInventoryValue, icon: <Package className="h-5 w-5" />, color: 'text-purple-600', bg: 'bg-purple-50 dark:bg-purple-950', count: `${data.inventoryCount} items` },
