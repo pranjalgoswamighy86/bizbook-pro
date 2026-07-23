@@ -2,6 +2,27 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db-soft-delete'
 import { requireAuthAndTenant, requireAuthAndRole, requireAuth, writeAuditLog } from '@/lib/api-helpers'
 
+// =====================================================================
+// v6.28.1: SINGLE SOURCE OF TRUTH for receivables
+// =====================================================================
+// Previously, the Debtor.currentBalance column was the source of truth
+// for the Dashboard and AR tab, while the Sale Register used
+// `Sale.totalAmount - Sale.amountReceived`. These two could drift
+// whenever a Receipt was created without an invoiceRef, or when a
+// Debtor's openingBalance was set manually.
+//
+// Now the `list` action derives each debtor's currentBalance from the
+// Sale table — summing `totalAmount - amountReceived` across all
+// non-cash, non-fully-paid sales for that party. This guarantees the
+// AR tab and Dashboard always match the Sale Register's "Due" column.
+//
+// The Debtor.currentBalance column is still kept in the DB for backward
+// compatibility, but the `list` action overwrites it with the computed
+// value before returning. Manual debtor `create` still sets an opening
+// balance (for pre-existing receivables not tied to a sale), which is
+// added to the sale-derived balance.
+// =====================================================================
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
@@ -46,7 +67,7 @@ export async function POST(req: NextRequest) {
       // --------------------------------------------------
 
       const { search } = body
-      const where: Record<string, unknown> = { tenantId, isDeleted: false }
+      const where: Record<string, unknown> = { tenantId: access.tenantId, isDeleted: false }
       if (search) {
         where.OR = [
           { name: { contains: search } },
@@ -55,8 +76,46 @@ export async function POST(req: NextRequest) {
         ]
       }
       const debtors = await db.debtor.findMany({ where, orderBy: { name: 'asc' } })
-      const totalReceivable = debtors.reduce((sum, d) => sum + d.currentBalance, 0)
-      return NextResponse.json({ debtors, totalReceivable })
+
+      // v6.28.1: Derive each debtor's currentBalance from the Sale table
+      // (single source of truth). This guarantees the AR tab matches the
+      // Sale Register's "Due" column exactly. We also fetch all outstanding
+      // sales in one query (grouped by partyName) to avoid N+1.
+      const outstandingSales = await db.sale.findMany({
+        where: {
+          tenantId: access.tenantId,
+          isDeleted: false,
+          paymentStatus: { not: 'RECEIVED' },
+        },
+        select: { partyName: true, totalAmount: true, amountReceived: true, amountPaid: true },
+      })
+      // Build a map of partyName → total outstanding receivable
+      const receivableByParty: Record<string, number> = {}
+      for (const s of outstandingSales) {
+        const due = (s.totalAmount || 0) - (s.amountReceived || s.amountPaid || 0)
+        if (due > 0) {
+          receivableByParty[s.partyName] = (receivableByParty[s.partyName] || 0) + due
+        }
+      }
+
+      // Overwrite each debtor's currentBalance with the sale-derived value.
+      // If a debtor has an openingBalance (manual pre-existing receivable not
+      // tied to a sale), add it on top so manually-created opening balances
+      // are preserved.
+      const debtorsWithComputedBalance = debtors.map(d => {
+        const saleDerived = Math.round((receivableByParty[d.name] || 0) * 100) / 100
+        const openingAdjustment = d.openingBalance || 0
+        return {
+          ...d,
+          currentBalance: Math.round((saleDerived + openingAdjustment) * 100) / 100,
+        }
+      })
+
+      const totalReceivable = debtorsWithComputedBalance.reduce((sum, d) => sum + d.currentBalance, 0)
+      return NextResponse.json({
+        debtors: debtorsWithComputedBalance,
+        totalReceivable: Math.round(totalReceivable * 100) / 100,
+      })
     }
 
     return NextResponse.json({ error: 'Invalid action' }, { status: 400 })

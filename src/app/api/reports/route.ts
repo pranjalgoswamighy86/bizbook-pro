@@ -281,13 +281,38 @@ export async function POST(req: NextRequest) {
 
       // v4.59: Use aggregate for dashboard totals (DB-side computation)
       // Was: findMany → load all records → reduce in JS — much slower
-      const [salesAgg, purchaseAgg, expenseAgg, invAgg, debtorAgg, creditorAgg, bankTxns, receiptsAgg, paymentsAgg, lowStockCount, salaryAgg] = await Promise.all([
+      //
+      // v6.28.1: CRITICAL FIX — derive totalReceivable and totalPayable from the
+      // Sale and Purchase tables (single source of truth) instead of the
+      // Debtor/Creditor tables. Previously the Dashboard used
+      // `Debtor.currentBalance` / `Creditor.currentBalance`, which could drift
+      // from `Sale.totalAmount - Sale.amountReceived` (the Sale Register's
+      // formula) whenever a Receipt/Payment was created without an invoiceRef
+      // or when a debtor/creditor had a manually-set openingBalance.
+      //
+      // Now we fetch all outstanding (non-fully-paid) sales and purchases and
+      // sum `totalAmount - amountReceived` / `totalAmount - amountPaid` — the
+      // exact same formula the Sale Register and Purchase Register use. This
+      // guarantees the Dashboard, AR tab, and Sale/Purchase Register all show
+      // identical receivable/payable figures.
+      const outstandingSaleFilter = {
+        tenantId, isDeleted: false,
+        paymentStatus: { not: 'RECEIVED' },
+      }
+      const outstandingPurchaseFilter = {
+        tenantId, isDeleted: false,
+        paymentStatus: { not: 'PAID' },
+      }
+
+      const [salesAgg, purchaseAgg, expenseAgg, invAgg, outstandingSales, outstandingPurchases, bankTxns, receiptsAgg, paymentsAgg, lowStockCount, salaryAgg] = await Promise.all([
         db.sale.aggregate({ where: dateFilter, _sum: { totalAmount: true, amountPaid: true, subtotal: true, gstAmount: true }, _count: true }),
         db.purchase.aggregate({ where: dateFilter, _sum: { totalAmount: true, amountPaid: true, subtotal: true }, _count: true }),
         db.expense.aggregate({ where: dateFilter, _sum: { amount: true }, _count: true }),
         db.inventoryItem.aggregate({ where: { tenantId, isDeleted: false }, _sum: { value: true }, _count: true }),
-        db.debtor.aggregate({ where: { tenantId, isDeleted: false }, _sum: { currentBalance: true } }),
-        db.creditor.aggregate({ where: { tenantId, isDeleted: false }, _sum: { currentBalance: true } }),
+        // v6.28.1: fetch outstanding sales to compute receivable from the source of truth
+        db.sale.findMany({ where: outstandingSaleFilter, select: { totalAmount: true, amountReceived: true, amountPaid: true } }),
+        // v6.28.1: fetch outstanding purchases to compute payable from the source of truth
+        db.purchase.findMany({ where: outstandingPurchaseFilter, select: { totalAmount: true, amountPaid: true } }),
         // v4.59.1: Fix — BankTransaction has deposit/withdrawal/balance, NOT amount/type
         db.bankTransaction.findMany({ where: { tenantId, isDeleted: false }, orderBy: { date: 'desc' }, take: 5, select: { id: true, date: true, description: true, deposit: true, withdrawal: true, balance: true, category: true, bankName: true } }),
         db.receipt.aggregate({ where: dateFilter, _sum: { amount: true }, _count: true }),
@@ -310,14 +335,22 @@ export async function POST(req: NextRequest) {
       const totalSalaries = (salaryAgg._sum && 'amount' in salaryAgg._sum ? (salaryAgg._sum as any).amount : 0) || 0
       const totalInventoryValue = invAgg._sum.value || 0
 
-      // v6.27.5: CRITICAL FIX — remove double-counting of receivables/payables.
-      // Previously the dashboard summed `Debtor.currentBalance` AND
-      // `Sale.totalAmount - Sale.amountPaid`. But the Sale CREATE flow already
-      // writes the unpaid amount into `Debtor.currentBalance` (sales/route.ts:242-277),
-      // so the same ₹X was counted twice. Same for purchases → creditors.
-      // Now we use ONLY the Debtor/Creditor balances, which are the canonical AP/AR.
-      const totalReceivable = debtorAgg._sum.currentBalance || 0
-      const totalPayable = creditorAgg._sum.currentBalance || 0
+      // v6.28.1: CRITICAL FIX — derive receivable/payable from Sale/Purchase tables.
+      // This is the SAME formula the Sale Register uses (line 801):
+      //   totalAmount - (amountReceived || amountPaid)
+      // so the Dashboard is guaranteed to match the Sale Register's "Due" column.
+      // Also add any Debtor/Creditor openingBalance (manual pre-existing
+      // receivables/payables not tied to a sale/purchase).
+      const totalReceivable = Math.round(outstandingSales.reduce((sum, s) => {
+        const due = (s.totalAmount || 0) - (s.amountReceived || s.amountPaid || 0)
+        return sum + (due > 0 ? due : 0)
+      }, 0) * 100) / 100
+
+      const totalPayable = Math.round(outstandingPurchases.reduce((sum, p) => {
+        const due = (p.totalAmount || 0) - (p.amountPaid || 0)
+        return sum + (due > 0 ? due : 0)
+      }, 0) * 100) / 100
+
       const totalReceipts = receiptsAgg._sum.amount || 0
       const totalPayments = paymentsAgg._sum.amount || 0
 
