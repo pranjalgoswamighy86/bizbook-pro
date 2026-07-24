@@ -57,6 +57,11 @@ export function SettingsPage() {
   const [dbPath, setDbPath] = useState('')
   const [tenantCreatedAt, setTenantCreatedAt] = useState('')
 
+  // --- Database Reconciliation State (v6.28.3) ---
+  const [reconcileLoading, setReconcileLoading] = useState(false)
+  const [reconcileResult, setReconcileResult] = useState<any>(null)
+  const [remediateLoading, setRemediateLoading] = useState(false)
+  const [remediateResult, setRemediateResult] = useState<any>(null)
   // --- Invoice Customization State ---
   // v6.27.2: EXPLICIT-SAVE-ONLY MODEL
   // ---------------------------------
@@ -391,6 +396,65 @@ export function SettingsPage() {
       }
     }
   }, [tenant])
+
+  // v6.28.3: Database Reconciliation — run audit to find calculation discrepancies
+  const handleRunReconcile = async () => {
+    if (!tenant) return
+    setReconcileLoading(true)
+    setReconcileResult(null)
+    try {
+      const res = await authFetch('/api/admin/reconcile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'audit', tenantId: tenant.id }),
+      })
+      const data = await res.json()
+      if (res.ok && data.success) {
+        setReconcileResult(data)
+        toast({
+          title: 'Audit Complete',
+          description: data.summary.totalDiscrepancies === 0
+            ? 'No discrepancies found. Database is 100% in sync.'
+            : `${data.summary.totalDiscrepancies} discrepancy(ies) found across ${Object.keys(data.summary.stats).length} tables.`,
+        })
+      } else {
+        toast({ title: 'Audit Failed', description: data.error || 'Unknown error', variant: 'destructive' })
+      }
+    } catch {
+      toast({ title: 'Audit Failed', description: 'Network error', variant: 'destructive' })
+    }
+    setReconcileLoading(false)
+  }
+
+  // v6.28.3: Database Remediation — fix all identified discrepancies
+  const handleRunRemediate = async () => {
+    if (!tenant) return
+    if (!confirm('This will recalculate and update all mismatched financial records. Continue?')) return
+    setRemediateLoading(true)
+    setRemediateResult(null)
+    try {
+      const res = await authFetch('/api/admin/reconcile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'remediate', tenantId: tenant.id, dryRun: false }),
+      })
+      const data = await res.json()
+      if (res.ok && data.success) {
+        setRemediateResult(data)
+        toast({
+          title: 'Remediation Complete',
+          description: data.message || `${data.fixed} records fixed.`,
+        })
+        // Re-run audit to verify
+        setTimeout(() => handleRunReconcile(), 1000)
+      } else {
+        toast({ title: 'Remediation Failed', description: data.error || 'Unknown error', variant: 'destructive' })
+      }
+    } catch {
+      toast({ title: 'Remediation Failed', description: 'Network error', variant: 'destructive' })
+    }
+    setRemediateLoading(false)
+  }
 
   useEffect(() => {
     if (!tenant) return
@@ -1356,6 +1420,104 @@ export function SettingsPage() {
                       <p className="text-lg font-bold">{value as number}</p>
                     </div>
                   ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* v6.28.3: Database Reconciliation & Remediation */}
+          <Card className="border-0 shadow-sm">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <ShieldCheck className="h-4 w-4 text-emerald-600" />
+                Database Reconciliation & Remediation
+              </CardTitle>
+              <CardDescription className="text-xs">
+                Run a full audit of all financial tables to identify calculation discrepancies, then fix them with transaction-safe updates.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex gap-2 flex-wrap">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleRunReconcile}
+                  disabled={reconcileLoading || !canManage(user?.role || 'VIEW_ONLY')}
+                >
+                  {reconcileLoading ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Activity className="h-3.5 w-3.5 mr-1" />}
+                  Run Audit
+                </Button>
+                {reconcileResult && reconcileResult.summary && reconcileResult.summary.totalDiscrepancies > 0 && (
+                  <Button
+                    size="sm"
+                    className="bg-emerald-600 hover:bg-emerald-700"
+                    onClick={handleRunRemediate}
+                    disabled={remediateLoading || !canManage(user?.role || 'VIEW_ONLY')}
+                  >
+                    {remediateLoading ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <ShieldCheck className="h-3.5 w-3.5 mr-1" />}
+                    Fix All Discrepancies
+                  </Button>
+                )}
+              </div>
+
+              {/* Audit Results */}
+              {reconcileResult && reconcileResult.summary && (
+                <div className="space-y-3">
+                  <div className={`p-3 rounded-lg ${reconcileResult.summary.totalDiscrepancies === 0 ? 'bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200' : 'bg-amber-50 dark:bg-amber-950/30 border border-amber-200'}`}>
+                    <p className={`text-sm font-semibold ${reconcileResult.summary.totalDiscrepancies === 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-amber-700 dark:text-amber-400'}`}>
+                      {reconcileResult.summary.totalDiscrepancies === 0
+                        ? '✓ All financial calculations are 100% in sync'
+                        : `${reconcileResult.summary.totalDiscrepancies} discrepancy(ies) found`}
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Audited at: {new Date(reconcileResult.summary.generatedAt).toLocaleString()}
+                    </p>
+                  </div>
+
+                  {/* Per-table stats */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {Object.entries(reconcileResult.summary.stats).map(([table, s]: [string, any]) => (
+                      <div key={table} className={`p-2 rounded text-center ${s.flagged > 0 ? 'bg-red-50 dark:bg-red-950/30 border border-red-200' : 'bg-muted/30'}`}>
+                        <p className="text-xs text-muted-foreground">{table}</p>
+                        <p className="text-sm font-bold">{s.flagged > 0 ? `${s.flagged} flagged` : `${s.total} OK`}</p>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Discrepancy details (first 10) */}
+                  {reconcileResult.discrepancies && reconcileResult.discrepancies.length > 0 && (
+                    <div className="max-h-60 overflow-y-auto space-y-1">
+                      {reconcileResult.discrepancies.slice(0, 20).map((d: any, i: number) => (
+                        <div key={i} className="text-xs bg-muted/30 p-2 rounded border-l-2 border-amber-400">
+                          <span className="font-mono text-muted-foreground">[{d.table}]</span> {d.description}
+                          {d.difference !== 0 && (
+                            <span className="text-red-600 font-medium ml-1">(diff: ₹{d.difference})</span>
+                          )}
+                        </div>
+                      ))}
+                      {reconcileResult.discrepancies.length > 20 && (
+                        <p className="text-xs text-muted-foreground text-center pt-1">
+                          ... and {reconcileResult.discrepancies.length - 20} more
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Remediation Results */}
+              {remediateResult && (
+                <div className="p-3 rounded-lg bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200">
+                  <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-400">
+                    {remediateResult.message}
+                  </p>
+                  {remediateResult.fixes && remediateResult.fixes.length > 0 && (
+                    <div className="mt-2 max-h-40 overflow-y-auto space-y-1">
+                      {remediateResult.fixes.map((f: string, i: number) => (
+                        <p key={i} className="text-xs text-muted-foreground">• {f}</p>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </CardContent>
