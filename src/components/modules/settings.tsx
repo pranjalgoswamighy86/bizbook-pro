@@ -62,6 +62,9 @@ export function SettingsPage() {
   const [reconcileResult, setReconcileResult] = useState<any>(null)
   const [remediateLoading, setRemediateLoading] = useState(false)
   const [remediateResult, setRemediateResult] = useState<any>(null)
+  // v6.28.11: Sale JE repair state
+  const [repairSaleJEsLoading, setRepairSaleJEsLoading] = useState(false)
+  const [repairSaleJEsResult, setRepairSaleJEsResult] = useState<any>(null)
   // --- Invoice Customization State ---
   // v6.27.2: EXPLICIT-SAVE-ONLY MODEL
   // ---------------------------------
@@ -454,6 +457,36 @@ export function SettingsPage() {
       toast({ title: 'Remediation Failed', description: 'Network error', variant: 'destructive' })
     }
     setRemediateLoading(false)
+  }
+
+  // v6.28.11: Repair Sale JEs — fixes corrupted GL entries from the GST back-calculation bug
+  const handleRepairSaleJEs = async () => {
+    if (!tenant) return
+    if (!confirm('This will recalculate and update ALL Sale Journal Entry lines to match the correct GST logic (0% GST = full totalAmount to Sales Revenue). Continue?')) return
+    setRepairSaleJEsLoading(true)
+    setRepairSaleJEsResult(null)
+    try {
+      const res = await authFetch('/api/admin/reconcile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'repair-sale-jes', tenantId: tenant.id }),
+      })
+      const data = await res.json()
+      if (res.ok && data.success) {
+        setRepairSaleJEsResult(data)
+        toast({
+          title: 'GL Repair Complete',
+          description: data.message,
+        })
+        // Re-run audit to verify
+        setTimeout(() => handleRunReconcile(), 1000)
+      } else {
+        toast({ title: 'Repair Failed', description: data.error || 'Unknown error', variant: 'destructive' })
+      }
+    } catch {
+      toast({ title: 'Repair Failed', description: 'Network error', variant: 'destructive' })
+    }
+    setRepairSaleJEsLoading(false)
   }
 
   useEffect(() => {
@@ -1458,7 +1491,45 @@ export function SettingsPage() {
                     Fix All Discrepancies
                   </Button>
                 )}
+                {/* v6.28.11: Repair Sale JEs — fixes corrupted GL entries from GST back-calculation bug */}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="border-blue-300 text-blue-700 hover:bg-blue-50"
+                  onClick={handleRepairSaleJEs}
+                  disabled={repairSaleJEsLoading || !canManage(user?.role || 'VIEW_ONLY')}
+                  title="Recalculates all Sale Journal Entry lines using the correct GST logic (0% GST = full totalAmount to Sales Revenue)"
+                >
+                  {repairSaleJEsLoading ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Database className="h-3.5 w-3.5 mr-1" />}
+                  Repair Sale GL Entries
+                </Button>
               </div>
+
+              {/* Repair Sale JEs Results */}
+              {repairSaleJEsResult && (
+                <div className="p-3 rounded-lg bg-blue-50 dark:bg-blue-950/30 border border-blue-200">
+                  <p className="text-sm font-semibold text-blue-700 dark:text-blue-400">
+                    {repairSaleJEsResult.message}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Scanned: {repairSaleJEsResult.totalJEsScanned} JEs · Repaired: {repairSaleJEsResult.totalJEsRepaired} · Lines fixed: {repairSaleJEsResult.totalLinesFixed}
+                  </p>
+                  {repairSaleJEsResult.repairs && repairSaleJEsResult.repairs.length > 0 && (
+                    <div className="mt-2 max-h-40 overflow-y-auto space-y-1">
+                      {repairSaleJEsResult.repairs.map((r: any, i: number) => (
+                        <div key={i} className="text-xs bg-muted/30 p-2 rounded border-l-2 border-blue-400">
+                          <span className="font-mono font-medium">{r.invoiceNumber}</span>
+                          {r.linesFixed.map((lf: any, j: number) => (
+                            <span key={j} className="ml-2 text-muted-foreground">
+                              {lf.accountCode}.{lf.field}: ₹{lf.oldValue} → ₹{lf.newValue}
+                            </span>
+                          ))}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Audit Results */}
               {reconcileResult && reconcileResult.summary && (

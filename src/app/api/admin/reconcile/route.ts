@@ -48,7 +48,19 @@ export async function POST(req: NextRequest) {
       return await runRemediation(access.tenantId, access.userId, access.user.name, body.dryRun !== false)
     }
 
-    return NextResponse.json({ error: 'Invalid action. Use "audit" or "remediate".' }, { status: 400 })
+    // v6.28.11: Repair sale JEs that have incorrect Sales Revenue / AR amounts
+    // due to the v6.28.2-v6.28.6 GST back-calculation bug. This action:
+    //   1. Finds all SALE-type JEs for the tenant
+    //   2. Looks up the corresponding Sale record
+    //   3. Recalculates the correct JE lines based on current logic:
+    //      - gstAmount=0: Cr Sales = totalAmount (no GST line)
+    //      - gstAmount>0: Cr Sales = subtotal, Cr GST = gstAmount
+    //   4. Updates the JournalEntryLines directly in a transaction
+    if (action === 'repair-sale-jes') {
+      return await runRepairSaleJEs(access.tenantId, access.userId, access.user.name)
+    }
+
+    return NextResponse.json({ error: 'Invalid action. Use "audit", "remediate", or "repair-sale-jes".' }, { status: 400 })
   } catch (error: any) {
     console.error('[RECONCILE] Error:', error)
     return NextResponse.json({ error: error.message || 'Internal server error' }, { status: 500 })
@@ -583,4 +595,189 @@ async function runAuditInternal(tenantId: string) {
   }
 
   return { discrepancies }
+}
+
+// =====================================================================
+// v6.28.11: Repair Sale Journal Entries
+// =====================================================================
+// Fixes the GL desynchronization caused by the v6.28.2-v6.28.6 GST
+// back-calculation bug. For each SALE-type JE:
+//
+//   1. Looks up the corresponding Sale record
+//   2. Recalculates the correct amounts:
+//      - gstAmount=0: Cr Sales Revenue = totalAmount (no GST line)
+//      - gstAmount>0: Cr Sales Revenue = subtotal, Cr GST = gstAmount
+//   3. Compares with the currently posted JE lines
+//   4. If they differ, updates the JournalEntryLines directly
+//
+// This is a DIRECT data repair — it modifies the stored JE lines in place
+// rather than creating reversing entries. This is appropriate because the
+// original JEs were mathematically wrong (not just accounting entries that
+// need reversal). The repair makes the GL match the Sale Register exactly.
+//
+// For INV-384603 (totalAmount=8000, gstAmount=0, received=2000):
+//   OLD (corrupted): Dr Cash=2000, Dr AR=5050, Cr Sales=7050
+//   NEW (correct):   Dr Cash=2000, Dr AR=6000, Cr Sales=8000
+// =====================================================================
+async function runRepairSaleJEs(tenantId: string, userId: string, userName: string) {
+  // Find all SALE-type JEs (not MANUAL reversals) for this tenant
+  const saleJEs = await db.journalEntry.findMany({
+    where: {
+      tenantId,
+      sourceType: 'SALE',
+      isPosted: true,
+    },
+    include: {
+      lines: { include: { account: { select: { accountCode: true } } } },
+    },
+  })
+
+  const repairs: Array<{
+    invoiceNumber: string
+    jeId: string
+    linesFixed: Array<{ accountCode: string; field: string; oldValue: number; newValue: number }>
+  }> = []
+  let totalLinesFixed = 0
+
+  for (const je of saleJEs) {
+    // Find the corresponding sale
+    if (!je.sourceId) continue
+    const sale = await db.sale.findUnique({
+      where: { id: je.sourceId },
+      select: {
+        invoiceNumber: true,
+        totalAmount: true,
+        subtotal: true,
+        gstAmount: true,
+        amountReceived: true,
+        amountPaid: true,
+        discountPercent: true,
+        partyName: true,
+        paymentStatus: true,
+      },
+    })
+    if (!sale || sale.isDeleted) continue
+
+    // Calculate the CORRECT amounts using the v6.28.7 logic
+    const amountReceived = roundTo2(sale.amountReceived || sale.amountPaid || 0)
+    const amountDue = roundTo2(sale.totalAmount - amountReceived)
+
+    // v6.28.7 logic: when gstAmount=0, credit full totalAmount to Sales Revenue
+    const grossSubtotal = (sale.gstAmount || 0) > 0
+      ? (sale.subtotal || roundTo2(sale.totalAmount - (sale.gstAmount || 0)))
+      : sale.totalAmount
+
+    const saleDiscountAmount = roundTo2(grossSubtotal * (sale.discountPercent || 0) / 100)
+
+    // Build the expected line amounts by account code
+    const expectedAmounts: Record<string, { debit: number; credit: number }> = {}
+
+    // Dr Cash (10100) = amountReceived (if > 0)
+    if (amountReceived > 0.01) {
+      expectedAmounts['10100'] = { debit: amountReceived, credit: 0 }
+    }
+
+    // Dr Accounts Receivable (10300) = amountDue (if > 0 and not cash sale)
+    const isCashSale = (sale.partyName || '').trim().toLowerCase() === 'cash'
+    if (!isCashSale && amountDue > 0.01) {
+      expectedAmounts['10300'] = { debit: amountDue, credit: 0 }
+    }
+
+    // Cr Sales Revenue (40100) = grossSubtotal
+    expectedAmounts['40100'] = { debit: 0, credit: grossSubtotal }
+
+    // Dr Discount Allowed (40150) = saleDiscountAmount (if > 0)
+    if (saleDiscountAmount > 0.01) {
+      expectedAmounts['40150'] = { debit: saleDiscountAmount, credit: 0 }
+    }
+
+    // Cr GST Payable (20200/20201/20202/20203) = gstAmount (if > 0)
+    // We check all GST Payable account codes
+    if ((sale.gstAmount || 0) > 0.01) {
+      // The GST might be posted to any of 20200, 20201, 20202, 20203
+      // We'll match whichever exists in the current JE lines
+      const gstLine = je.lines.find(l =>
+        l.account.accountCode === '20200' ||
+        l.account.accountCode === '20201' ||
+        l.account.accountCode === '20202' ||
+        l.account.accountCode === '20203'
+      )
+      if (gstLine) {
+        expectedAmounts[gstLine.account.accountCode] = { debit: 0, credit: roundTo2(sale.gstAmount || 0) }
+      }
+    }
+
+    // Compare and fix each line
+    const linesFixed: Array<{ accountCode: string; field: string; oldValue: number; newValue: number }> = []
+
+    for (const line of je.lines) {
+      const code = line.account.accountCode
+      const expected = expectedAmounts[code]
+      if (!expected) continue // Skip lines we don't manage (e.g., rounding adjustments)
+
+      // Check debit
+      if (Math.abs((line.debit || 0) - expected.debit) > TOLERANCE) {
+        linesFixed.push({
+          accountCode: code,
+          field: 'debit',
+          oldValue: line.debit || 0,
+          newValue: expected.debit,
+        })
+      }
+
+      // Check credit
+      if (Math.abs((line.credit || 0) - expected.credit) > TOLERANCE) {
+        linesFixed.push({
+          accountCode: code,
+          field: 'credit',
+          oldValue: line.credit || 0,
+          newValue: expected.credit,
+        })
+      }
+    }
+
+    // If any lines need fixing, apply the repair in a transaction
+    if (linesFixed.length > 0) {
+      await db.$transaction(async (tx) => {
+        for (const fix of linesFixed) {
+          const line = je.lines.find(l => l.account.accountCode === fix.accountCode)
+          if (!line) continue
+
+          const updateData: any = { updatedAt: new Date() }
+          if (fix.field === 'debit') updateData.debit = fix.newValue
+          if (fix.field === 'credit') updateData.credit = fix.newValue
+
+          await tx.journalEntryLine.update({
+            where: { id: line.id },
+            data: updateData,
+          })
+        }
+      })
+
+      repairs.push({
+        invoiceNumber: sale.invoiceNumber,
+        jeId: je.id,
+        linesFixed,
+      })
+      totalLinesFixed += linesFixed.length
+    }
+  }
+
+  await writeAuditLog({
+    tenantId, userId, userName,
+    action: 'UPDATE',
+    entityType: 'Reconciliation',
+    entityId: 'repair-sale-jes',
+    entityName: `GL repair: ${totalLinesFixed} JE lines fixed across ${repairs.length} sale(s)`,
+    changes: { repairsCount: repairs.length, totalLinesFixed, repairs: repairs.slice(0, 20) },
+  }).catch(() => {})
+
+  return NextResponse.json({
+    success: true,
+    message: `Repair complete. Fixed ${totalLinesFixed} JE line(s) across ${repairs.length} sale(s).`,
+    totalJEsScanned: saleJEs.length,
+    totalJEsRepaired: repairs.length,
+    totalLinesFixed,
+    repairs: repairs.slice(0, 20), // Return first 20 repairs
+  })
 }
