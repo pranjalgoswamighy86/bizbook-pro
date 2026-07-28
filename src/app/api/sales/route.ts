@@ -373,9 +373,19 @@ export async function POST(req: NextRequest) {
           // but if gstAmount was 0 in the DB while the Sale Register displayed a
           // tax-inclusive total, the JE was short by the entire tax amount).
           //
-          // NOW: Credit GROSS subtotal. The discount (if any) is a separate debit.
-          // The GST (if any) is a separate credit. Everything foots to totalAmount.
-          const grossSubtotal = sale.subtotal || roundTo2(sale.totalAmount - (sale.gstAmount || 0))
+          // v6.28.7: CRITICAL FIX — when gstAmount = 0 (non-GST / 0% / exempt),
+          // credit the FULL totalAmount to Sales Revenue. When gstAmount > 0,
+          // credit subtotal (= totalAmount - gstAmount) to Sales Revenue and
+          // gstAmount to GST Payable separately.
+          //
+          // For INV-384603 (non-GST): totalAmount=8000, gstAmount=0
+          //   Dr Cash = 2000, Dr AR = 6000, Cr Sales = 8000  ✓
+          //
+          // For a GST sale: totalAmount=8000, gstAmount=950, subtotal=7050
+          //   Dr Cash = 2000, Dr AR = 6000, Cr Sales = 7050, Cr GST = 950  ✓
+          const grossSubtotal = (sale.gstAmount || 0) > 0
+            ? (sale.subtotal || roundTo2(sale.totalAmount - (sale.gstAmount || 0)))
+            : sale.totalAmount  // 0% GST: full total goes to Sales Revenue
           const saleDiscountAmount = roundTo2(grossSubtotal * (sale.discountPercent || 0) / 100)
 
           jeLines.push({
@@ -738,8 +748,10 @@ export async function POST(req: NextRequest) {
           if (!isCashSaleUpdated && amountDueUpdated > 0) {
             newJELines.push({ accountId: debtorsAccount!.id, debit: amountDueUpdated, credit: 0, description: `Receivable from ${sale.partyName} for ${sale.invoiceNumber}` })
           }
-          // v6.28.5: Same fix as CREATE — credit GROSS subtotal, debit Discount Allowed
-          const grossSubtotalUpd = sale.subtotal || roundTo2(sale.totalAmount - (sale.gstAmount || 0))
+          // v6.28.7: Same fix as CREATE — when gstAmount=0, credit full totalAmount
+          const grossSubtotalUpd = (sale.gstAmount || 0) > 0
+            ? (sale.subtotal || roundTo2(sale.totalAmount - (sale.gstAmount || 0)))
+            : sale.totalAmount
           const saleDiscountAmountUpd = roundTo2(grossSubtotalUpd * (sale.discountPercent || 0) / 100)
           newJELines.push({ accountId: salesAccount!.id, debit: 0, credit: grossSubtotalUpd, description: `Sale ${sale.invoiceNumber} (updated)` })
           if (saleDiscountAmountUpd > 0.01) {

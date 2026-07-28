@@ -87,6 +87,6 @@ export function useSubscriptionUsageTracker() {
       clearInterval(interval)
       document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
-  }, [isAuthenticated, tenant?.id, user])
+  }, [isAuthenticated, tenant?.id, user?.id])
 }
 

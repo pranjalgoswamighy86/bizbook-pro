@@ -40,7 +40,7 @@ export function Debtors() {
     setDebtors(data.debtors || [])
     setTotalReceivable(data.totalReceivable || 0)
     setLoading(false)
-  }, [tenant, searchQuery])
+  }, [tenant?.id, searchQuery]))
 
   useEffect(() => { fetchDebtors() }, [fetchDebtors])
 

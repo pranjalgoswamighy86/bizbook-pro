@@ -50,15 +50,13 @@ export function BalanceSheet() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    if (!tenant) return
-    // v6.28.0: send asOfDate = today so the BS reflects the current financial position.
-    // The backend now supports historical BS by passing a different asOfDate.
+    if (!tenant?.id) return
     authFetch('/api/reports', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'balance-sheet', tenantId: tenant.id, asOfDate: new Date().toISOString() }),
     })
       .then((r) => { if (!r.ok) throw new Error('API error: ' + r.status); return r.json() }).then(setData).catch(console.error).finally(() => setLoading(false))
-  }, [tenant])
+  }, [tenant?.id])
 
   if (loading || !data) return <div><AppHeader title="Balance Sheet" /><div className="p-6"><p className="text-muted-foreground">Loading...</p></div></div>
 

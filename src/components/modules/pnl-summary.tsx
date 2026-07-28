@@ -39,14 +39,14 @@ export function PnLSummary() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    if (!tenant) return
+    if (!tenant?.id) return
     const range = getDateFilterRange(dateFilter)
     authFetch('/api/reports', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'pnl', tenantId: tenant.id, startDate: range.start.toISOString(), endDate: range.end.toISOString() }),
     })
       .then((r) => { if (!r.ok) throw new Error('API error: ' + r.status); return r.json() }).then(setData).catch(console.error).finally(() => setLoading(false))
-  }, [tenant, dateFilter])
+  }, [tenant?.id, dateFilter])
 
   if (loading || !data) return <div><AppHeader title="P&L Summary" /><div className="p-6"><p className="text-muted-foreground">Loading...</p></div></div>
 

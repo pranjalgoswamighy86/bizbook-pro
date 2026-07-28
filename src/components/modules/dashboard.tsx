@@ -45,7 +45,7 @@ export function Dashboard() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    if (!tenant) return
+    if (!tenant?.id) return
     const range = getDateFilterRange(dateFilter)
     authFetch('/api/reports', {
       method: 'POST',
@@ -61,7 +61,7 @@ export function Dashboard() {
       .then((d) => setData(d))
       .catch(console.error)
       .finally(() => setLoading(false))
-  }, [tenant, dateFilter])
+  }, [tenant?.id, dateFilter])
 
   if (loading || !data) {
     return (
