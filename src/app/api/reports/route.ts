@@ -238,8 +238,29 @@ export async function POST(req: NextRequest) {
 
       const capital = Math.max(0, -balanceByCode('30100'))
       const retainedEarnings = Math.max(0, -balanceByCode('30200'))
+
+      // v6.28.5: CRITICAL FIX — compute current-period net income from the GL
+      // and include it as equity. Without this, the Balance Sheet will NEVER
+      // balance because Revenue and Expense accounts sit in the GL with
+      // nonzero balances but are not closed to Retained Earnings (there is no
+      // period-end closing routine in the app).
+      //
+      // Net Income = total Revenue (credit balances) - total Expenses (debit balances)
+      // Revenue accounts have credit balances (negative netDebit), so we negate.
+      // Expense accounts have debit balances (positive netDebit).
+      // Discount Allowed (40150) is an Expense with a debit balance.
+      const totalRevenueGL = accounts
+        .filter(a => a.type === 'Revenue')
+        .reduce((s, a) => s + Math.max(0, -(balanceByAccount[a.id] || 0)), 0)
+      const totalExpensesGL = accounts
+        .filter(a => a.type === 'Expense')
+        .reduce((s, a) => s + Math.max(0, (balanceByAccount[a.id] || 0)), 0)
+      const currentPeriodNetIncome = roundTo2(totalRevenueGL - totalExpensesGL)
+
       const drawings = Math.max(0, balanceByCode('30300')) // contra-equity, debit balance
-      const totalEquity = capital + retainedEarnings - drawings
+      // v6.28.5: Include current-period net income in equity so the BS balances.
+      // If net income is negative (loss), it reduces equity.
+      const totalEquity = capital + retainedEarnings + currentPeriodNetIncome - drawings
 
       return NextResponse.json({
         asOfDate: asOfDate || null,
@@ -264,6 +285,7 @@ export async function POST(req: NextRequest) {
         equity: {
           capital,
           retainedEarnings,
+          currentPeriodNetIncome,
           drawings,
           total: totalEquity,
         },

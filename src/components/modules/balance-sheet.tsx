@@ -34,6 +34,7 @@ interface BalanceSheetData {
   equity: {
     capital: number
     retainedEarnings: number
+    currentPeriodNetIncome?: number
     drawings: number
     total: number
   }
@@ -167,6 +168,14 @@ export function BalanceSheet() {
               <div className="space-y-2">
                 <div className="flex justify-between py-2 border-b"><span className="text-sm">Capital</span><span className="font-medium">{formatCurrency(data.equity.capital, tenant?.currency)}</span></div>
                 <div className="flex justify-between py-2 border-b"><span className="text-sm">Retained Earnings</span><span className={`font-medium ${data.equity.retainedEarnings >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>{formatCurrency(data.equity.retainedEarnings, tenant?.currency)}</span></div>
+                {data.equity.currentPeriodNetIncome !== undefined && (
+                  <div className="flex justify-between py-2 border-b">
+                    <span className="text-sm">Current Period Net Income</span>
+                    <span className={`font-medium ${data.equity.currentPeriodNetIncome >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                      {formatCurrency(data.equity.currentPeriodNetIncome, tenant?.currency)}
+                    </span>
+                  </div>
+                )}
                 {data.equity.drawings > 0 && <div className="flex justify-between py-2 border-b"><span className="text-sm">Drawings (contra)</span><span className="font-medium text-red-600">-{formatCurrency(data.equity.drawings, tenant?.currency)}</span></div>}
                 <div className="flex justify-between py-3 font-bold text-blue-700 bg-blue-50 dark:bg-blue-950 px-2 rounded">
                   <span>Total Equity</span><span>{formatCurrency(data.equity.total, tenant?.currency)}</span>

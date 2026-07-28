@@ -340,26 +340,47 @@ export async function POST(req: NextRequest) {
               description: `Receivable from ${sale.partyName} for ${sale.invoiceNumber}`,
             })
           }
-          // v6.28.2: CRITICAL FIX — credit the POST-DISCOUNT revenue (not the
-          // pre-discount subtotal) and add a Discount Allowed debit line so
-          // the JE balances. Previously, crediting sale.subtotal (pre-discount)
-          // while debiting totalAmount (post-discount + tax) caused an imbalance
-          // equal to the discount amount — the Trial Balance would not foot.
+          // v6.28.5: CRITICAL FIX — credit the GROSS subtotal to Sales Revenue
+          // and post the sale-level discount as a separate Dr Discount Allowed.
+          // This is the standard GAAP double-entry:
           //
-          // Revenue (post-discount) = totalAmount - gstAmount
-          //   (because totalAmount = taxableAmount + gstAmount, and
-          //    taxableAmount = subtotal - saleDiscountAmount)
-          // Discount Allowed = subtotal - (totalAmount - gstAmount)
-          const postDiscountRevenue = roundTo2(sale.totalAmount - (sale.gstAmount || 0))
-          const discountAllowed = roundTo2((sale.subtotal || 0) - postDiscountRevenue)
+          //   Dr Cash            = amountReceived
+          //   Dr Accounts Recv.  = totalAmount - amountReceived
+          //   Dr Discount Allowed = saleDiscountAmount (if discountPercent > 0)
+          //   Cr Sales Revenue   = subtotal (GROSS, before sale-level discount)
+          //   Cr GST Payable     = gstAmount (if > 0)
+          //
+          // Balance check:
+          //   Debits = amountReceived + (totalAmount - amountReceived) + discountAllowed
+          //          = totalAmount + discountAllowed
+          //   Credits = subtotal + gstAmount
+          //           = (taxableAmount + discountAllowed) + gstAmount
+          //           = (totalAmount - gstAmount + discountAllowed) + gstAmount
+          //           = totalAmount + discountAllowed  ✓
+          //
+          // PREVIOUS BUG (v6.28.2): credited `postDiscountRevenue = totalAmount - gstAmount`
+          // (the NET post-discount revenue) AND debited Discount Allowed. This
+          // double-counted the discount, making debits exceed credits by discountAllowed.
+          // For sales without a sale-level discount, it credited totalAmount - gstAmount
+          // instead of subtotal, causing a ₹gstAmount shortfall (the GST line was
+          // posted separately but the Sales credit was reduced by the same amount,
+          // so the net effect was correct ONLY if the GST line was also posted —
+          // but if gstAmount was 0 in the DB while the Sale Register displayed a
+          // tax-inclusive total, the JE was short by the entire tax amount).
+          //
+          // NOW: Credit GROSS subtotal. The discount (if any) is a separate debit.
+          // The GST (if any) is a separate credit. Everything foots to totalAmount.
+          const grossSubtotal = sale.subtotal || roundTo2(sale.totalAmount - (sale.gstAmount || 0))
+          const saleDiscountAmount = roundTo2(grossSubtotal * (sale.discountPercent || 0) / 100)
+
           jeLines.push({
             accountId: salesAccount!.id,
             debit: 0,
-            credit: postDiscountRevenue,
+            credit: grossSubtotal,
             description: `Sale ${sale.invoiceNumber}`,
           })
           // If there's a sale-level discount, post it to Discount Allowed (40150)
-          if (discountAllowed > 0.01) {
+          if (saleDiscountAmount > 0.01) {
             let discountAllowedAccount = findAccount('40150')
             if (!discountAllowedAccount) {
               discountAllowedAccount = await tx.account.create({
@@ -368,7 +389,7 @@ export async function POST(req: NextRequest) {
             }
             jeLines.push({
               accountId: discountAllowedAccount.id,
-              debit: discountAllowed,
+              debit: saleDiscountAmount,
               credit: 0,
               description: `Invoice-level discount on ${sale.invoiceNumber}`,
             })
@@ -706,19 +727,18 @@ export async function POST(req: NextRequest) {
           if (!isCashSaleUpdated && amountDueUpdated > 0) {
             newJELines.push({ accountId: debtorsAccount!.id, debit: amountDueUpdated, credit: 0, description: `Receivable from ${sale.partyName} for ${sale.invoiceNumber}` })
           }
-          // v6.28.2: CRITICAL FIX — credit post-discount revenue + add Discount Allowed
-          // (same fix as CREATE path above, so UPDATE JEs balance identically)
-          const postDiscountRevenueUpd = roundTo2(sale.totalAmount - (sale.gstAmount || 0))
-          const discountAllowedUpd = roundTo2((sale.subtotal || 0) - postDiscountRevenueUpd)
-          newJELines.push({ accountId: salesAccount!.id, debit: 0, credit: postDiscountRevenueUpd, description: `Sale ${sale.invoiceNumber} (updated)` })
-          if (discountAllowedUpd > 0.01) {
+          // v6.28.5: Same fix as CREATE — credit GROSS subtotal, debit Discount Allowed
+          const grossSubtotalUpd = sale.subtotal || roundTo2(sale.totalAmount - (sale.gstAmount || 0))
+          const saleDiscountAmountUpd = roundTo2(grossSubtotalUpd * (sale.discountPercent || 0) / 100)
+          newJELines.push({ accountId: salesAccount!.id, debit: 0, credit: grossSubtotalUpd, description: `Sale ${sale.invoiceNumber} (updated)` })
+          if (saleDiscountAmountUpd > 0.01) {
             let discountAllowedAccountUpd = findAccount('40150')
             if (!discountAllowedAccountUpd) {
               discountAllowedAccountUpd = await tx.account.create({
                 data: { accountCode: '40150', name: 'Discount Allowed', type: 'Expense', tenantId: access.tenantId, isActive: true }
               })
             }
-            newJELines.push({ accountId: discountAllowedAccountUpd.id, debit: discountAllowedUpd, credit: 0, description: `Invoice-level discount on ${sale.invoiceNumber} (updated)` })
+            newJELines.push({ accountId: discountAllowedAccountUpd.id, debit: saleDiscountAmountUpd, credit: 0, description: `Invoice-level discount on ${sale.invoiceNumber} (updated)` })
           }
 
           if (sale.gstAmount > 0) {
