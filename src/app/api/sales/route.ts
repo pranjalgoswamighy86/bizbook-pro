@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db-soft-delete'
 import { roundTo2, isInterStateSupply, splitGSTAmount } from '@/lib/gst-utils'
+import { assertJEBalance } from '@/lib/je-balance'
 // ---- SECURITY PATCH v1 imports ----
 import { requireAuthAndTenant, requireAuthAndRole, writeAuditLog } from '@/lib/api-helpers'
 // v4.155: Auto Excel backup after every sale create/update/delete
@@ -298,8 +299,12 @@ export async function POST(req: NextRequest) {
         }
 
         // 5. Journal entry (double-entry accounting)
+        // v6.28.6: Removed `if (accounts.length > 0)` guard — it silently skipped
+        // JE posting for new tenants who hadn't seeded the CoA, causing permanent
+        // GL desync. Now we always ensure required accounts exist (create on-the-fly
+        // if missing), matching the pattern used by expenses/receipts/payments.
         const accounts = await tx.account.findMany({ where: { tenantId: access.tenantId } })
-        if (accounts.length > 0) {
+        {
           const findAccount = (code: string) => accounts.find(a => a.accountCode === code)
           let debtorsAccount = findAccount('10300')
           let cashAccount = findAccount('10100')
@@ -414,6 +419,9 @@ export async function POST(req: NextRequest) {
             }
           }
 
+          // v6.28.6: Assert JE balances before posting — catches calculation bugs
+          assertJEBalance(jeLines, `Sale CREATE ${sale.invoiceNumber}`)
+
           await tx.journalEntry.create({
             data: {
               entryDate: sale.date,
@@ -429,25 +437,15 @@ export async function POST(req: NextRequest) {
           })
         }
 
-        // v4.159: Create Receipt record if payment was received (was missing — broke cash flow tracking)
-        // Wrapped in try-catch so receipt creation failure doesn't block the sale
-        if (sale.amountReceived && sale.amountReceived > 0) {
-          try {
-            await tx.receipt.create({
-              data: {
-                date: sale.date,
-                partyName: sale.partyName,
-                amount: roundTo2(sale.amountReceived),
-                paymentMode: sale.paymentMode || 'CASH',
-                reference: sale.invoiceNumber,
-                notes: `Payment received for sale ${sale.invoiceNumber}`,
-                tenantId: access.tenantId,
-              },
-            })
-          } catch (receiptErr) {
-            console.error('[SALE] Receipt creation failed (non-blocking):', receiptErr)
-          }
-        }
+        // v6.28.6: REMOVED auto-receipt creation (was Fix C-5).
+        // The Sale JE already records the cash flow (Dr Cash = amountReceived).
+        // Creating a separate Receipt record caused double-counting when the
+        // Receipts API later posted its own JE (Dr Cash / Cr AR). The auto-
+        // receipt also had no JE of its own, making it an "orphan" that could
+        // never be cleanly reversed via the Receipts API.
+        //
+        // Users who want a receipt record should create it explicitly via the
+        // Receipts module, which properly posts the JE and links to the sale.
 
         // 6. Audit log (inside transaction — commits or rolls back with the sale)
         await tx.auditLog.create({
@@ -672,23 +670,30 @@ export async function POST(req: NextRequest) {
         // This mirrors the Sale DELETE pattern (lines ~716-740) for the reversal,
         // then re-runs the same JE-creation logic as CREATE (lines ~300-382) with
         // the updated sale record.
-        const originalSaleJE = await tx.journalEntry.findFirst({
+        // v6.28.6: CRITICAL FIX — reverse ALL existing SALE JEs for this sale
+        // (not just the first one). Previously `findFirst` only reversed the
+        // OLDEST JE, leaving stale JEs from prior edits to accumulate in the GL.
+        // Now we use `findMany` and reverse every matching JE.
+        // v6.28.6: CRITICAL FIX — reverse ALL existing SALE JEs for this sale
+        // (not just the first one). Previously `findFirst` only reversed the
+        // OLDEST JE, leaving stale JEs from prior edits to accumulate in the GL.
+        // Now we use `findMany` and reverse every matching JE.
+        const existingSaleJEs = await tx.journalEntry.findMany({
           where: { sourceType: 'SALE', sourceId: sale.id, tenantId: access.tenantId },
           include: { lines: true },
         })
-        if (originalSaleJE) {
-          // Step 1: Create a reversing entry (swap debit/credit) for today's date
+        for (const existingJE of existingSaleJEs) {
           await tx.journalEntry.create({
             data: {
               entryDate: new Date(),
-              reference: `REVERSAL-${originalSaleJE.reference || sale.id.slice(0, 8)}`,
+              reference: `REVERSAL-${existingJE.reference || sale.id.slice(0, 8)}`,
               description: `Reversal of sale ${sale.invoiceNumber} (edited)`,
               sourceType: 'MANUAL',
               isPosted: true,
               tenantId: access.tenantId,
               createdBy: access.userId,
               lines: {
-                create: originalSaleJE.lines.map(l => ({
+                create: existingJE.lines.map(l => ({
                   accountId: l.accountId,
                   debit: l.credit,
                   credit: l.debit,
@@ -697,7 +702,13 @@ export async function POST(req: NextRequest) {
               },
             },
           })
+        }
 
+        // v6.28.6: Fix C-3 — ALWAYS post a new JE (even if no existing JEs were
+        // found to reverse). Previously this was nested inside `if (originalJE)`,
+        // so sales created before the CoA was seeded could never get a JE even
+        // after editing.
+        {
           // Step 2: Post a new JE with the updated sale amounts (same logic as CREATE)
           const accounts = await tx.account.findMany({ where: { tenantId: access.tenantId } })
           const findAccount = (code: string) => accounts.find(a => a.accountCode === code)
@@ -758,6 +769,9 @@ export async function POST(req: NextRequest) {
               newJELines.push({ accountId: gstPayableAccount!.id, debit: 0, credit: roundTo2(sale.gstAmount), description: `GST on sale ${sale.invoiceNumber} (GSTINs missing)` })
             }
           }
+
+          // v6.28.6: Assert the re-posted JE balances
+          assertJEBalance(newJELines, `Sale UPDATE ${sale.invoiceNumber}`)
 
           await tx.journalEntry.create({
             data: {
@@ -871,12 +885,12 @@ export async function POST(req: NextRequest) {
           }
         }
 
-        // Reverse journal entry via a reversing entry (immutable principle)
-        const originalJE = await tx.journalEntry.findFirst({
+        // v6.28.6: Reverse ALL existing SALE JEs (not just the first one)
+        const allSaleJEs = await tx.journalEntry.findMany({
           where: { sourceType: 'SALE', sourceId: sale.id, tenantId: access.tenantId },
           include: { lines: true },
         })
-        if (originalJE) {
+        for (const originalJE of allSaleJEs) {
           await tx.journalEntry.create({
             data: {
               entryDate: new Date(),

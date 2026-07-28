@@ -233,7 +233,8 @@ export async function POST(req: NextRequest) {
         const accounts = await db.account.findMany({ where: { tenantId } })
         const findAccount = (code: string) => accounts.find(a => a.accountCode === code)
 
-        if (accounts.length > 0) {
+        // v6.28.6: Removed `if (accounts.length > 0)` guard — always post JE.
+        {
           let creditorsAccount = findAccount('20100')
           let cashAccount = findAccount('10100')
           let purchaseAccount = findAccount('50200')
