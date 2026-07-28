@@ -129,7 +129,7 @@ export function SaleRegister() {
     } finally {
       setLoading(false)
     }
-  }, [tenant?.id, dateFilter, searchQuery]))
+  }, [tenant?.id, dateFilter, searchQuery])
 
   useEffect(() => { fetchSales() }, [fetchSales])
 

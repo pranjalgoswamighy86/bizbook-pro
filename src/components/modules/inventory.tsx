@@ -93,7 +93,7 @@ export function Inventory() {
     setTotalValue(data.totalValue || 0)
     setLowStockItems(data.lowStockItems || 0)
     setLoading(false)
-  }, [tenant?.id, searchQuery]))
+  }, [tenant?.id, searchQuery])
 
   const fetchProducts = useCallback(async () => {
     if (!tenant) return
@@ -103,7 +103,7 @@ export function Inventory() {
     })
     const data = await res.json()
     setProducts(data.products || [])
-  }, [tenant?.id, searchQuery]))
+  }, [tenant?.id, searchQuery])
 
   useEffect(() => { fetchItems(); fetchProducts() }, [fetchItems, fetchProducts])
 

@@ -108,7 +108,7 @@ export function PurchaseRegister() {
     } finally {
       setLoading(false)
     }
-  }, [tenant?.id, dateFilter, searchQuery]))
+  }, [tenant?.id, dateFilter, searchQuery])
 
   useEffect(() => { fetchPurchases() }, [fetchPurchases])
 

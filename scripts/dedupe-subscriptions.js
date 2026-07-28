@@ -41,10 +41,12 @@ async function main() {
 
   try {
     // Step 1: Find all tenants with more than 1 subscription
+    // v6.28.8: Removed `WHERE "isDeleted" = false` — the Subscription table
+    // does NOT have an isDeleted column. This was causing a PostgreSQL error:
+    //   column "isDeleted" does not exist (code 42703)
     const duplicates = await prisma.$queryRaw`
       SELECT "tenantId", COUNT(*)::int as count
       FROM "Subscription"
-      WHERE "isDeleted" = false OR "isDeleted" IS NULL
       GROUP BY "tenantId"
       HAVING COUNT(*) > 1
     `;

@@ -45,7 +45,7 @@ export function ExpenseRegister() {
     const data = await res.json()
     setExpenses(data.expenses || [])
     setLoading(false)
-  }, [tenant?.id, dateFilter, searchQuery]))
+  }, [tenant?.id, dateFilter, searchQuery])
 
   useEffect(() => { fetchExpenses() }, [fetchExpenses])
 
