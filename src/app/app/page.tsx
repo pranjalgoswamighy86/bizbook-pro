@@ -103,8 +103,14 @@ function ModuleRouter() {
 }
 
 export default function Home() {
-  const { isAuthenticated, currentView, logout } = useAppStore()
-  const { setView } = useAppStore()
+  // v6.28.10: Use individual selectors instead of destructuring the entire
+  // store. This prevents re-renders from unrelated state changes (sidebarOpen,
+  // searchQuery, dateFilter, etc.) that were causing cascading re-renders
+  // and ultimately React Error #310 (Maximum update depth exceeded).
+  const isAuthenticated = useAppStore((s) => s.isAuthenticated)
+  const currentView = useAppStore((s) => s.currentView)
+  const logout = useAppStore((s) => s.logout)
+  const setView = useAppStore((s) => s.setView)
   useSubscriptionUsageTracker()
   const [hydrated, setHydrated] = useState(false)
 

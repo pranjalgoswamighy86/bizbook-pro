@@ -40,19 +40,25 @@ interface DashboardData {
 }
 
 export function Dashboard() {
-  const { tenant, dateFilter } = useAppStore()
+  // v6.28.10: Use shallow selector to only re-render when tenant.id or
+  // dateFilter actually changes — NOT on every store update (sidebarOpen,
+  // searchQuery, etc.). This prevents cascading re-renders that caused
+  // React Error #310 (Maximum update depth exceeded).
+  const tenantId = useAppStore((s) => s.tenant?.id)
+  const tenantCurrency = useAppStore((s) => s.tenant?.currency)
+  const dateFilter = useAppStore((s) => s.dateFilter)
   const [data, setData] = useState<DashboardData | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    if (!tenant?.id) return
+    if (!tenantId) return
     const range = getDateFilterRange(dateFilter)
     authFetch('/api/reports', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         action: 'dashboard',
-        tenantId: tenant.id,
+        tenantId: tenantId,
         startDate: range.start.toISOString(),
         endDate: range.end.toISOString(),
       }),
@@ -61,7 +67,7 @@ export function Dashboard() {
       .then((d) => setData(d))
       .catch(console.error)
       .finally(() => setLoading(false))
-  }, [tenant?.id, dateFilter])
+  }, [tenantId, dateFilter])
 
   if (loading || !data) {
     return (
@@ -106,7 +112,7 @@ export function Dashboard() {
                   <div>
                     <p className="text-xs text-muted-foreground font-medium">{s.title}</p>
                     <p className={`text-xl font-bold mt-1 ${s.color}`}>
-                      {formatCurrency(s.value, tenant?.currency)}
+                      {formatCurrency(s.value, tenantCurrency)}
                     </p>
                     <p className="text-xs text-muted-foreground mt-1">{s.count}</p>
                   </div>
@@ -134,7 +140,7 @@ export function Dashboard() {
                   <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
                   <XAxis dataKey="month" tick={{ fontSize: 12 }} />
                   <YAxis tick={{ fontSize: 12 }} tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`} />
-                  <Tooltip formatter={(value: number) => formatCurrency(value, tenant?.currency)} />
+                  <Tooltip formatter={(value: number) => formatCurrency(value, tenantCurrency)} />
                   <Legend />
                   <Bar dataKey="sales" name="Sales" fill="#059669" radius={[4, 4, 0, 0]} />
                   <Bar dataKey="purchases" name="Purchases" fill="#f97316" radius={[4, 4, 0, 0]} />
@@ -166,9 +172,9 @@ export function Dashboard() {
                     </div>
                     <div className="text-right">
                       {t.deposit > 0 ? (
-                        <p className="text-sm font-semibold text-emerald-600">+{formatCurrency(t.deposit, tenant?.currency)}</p>
+                        <p className="text-sm font-semibold text-emerald-600">+{formatCurrency(t.deposit, tenantCurrency)}</p>
                       ) : (
-                        <p className="text-sm font-semibold text-red-600">-{formatCurrency(t.withdrawal, tenant?.currency)}</p>
+                        <p className="text-sm font-semibold text-red-600">-{formatCurrency(t.withdrawal, tenantCurrency)}</p>
                       )}
                     </div>
                   </div>

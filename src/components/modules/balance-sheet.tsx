@@ -45,18 +45,20 @@ interface BalanceSheetData {
 }
 
 export function BalanceSheet() {
-  const { tenant } = useAppStore()
+  // v6.28.10: Use selectors to prevent re-renders from unrelated store changes
+  const tenantId = useAppStore((s) => s.tenant?.id)
+  const tenantCurrency = useAppStore((s) => s.tenant?.currency)
   const [data, setData] = useState<BalanceSheetData | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    if (!tenant?.id) return
+    if (!tenantId) return
     authFetch('/api/reports', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'balance-sheet', tenantId: tenant.id, asOfDate: new Date().toISOString() }),
+      body: JSON.stringify({ action: 'balance-sheet', tenantId: tenantId, asOfDate: new Date().toISOString() }),
     })
       .then((r) => { if (!r.ok) throw new Error('API error: ' + r.status); return r.json() }).then(setData).catch(console.error).finally(() => setLoading(false))
-  }, [tenant?.id])
+  }, [tenantId])
 
   if (loading || !data) return <div><AppHeader title="Balance Sheet" /><div className="p-6"><p className="text-muted-foreground">Loading...</p></div></div>
 
@@ -106,8 +108,8 @@ export function BalanceSheet() {
                 {isBalanced ? 'Balance Sheet is Balanced' : 'Balance Sheet is NOT Balanced'}
               </p>
               <p className="text-xs text-muted-foreground">
-                Assets: {formatCurrency(data.totalAssetsLiabilities, tenant?.currency)} = Liabilities + Equity: {formatCurrency(data.totalLiabilitiesEquity, tenant?.currency)}
-                {!isBalanced && <span className="text-red-600 font-medium"> (Difference: {formatCurrency(difference, tenant?.currency)})</span>}
+                Assets: {formatCurrency(data.totalAssetsLiabilities, tenantCurrency)} = Liabilities + Equity: {formatCurrency(data.totalLiabilitiesEquity, tenantCurrency)}
+                {!isBalanced && <span className="text-red-600 font-medium"> (Difference: {formatCurrency(difference, tenantCurrency)})</span>}
               </p>
               <p className="text-[10px] text-muted-foreground mt-1">
                 v6.28.0: Now reads from the General Ledger — reconciles with Trial Balance by construction.
@@ -124,14 +126,14 @@ export function BalanceSheet() {
             </CardHeader>
             <CardContent>
               <div className="space-y-2">
-                <div className="flex justify-between py-2 border-b"><span className="text-sm">Cash</span><span className="font-medium">{formatCurrency(data.assets.cash, tenant?.currency)}</span></div>
-                <div className="flex justify-between py-2 border-b"><span className="text-sm">Bank Balance</span><span className="font-medium">{formatCurrency(data.assets.bankBalance, tenant?.currency)}</span></div>
-                <div className="flex justify-between py-2 border-b"><span className="text-sm">Accounts Receivable</span><span className="font-medium">{formatCurrency(data.assets.accountsReceivable, tenant?.currency)}</span></div>
-                <div className="flex justify-between py-2 border-b"><span className="text-sm">Inventory</span><span className="font-medium">{formatCurrency(data.assets.inventory, tenant?.currency)}</span></div>
-                <div className="flex justify-between py-2 border-b"><span className="text-sm">GST Input Credit</span><span className="font-medium">{formatCurrency(data.assets.gstInputCredit, tenant?.currency)}</span></div>
-                {data.assets.other > 0 && <div className="flex justify-between py-2 border-b"><span className="text-sm">Other Assets</span><span className="font-medium">{formatCurrency(data.assets.other, tenant?.currency)}</span></div>}
+                <div className="flex justify-between py-2 border-b"><span className="text-sm">Cash</span><span className="font-medium">{formatCurrency(data.assets.cash, tenantCurrency)}</span></div>
+                <div className="flex justify-between py-2 border-b"><span className="text-sm">Bank Balance</span><span className="font-medium">{formatCurrency(data.assets.bankBalance, tenantCurrency)}</span></div>
+                <div className="flex justify-between py-2 border-b"><span className="text-sm">Accounts Receivable</span><span className="font-medium">{formatCurrency(data.assets.accountsReceivable, tenantCurrency)}</span></div>
+                <div className="flex justify-between py-2 border-b"><span className="text-sm">Inventory</span><span className="font-medium">{formatCurrency(data.assets.inventory, tenantCurrency)}</span></div>
+                <div className="flex justify-between py-2 border-b"><span className="text-sm">GST Input Credit</span><span className="font-medium">{formatCurrency(data.assets.gstInputCredit, tenantCurrency)}</span></div>
+                {data.assets.other > 0 && <div className="flex justify-between py-2 border-b"><span className="text-sm">Other Assets</span><span className="font-medium">{formatCurrency(data.assets.other, tenantCurrency)}</span></div>}
                 <div className="flex justify-between py-3 font-bold text-emerald-700 bg-emerald-50 dark:bg-emerald-950 px-2 rounded">
-                  <span>Total Assets</span><span>{formatCurrency(data.assets.total, tenant?.currency)}</span>
+                  <span>Total Assets</span><span>{formatCurrency(data.assets.total, tenantCurrency)}</span>
                 </div>
               </div>
             </CardContent>
@@ -144,14 +146,14 @@ export function BalanceSheet() {
             </CardHeader>
             <CardContent>
               <div className="space-y-2">
-                <div className="flex justify-between py-2 border-b"><span className="text-sm">Accounts Payable</span><span className="font-medium">{formatCurrency(data.liabilities.accountsPayable, tenant?.currency)}</span></div>
-                <div className="flex justify-between py-2 border-b"><span className="text-sm">GST Payable</span><span className="font-medium">{formatCurrency(data.liabilities.gstPayable, tenant?.currency)}</span></div>
-                <div className="flex justify-between py-2 border-b"><span className="text-sm">TDS Payable</span><span className="font-medium">{formatCurrency(data.liabilities.tdsPayable, tenant?.currency)}</span></div>
-                <div className="flex justify-between py-2 border-b"><span className="text-sm">Loans</span><span className="font-medium">{formatCurrency(data.liabilities.loans, tenant?.currency)}</span></div>
-                <div className="flex justify-between py-2 border-b"><span className="text-sm">Accrued Expenses</span><span className="font-medium">{formatCurrency(data.liabilities.accruedExpenses, tenant?.currency)}</span></div>
-                {data.liabilities.other > 0 && <div className="flex justify-between py-2 border-b"><span className="text-sm">Other Liabilities</span><span className="font-medium">{formatCurrency(data.liabilities.other, tenant?.currency)}</span></div>}
+                <div className="flex justify-between py-2 border-b"><span className="text-sm">Accounts Payable</span><span className="font-medium">{formatCurrency(data.liabilities.accountsPayable, tenantCurrency)}</span></div>
+                <div className="flex justify-between py-2 border-b"><span className="text-sm">GST Payable</span><span className="font-medium">{formatCurrency(data.liabilities.gstPayable, tenantCurrency)}</span></div>
+                <div className="flex justify-between py-2 border-b"><span className="text-sm">TDS Payable</span><span className="font-medium">{formatCurrency(data.liabilities.tdsPayable, tenantCurrency)}</span></div>
+                <div className="flex justify-between py-2 border-b"><span className="text-sm">Loans</span><span className="font-medium">{formatCurrency(data.liabilities.loans, tenantCurrency)}</span></div>
+                <div className="flex justify-between py-2 border-b"><span className="text-sm">Accrued Expenses</span><span className="font-medium">{formatCurrency(data.liabilities.accruedExpenses, tenantCurrency)}</span></div>
+                {data.liabilities.other > 0 && <div className="flex justify-between py-2 border-b"><span className="text-sm">Other Liabilities</span><span className="font-medium">{formatCurrency(data.liabilities.other, tenantCurrency)}</span></div>}
                 <div className="flex justify-between py-3 font-bold text-red-700 bg-red-50 dark:bg-red-950 px-2 rounded">
-                  <span>Total Liabilities</span><span>{formatCurrency(data.liabilities.total, tenant?.currency)}</span>
+                  <span>Total Liabilities</span><span>{formatCurrency(data.liabilities.total, tenantCurrency)}</span>
                 </div>
               </div>
             </CardContent>
@@ -164,19 +166,19 @@ export function BalanceSheet() {
             </CardHeader>
             <CardContent>
               <div className="space-y-2">
-                <div className="flex justify-between py-2 border-b"><span className="text-sm">Capital</span><span className="font-medium">{formatCurrency(data.equity.capital, tenant?.currency)}</span></div>
-                <div className="flex justify-between py-2 border-b"><span className="text-sm">Retained Earnings</span><span className={`font-medium ${data.equity.retainedEarnings >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>{formatCurrency(data.equity.retainedEarnings, tenant?.currency)}</span></div>
+                <div className="flex justify-between py-2 border-b"><span className="text-sm">Capital</span><span className="font-medium">{formatCurrency(data.equity.capital, tenantCurrency)}</span></div>
+                <div className="flex justify-between py-2 border-b"><span className="text-sm">Retained Earnings</span><span className={`font-medium ${data.equity.retainedEarnings >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>{formatCurrency(data.equity.retainedEarnings, tenantCurrency)}</span></div>
                 {data.equity.currentPeriodNetIncome !== undefined && (
                   <div className="flex justify-between py-2 border-b">
                     <span className="text-sm">Current Period Net Income</span>
                     <span className={`font-medium ${data.equity.currentPeriodNetIncome >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                      {formatCurrency(data.equity.currentPeriodNetIncome, tenant?.currency)}
+                      {formatCurrency(data.equity.currentPeriodNetIncome, tenantCurrency)}
                     </span>
                   </div>
                 )}
-                {data.equity.drawings > 0 && <div className="flex justify-between py-2 border-b"><span className="text-sm">Drawings (contra)</span><span className="font-medium text-red-600">-{formatCurrency(data.equity.drawings, tenant?.currency)}</span></div>}
+                {data.equity.drawings > 0 && <div className="flex justify-between py-2 border-b"><span className="text-sm">Drawings (contra)</span><span className="font-medium text-red-600">-{formatCurrency(data.equity.drawings, tenantCurrency)}</span></div>}
                 <div className="flex justify-between py-3 font-bold text-blue-700 bg-blue-50 dark:bg-blue-950 px-2 rounded">
-                  <span>Total Equity</span><span>{formatCurrency(data.equity.total, tenant?.currency)}</span>
+                  <span>Total Equity</span><span>{formatCurrency(data.equity.total, tenantCurrency)}</span>
                 </div>
               </div>
             </CardContent>

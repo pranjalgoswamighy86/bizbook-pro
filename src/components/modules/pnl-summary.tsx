@@ -34,19 +34,22 @@ interface PnLData {
 const COLORS = ['#059669', '#f97316', '#ef4444', '#8b5cf6', '#06b6d4', '#ec4899', '#84cc16', '#f59e0b']
 
 export function PnLSummary() {
-  const { tenant, dateFilter } = useAppStore()
+  // v6.28.10: Use selectors to prevent re-renders from unrelated store changes
+  const tenantId = useAppStore((s) => s.tenant?.id)
+  const tenantCurrency = useAppStore((s) => s.tenant?.currency)
+  const dateFilter = useAppStore((s) => s.dateFilter)
   const [data, setData] = useState<PnLData | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    if (!tenant?.id) return
+    if (!tenantId) return
     const range = getDateFilterRange(dateFilter)
     authFetch('/api/reports', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'pnl', tenantId: tenant.id, startDate: range.start.toISOString(), endDate: range.end.toISOString() }),
+      body: JSON.stringify({ action: 'pnl', tenantId: tenantId, startDate: range.start.toISOString(), endDate: range.end.toISOString() }),
     })
       .then((r) => { if (!r.ok) throw new Error('API error: ' + r.status); return r.json() }).then(setData).catch(console.error).finally(() => setLoading(false))
-  }, [tenant?.id, dateFilter])
+  }, [tenantId, dateFilter])
 
   if (loading || !data) return <div><AppHeader title="P&L Summary" /><div className="p-6"><p className="text-muted-foreground">Loading...</p></div></div>
 
@@ -87,7 +90,7 @@ export function PnLSummary() {
               <div>
                 <p className="text-xs text-muted-foreground">Net Profit</p>
                 <p className={`text-xl font-bold ${data.netProfit >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                  {formatCurrency(data.netProfit, tenant?.currency)}
+                  {formatCurrency(data.netProfit, tenantCurrency)}
                 </p>
                 <p className="text-xs text-muted-foreground">Margin: {profitMargin}%</p>
               </div>
@@ -98,7 +101,7 @@ export function PnLSummary() {
               <div className="p-2 rounded-lg bg-blue-50 dark:bg-blue-950"><DollarSign className="h-6 w-6 text-blue-600" /></div>
               <div>
                 <p className="text-xs text-muted-foreground">Gross Profit</p>
-                <p className="text-xl font-bold">{formatCurrency(data.grossProfit, tenant?.currency)}</p>
+                <p className="text-xl font-bold">{formatCurrency(data.grossProfit, tenantCurrency)}</p>
               </div>
             </CardContent>
           </Card>
@@ -108,7 +111,7 @@ export function PnLSummary() {
               <div>
                 <p className="text-xs text-muted-foreground">Net Cash Flow</p>
                 <p className={`text-xl font-bold ${data.netCashFlow >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                  {formatCurrency(data.netCashFlow, tenant?.currency)}
+                  {formatCurrency(data.netCashFlow, tenantCurrency)}
                 </p>
               </div>
             </CardContent>
@@ -124,40 +127,40 @@ export function PnLSummary() {
             <div className="space-y-2">
               {/* Revenue Section */}
               <div className="bg-emerald-50 dark:bg-emerald-950 p-3 rounded-lg">
-                <div className="flex justify-between font-semibold"><span>Revenue (Sales)</span><span className="text-emerald-700">{formatCurrency(data.totalRevenue, tenant?.currency)}</span></div>
+                <div className="flex justify-between font-semibold"><span>Revenue (Sales)</span><span className="text-emerald-700">{formatCurrency(data.totalRevenue, tenantCurrency)}</span></div>
                 <p className="text-xs text-muted-foreground">{data.salesCount} sale invoices</p>
               </div>
               <div className="bg-orange-50 dark:bg-orange-950 p-3 rounded-lg">
-                <div className="flex justify-between font-semibold"><span>Cost of Goods (Purchases)</span><span className="text-orange-700">-{formatCurrency(data.totalCostOfGoods, tenant?.currency)}</span></div>
+                <div className="flex justify-between font-semibold"><span>Cost of Goods (Purchases)</span><span className="text-orange-700">-{formatCurrency(data.totalCostOfGoods, tenantCurrency)}</span></div>
                 <p className="text-xs text-muted-foreground">{data.purchaseCount} purchase invoices</p>
               </div>
               <div className="border-l-4 border-emerald-500 pl-3 py-2">
-                <div className="flex justify-between font-bold"><span>Gross Profit</span><span>{formatCurrency(data.grossProfit, tenant?.currency)}</span></div>
+                <div className="flex justify-between font-bold"><span>Gross Profit</span><span>{formatCurrency(data.grossProfit, tenantCurrency)}</span></div>
               </div>
 
               <div className="bg-red-50 dark:bg-red-950 p-3 rounded-lg">
-                <div className="flex justify-between font-semibold"><span>Total Operating Expenses</span><span className="text-red-700">-{formatCurrency(data.totalExpenses, tenant?.currency)}</span></div>
+                <div className="flex justify-between font-semibold"><span>Total Operating Expenses</span><span className="text-red-700">-{formatCurrency(data.totalExpenses, tenantCurrency)}</span></div>
                 <p className="text-xs text-muted-foreground">{data.expenseCount} expense entries</p>
               </div>
 
               {/* v6.27.5: Show salaries as a separate line so net-profit math is visible */}
               {data.totalSalaries ? (
                 <div className="bg-orange-50 dark:bg-orange-950 p-3 rounded-lg">
-                  <div className="flex justify-between font-semibold"><span>Staff Salaries</span><span className="text-red-700">-{formatCurrency(data.totalSalaries, tenant?.currency)}</span></div>
+                  <div className="flex justify-between font-semibold"><span>Staff Salaries</span><span className="text-red-700">-{formatCurrency(data.totalSalaries, tenantCurrency)}</span></div>
                 </div>
               ) : null}
 
               <div className="border-l-4 border-emerald-600 pl-3 py-3 bg-emerald-50 dark:bg-emerald-950 rounded-r-lg">
-                <div className="flex justify-between font-bold text-lg"><span>Net Profit</span><span className={data.netProfit >= 0 ? 'text-emerald-700' : 'text-red-700'}>{formatCurrency(data.netProfit, tenant?.currency)}</span></div>
+                <div className="flex justify-between font-bold text-lg"><span>Net Profit</span><span className={data.netProfit >= 0 ? 'text-emerald-700' : 'text-red-700'}>{formatCurrency(data.netProfit, tenantCurrency)}</span></div>
               </div>
 
               {/* GST Summary */}
               <div className="mt-4 border-t pt-4">
                 <h4 className="font-semibold text-sm mb-2">GST Summary</h4>
                 <div className="space-y-1 text-sm">
-                  <div className="flex justify-between"><span>GST Collected</span><span>{formatCurrency(data.totalGstCollected, tenant?.currency)}</span></div>
-                  <div className="flex justify-between"><span>GST Paid</span><span>-{formatCurrency(data.totalGstPaid, tenant?.currency)}</span></div>
-                  <div className="flex justify-between font-semibold"><span>Net GST {data.netGst >= 0 ? '(Payable)' : '(Refundable)'}</span><span>{formatCurrency(Math.abs(data.netGst), tenant?.currency)}</span></div>
+                  <div className="flex justify-between"><span>GST Collected</span><span>{formatCurrency(data.totalGstCollected, tenantCurrency)}</span></div>
+                  <div className="flex justify-between"><span>GST Paid</span><span>-{formatCurrency(data.totalGstPaid, tenantCurrency)}</span></div>
+                  <div className="flex justify-between font-semibold"><span>Net GST {data.netGst >= 0 ? '(Payable)' : '(Refundable)'}</span><span>{formatCurrency(Math.abs(data.netGst), tenantCurrency)}</span></div>
                 </div>
               </div>
             </div>
@@ -179,7 +182,7 @@ export function PnLSummary() {
                         <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                       ))}
                     </Pie>
-                    <Tooltip formatter={(value: number) => formatCurrency(value, tenant?.currency)} />
+                    <Tooltip formatter={(value: number) => formatCurrency(value, tenantCurrency)} />
                   </PieChart>
                 </ResponsiveContainer>
               </div>
