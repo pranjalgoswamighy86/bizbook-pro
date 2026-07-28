@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useAppStore, canEdit, canCorrect } from '@/store/app-store'
 import { AppHeader } from '@/components/app/header'
 import { Card, CardContent } from '@/components/ui/card'
@@ -113,10 +113,15 @@ export function PurchaseRegister() {
   useEffect(() => { fetchPurchases() }, [fetchPurchases])
 
   // ===== COMPUTED VALUES (must be declared before useEffect that references them) =====
-  const subtotal = items.reduce((s, i) => s + i.amount, 0)
-  const totalTax = items.reduce((s, i) => s + i.totalTax, 0)
-  const totalDiscount = items.reduce((s, i) => s + i.discount, 0)
-  const totalAmount = subtotal + totalTax
+  // v6.28.4: Wrapped in useMemo to prevent recalculation on every render.
+  // SAME financial formulas — NO calculation logic changed.
+  const { subtotal, totalTax, totalDiscount, totalAmount } = useMemo(() => {
+    const subtotal = items.reduce((s, i) => s + i.amount, 0)
+    const totalTax = items.reduce((s, i) => s + i.totalTax, 0)
+    const totalDiscount = items.reduce((s, i) => s + i.discount, 0)
+    const totalAmount = subtotal + totalTax
+    return { subtotal, totalTax, totalDiscount, totalAmount }
+  }, [items])
 
   // Auto-sync amountPaid for cash purchases when totalAmount changes
   useEffect(() => {
