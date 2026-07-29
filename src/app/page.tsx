@@ -51,7 +51,7 @@ const HelpSupportManagement = lazy(() => import('@/components/modules/help-suppo
 const CreditDebitNotes = lazy(() => import('@/components/modules/credit-debit-notes').then(m => ({ default: m.CreditDebitNotes })))
 
 function ModuleRouter() {
-  const { currentView } = useAppStore()
+  const currentView = useAppStore((s) => s.currentView)
 
   // Dashboard is eagerly loaded (default view — most frequently accessed)
   if (currentView === 'dashboard') return <Dashboard />
@@ -102,7 +102,15 @@ function ModuleRouter() {
 }
 
 export default function Home() {
-  const { isAuthenticated, currentView, logout, user } = useAppStore()
+  // v6.28.16: CRITICAL FIX — use individual selectors instead of destructuring
+  // the entire store. This was the ACTUAL root cause of React Error #310:
+  // src/app/page.tsx (the ROOT page served at "/") was still using
+  // useAppStore() without a selector, causing the ENTIRE app to re-render
+  // on every store change. The previous fixes only updated src/app/app/page.tsx
+  // which is a DIFFERENT file that isn't the actual entry point.
+  const isAuthenticated = useAppStore((s) => s.isAuthenticated)
+  const currentView = useAppStore((s) => s.currentView)
+  const logout = useAppStore((s) => s.logout)
   useSubscriptionUsageTracker()
   const [hydrated, setHydrated] = useState(false)
 
