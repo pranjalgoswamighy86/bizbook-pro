@@ -1,190 +1,88 @@
 'use client';
 
 /**
- * SW Update Modal — Spec Section 20
- * =================================
- * PWA Lifecycle Service Worker Update Interceptor & Security Warning Modal
- *
- * When a new production build is deployed:
- *   1. Browser detects new SW in background
- *   2. SW goes into 'installed' state but 'waiting' (doesn't activate)
- *   3. This component shows: "🔒 Critical Security & Version Update Available"
- *   4. User clicks "Update & Relaunch App"
- *      → postMessage({ type: 'SKIP_WAITING' }) to waiting SW
- *      → On controllerchange → window.location.reload()
- *   5. Or user clicks "Cancel / Maybe Later" → modal dismisses
- *
- * SESSION PRESERVATION:
- *   - JWT cookie is HTTP-only and persists across reload
- *   - User stays logged in after update
- *
- * MOUNT: in src/app/layout.tsx as a global component (always present)
+ * SW Update Modal — v6.28.22 SELF-DESTRUCT MODE
+ * ==============================================
+ * 
+ * This component now ONLY registers the self-destruct service worker
+ * and reloads the page when it activates. No modal is shown.
+ * 
+ * The self-destruct SW will:
+ *   1. Delete ALL caches
+ *   2. Unregister itself
+ *   3. Notify the client to reload
+ * 
+ * After reload, no service worker will be active. The browser will
+ * use its native HTTP cache only, eliminating the SW as a variable
+ * in the React Error #310 debugging.
  */
 
-import { useState, useEffect } from 'react';
+import { useEffect } from 'react';
 
 export function SWUpdateModal() {
-  const [showModal, setShowModal] = useState(false);
-  const [waitingWorker, setWaitingWorker] = useState<ServiceWorker | null>(null);
-  const [isUpdating, setIsUpdating] = useState(false);
-
   useEffect(() => {
     if (typeof window === 'undefined') return;
     if (!('serviceWorker' in navigator)) return;
 
     let mounted = true;
 
-    const registerSW = async () => {
+    const registerSelfDestructSW = async () => {
       try {
+        // Register the self-destruct SW
         const registration = await navigator.serviceWorker.register('/sw.js', {
           scope: '/',
           updateViaCache: 'none',
         });
 
-        console.log('[SW-UPDATE] Service Worker registered', registration.scope);
+        console.log('[SW-UPDATE] Self-destruct SW registered');
 
-        // v6.28.21: If there's a waiting worker, IMMEDIATELY activate it
-        // (don't wait for user to click "Update"). This is critical because
-        // the old SW was caching stale JS bundles.
+        // Auto-activate if waiting
         if (registration.waiting) {
-          console.log('[SW-UPDATE] Waiting worker found — auto-activating');
           registration.waiting.postMessage({ type: 'SKIP_WAITING' });
         }
 
-        // Listen for new updates
+        // Listen for new SW installations
         registration.addEventListener('updatefound', () => {
           const newWorker = registration.installing;
           if (!newWorker) return;
-
-          console.log('[SW-UPDATE] Update found — new worker installing');
-
           newWorker.addEventListener('statechange', () => {
-            if (
-              newWorker.state === 'installed' &&
-              navigator.serviceWorker.controller
-            ) {
-              // v6.28.21: Auto-activate immediately (no modal needed)
-              console.log('[SW-UPDATE] New version ready — auto-activating');
-              if (mounted) {
-                newWorker.postMessage({ type: 'SKIP_WAITING' });
-              }
+            if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+              newWorker.postMessage({ type: 'SKIP_WAITING' });
             }
           });
         });
 
-        // Listen for controller change (after SKIP_WAITING) — reload page
+        // Listen for controller change — reload to get fresh code
         navigator.serviceWorker.addEventListener('controllerchange', () => {
-          console.log('[SW-UPDATE] Controller changed — reloading');
-          if (mounted && !isUpdating) {
-            setIsUpdating(true);
+          if (mounted) {
             window.location.reload();
           }
         });
 
-        // Check for updates every 2 minutes (was 5 min — too slow for critical fixes)
-        registration.update().catch(() => {});
-        const interval = setInterval(() => {
-          registration.update().catch(() => {});
-        }, 2 * 60 * 1000);
+        // Listen for self-destruct message
+        navigator.serviceWorker.addEventListener('message', (event) => {
+          if (event.data?.type === 'SW_SELF_DESTRUCTED') {
+            console.log('[SW-UPDATE] SW self-destructed — reloading');
+            if (mounted) {
+              window.location.reload();
+            }
+          }
+        });
 
-        // Cleanup interval on unmount
-        if (mounted) {
-          // Store for cleanup
-        } else {
-          clearInterval(interval);
-        }
+        // Check for updates immediately
+        registration.update().catch(() => {});
       } catch (err) {
         console.warn('[SW-UPDATE] Registration failed:', err);
       }
     };
 
-    registerSW();
+    registerSelfDestructSW();
 
     return () => {
       mounted = false;
     };
   }, []);
 
-  const handleUpdateNow = () => {
-    if (!waitingWorker) return;
-    console.log('[SW-UPDATE] User clicked Update Now — sending SKIP_WAITING');
-    setIsUpdating(true);
-    waitingWorker.postMessage({ type: 'SKIP_WAITING' });
-    // controllerchange event will trigger reload
-  };
-
-  const handleCancel = () => {
-    setShowModal(false);
-    // Don't dismiss forever — show again on next page load if SW still waiting
-  };
-
-  if (!showModal) return null;
-
-  return (
-    <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-md flex items-center justify-center z-[9999] p-4">
-      <div className="bg-white border border-slate-100 max-w-md w-full rounded-2xl p-6 shadow-2xl animate-in fade-in zoom-in duration-200 text-left">
-        {/* Modal Header Badge */}
-        <div className="flex items-center gap-2 text-amber-600 bg-amber-50 px-3 py-1.5 rounded-xl border border-amber-200 w-fit text-xs font-black uppercase tracking-wider">
-          <span className="h-2 w-2 rounded-full bg-amber-500 animate-pulse" />
-          Update Available
-        </div>
-
-        {/* Warning Title */}
-        <h3 className="text-xl font-extrabold text-slate-800 mt-4 tracking-tight">
-          🔒 Critical Security &amp; Version Update Available
-        </h3>
-
-        <p className="text-sm text-slate-600 mt-2 leading-relaxed">
-          A new verified system update is ready for BizBook Pro.
-        </p>
-
-        {/* Warning Body */}
-        <div className="mt-3 text-xs text-slate-500 leading-relaxed bg-slate-50 p-3 rounded-xl border border-slate-100 space-y-2">
-          <p className="font-semibold text-slate-700">
-            Important Compliance Notice:
-          </p>
-          <p>
-            Remaining on an outdated software build can cause compatibility issues
-            with backend ledger databases, data synchronization errors across devices,
-            or security vulnerabilities in your local tax reporting modules.
-          </p>
-          <p className="text-amber-800 font-bold">
-            Highly Recommended Action: Update immediately to preserve structural
-            accounting compliance.
-          </p>
-        </div>
-
-        {/* Action Buttons */}
-        <div className="flex items-center gap-3 mt-6">
-          <button
-            onClick={handleCancel}
-            disabled={isUpdating}
-            className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition-colors cursor-pointer border border-slate-200 disabled:opacity-50"
-          >
-            Cancel / Maybe Later
-          </button>
-
-          <button
-            onClick={handleUpdateNow}
-            disabled={isUpdating}
-            className="flex-1 py-2.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl transition-all cursor-pointer shadow-md shadow-slate-900/20 disabled:opacity-50"
-          >
-            {isUpdating ? (
-              <span className="flex items-center justify-center gap-2">
-                <span className="h-3 w-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                Updating...
-              </span>
-            ) : (
-              'Update &amp; Relaunch App'
-            )}
-          </button>
-        </div>
-
-        {/* Session preservation note */}
-        <p className="text-[10px] text-slate-400 text-center mt-3">
-          Your session will be preserved — you won&apos;t be logged out.
-        </p>
-      </div>
-    </div>
-  );
+  // Render nothing — no modal
+  return null;
 }

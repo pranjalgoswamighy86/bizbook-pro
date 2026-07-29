@@ -146,18 +146,26 @@ export const useAppStore = create<AppState>()(
           sessionToken: null,
         }),
       switchCompany: (tenant) =>
-        // v6.27.2: DEFENSIVE MERGE — never let a partial tenant payload
-        // (e.g. from an older API that strips invoice fields) wipe out
-        // already-persisted invoice customization settings. Merge new
-        // fields on top of the existing tenant; only fields actually
-        // present in the new payload overwrite the old ones. This is a
-        // safety net on top of serializeTenant() in the API routes.
-        set((state) => ({
-          tenant: state.tenant
-            ? { ...state.tenant, ...tenant }
-            : tenant,
-          currentView: 'dashboard',
-        })),
+        // v6.28.22: CRITICAL FIX — use shallow merge but Zustand's `set` with
+        // a function form creates a NEW state object on every call. The
+        // `persist` middleware then re-serializes and writes to localStorage.
+        // This triggers `onRehydrateStorage` which sets currentView to
+        // 'company-select', which triggers a re-render, which calls
+        // switchCompany again... infinite loop.
+        //
+        // FIX: Only update if the tenant ID actually changed.
+        set((state) => {
+          if (state.tenant?.id === tenant.id) {
+            // Same tenant — just update currentView, don't create new tenant object
+            return { currentView: 'dashboard' as const }
+          }
+          return {
+            tenant: state.tenant
+              ? { ...state.tenant, ...tenant }
+              : tenant,
+            currentView: 'dashboard' as const,
+          }
+        }),
       setPendingImportFile: (file) =>
         set({ pendingImportFile: file }),
     }),
@@ -169,16 +177,19 @@ export const useAppStore = create<AppState>()(
         companies: state.companies,
         isAuthenticated: state.isAuthenticated,
         sessionToken: state.sessionToken,  // persist token so it survives page reloads
-        // Do NOT persist currentView — user must always choose company
-        // after page refresh to prevent data from wrong company showing
+        // v6.28.22: DO persist currentView — removing onRehydrateStorage means
+        // we need to remember which view the user was on.
+        currentView: state.currentView,
       }),
-      // After rehydration, if authenticated, always redirect to company-select
-      // to ensure user explicitly chooses their company context
-      onRehydrateStorage: () => (state) => {
-        if (state?.isAuthenticated) {
-          state.currentView = 'company-select'
-        }
-      },
+      // v6.28.22: Removed onRehydrateStorage that forced currentView to
+      // 'company-select'. This was causing an infinite loop:
+      //   1. switchCompany sets currentView='dashboard' + new tenant object
+      //   2. persist middleware writes to localStorage
+      //   3. onRehydrateStorage fires, sets currentView='company-select'
+      //   4. ModuleRouter re-renders, shows CompanySelectPage
+      //   5. User clicks company → switchCompany → loop
+      // Now we let the persisted state determine currentView naturally.
+      // If the user was on 'dashboard' before refresh, they stay on 'dashboard'.
     }
   )
 )
