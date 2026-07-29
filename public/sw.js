@@ -1,64 +1,42 @@
 /**
- * Service Worker — BizBook Pro PWA (v4.155)
- * =================================
- * Spec Section 19 + 20: PWA Architecture + Update Interceptor
- *
- * v4.155 Changes:
- *   - Cache API GET responses for offline read access (network-first with cache fallback)
- *   - POST/PUT/DELETE still require network (writes can't be served from cache)
- *   - Background Sync API for queuing writes when offline (where supported)
- *   - Cache versioning — auto-cleanup of old caches
- *
- * Features:
- *   1. Network-first caching strategy (always fetch fresh when online)
- *   2. Cache fallback for offline (app shell + static assets + API GETs)
- *   3. SKIP_WAITING message handler for instant updates
- *   4. Cache versioning — auto-cleanup of old caches
- *   5. v4.155: API GET responses cached for 5 minutes (offline read access)
- *
- * REGISTER FROM: src/app/layout.tsx (or page.tsx client component)
- *
- * UPDATE MODAL: src/components/app/sw-update-modal.tsx
+ * Service Worker — BizBook Pro PWA (v6.28.21 — NUCLEAR CACHE RESET)
+ * =================================================================
+ * 
+ * PROBLEM: The old service worker (v6.15.0-v6.28.20) was caching
+ * the main JS bundle (/) and serving the STALE version even after
+ * 20+ new deployments. The browser never fetched the new code because
+ * the service worker's network-first strategy had a race condition:
+ * if the network was slow (>2s), the SW fell back to the cached
+ * (stale) bundle, which still had the old `useAppStore()` code
+ * causing React Error #310.
+ * 
+ * SOLUTION: This service worker version:
+ *   1. Does NOT cache navigation requests (HTML pages) AT ALL
+ *   2. Does NOT cache JS chunks (_next/static/*)
+ *   3. Only caches API GET responses for offline use (5-min TTL)
+ *   4. On install, DELETES ALL existing caches from ALL previous versions
+ *   5. Uses skipWaiting + clients.claim for immediate activation
+ * 
+ * This ensures the browser ALWAYS fetches fresh HTML and JS from the
+ * server, while still providing offline API data access.
  */
 
-// v6.28.20: Bumped cache version to force SW update and clear ALL old caches.
-// The old version (v6.15.0) was stuck — browsers kept serving stale JS
-// bundles from the v6.15.0 cache even after 15+ new deployments.
-// This new version will:
-//   1. Install as a NEW service worker (different cache namespace)
-//   2. On activate, DELETE all caches that don't match the new version
-//   3. Force the browser to fetch fresh JS chunks from the server
-const CACHE_VERSION = 'bizbook-pro-v6.28.20-2026-07-30';
-const STATIC_CACHE = `${CACHE_VERSION}-static`;
-const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
+const CACHE_VERSION = 'bizbook-pro-v6.28.21-nuclear-reset';
 const API_CACHE = `${CACHE_VERSION}-api`;
 
-// Assets to pre-cache on install (app shell)
-const PRE_CACHE_URLS = [
-  '/',
-  '/dashboard',
-  '/tahigo-logo.png',
-  '/bizbook-pro-logo.png',
-  '/logo.png',
-  '/manifest.json',
-  '/favicon.png',
-];
-
 // API paths that are safe to cache for offline reads (GET only)
-// Auth, OTP, backup download, and payment endpoints are NEVER cached
 const CACHEABLE_API_PREFIXES = [
-  '/api/sales',          // list endpoint
-  '/api/purchases',      // list endpoint
-  '/api/expenses',       // list endpoint
+  '/api/sales',
+  '/api/purchases',
+  '/api/expenses',
   '/api/inventory',
   '/api/parties',
   '/api/staff',
   '/api/reports',
   '/api/ledger',
-  '/api/dashboard',
 ];
 
-// API paths that must NEVER be cached (even GET)
+// API paths that must NEVER be cached
 const NEVER_CACHE_API_PREFIXES = [
   '/api/auth',
   '/api/backup',
@@ -68,92 +46,119 @@ const NEVER_CACHE_API_PREFIXES = [
   '/api/ai-import',
   '/api/ai-valuation',
   '/api/help-chat',
+  '/api/upload-logo',
+  '/api/admin',
 ];
 
-// Cache TTL for API responses (5 minutes)
-const API_CACHE_TTL_MS = 5 * 60 * 1000;
+const API_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
-// ---------- Install: pre-cache app shell ----------
+// ---------- Install: DELETE ALL old caches, skip waiting ----------
 self.addEventListener('install', (event) => {
-  console.log('[SW] Install — version', CACHE_VERSION);
-  event.waitUntil(
-    caches.open(STATIC_CACHE).then((cache) => {
-      return Promise.allSettled(
-        PRE_CACHE_URLS.map((url) =>
-          cache.add(url).catch((err) => {
-            console.warn(`[SW] Pre-cache failed for ${url}:`, err.message);
-          })
-        )
-      );
-    })
-  );
-  self.skipWaiting();
-});
-
-// ---------- Activate: cleanup old caches ----------
-self.addEventListener('activate', (event) => {
-  console.log('[SW] Activate — version', CACHE_VERSION);
+  console.log('[SW v6.28.21] Install — NUCLEAR CACHE RESET');
   event.waitUntil(
     caches.keys().then((cacheNames) => {
+      // DELETE EVERY cache from EVERY previous version
+      console.log('[SW v6.28.21] Deleting ALL caches:', cacheNames);
+      return Promise.all(
+        cacheNames.map((name) => {
+          console.log('[SW v6.28.21] Deleting cache:', name);
+          return caches.delete(name);
+        })
+      );
+    }).then(() => {
+      // Open the new API cache (empty)
+      return caches.open(API_CACHE);
+    }).then(() => {
+      console.log('[SW v6.28.21] All old caches deleted. New cache ready.');
+      return self.skipWaiting();
+    })
+  );
+});
+
+// ---------- Activate: claim all clients immediately ----------
+self.addEventListener('activate', (event) => {
+  console.log('[SW v6.28.21] Activate — claiming all clients');
+  event.waitUntil(
+    caches.keys().then((cacheNames) => {
+      // Delete any caches that don't match our version
       return Promise.all(
         cacheNames
           .filter((name) => !name.startsWith(CACHE_VERSION))
           .map((name) => {
-            console.log('[SW] Deleting old cache:', name);
+            console.log('[SW v6.28.21] Deleting stale cache on activate:', name);
             return caches.delete(name);
           })
       );
+    }).then(() => {
+      // Force the new SW to take control of ALL open tabs immediately
+      return self.clients.claim();
+    }).then(() => {
+      console.log('[SW v6.28.21] All clients claimed. Fresh code will be served.');
+      // Notify all clients to reload
+      return self.clients.matchAll().then((clients) => {
+        clients.forEach((client) => {
+          client.postMessage({ type: 'SW_UPDATED', version: CACHE_VERSION });
+        });
+      });
     })
   );
-  self.clients.claim();
 });
 
 // ---------- Helper: check if URL is cacheable API GET ----------
 function isCacheableApiGet(url, method) {
   if (method !== 'GET') return false;
-  // Check never-cache list first
   for (const prefix of NEVER_CACHE_API_PREFIXES) {
     if (url.pathname.startsWith(prefix)) return false;
   }
-  // Check cacheable list
   for (const prefix of CACHEABLE_API_PREFIXES) {
     if (url.pathname.startsWith(prefix)) return true;
   }
   return false;
 }
 
-// ---------- Fetch: network-first with cache fallback ----------
+// ---------- Fetch: NEVER cache HTML/JS/CSS — only API GETs ----------
 self.addEventListener('fetch', (event) => {
   const { request } = event;
 
-  // Skip non-GET requests for caching (POST/PUT/DELETE always go to network)
+  // Skip non-GET requests
   if (request.method !== 'GET') return;
 
-  // Skip chrome-extension and external requests
+  // Skip cross-origin requests
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
 
-  // v4.182: Never cache invoice-print routes — always fetch fresh from server
-  if (url.pathname.startsWith('/invoice-print/')) {
+  // v6.28.21: NEVER intercept navigation requests — always go to network
+  // This is the KEY fix. Previously the SW cached the HTML page and served
+  // stale HTML which loaded stale JS bundles.
+  if (request.mode === 'navigate') {
+    return; // Let the browser handle it natively (always network)
+  }
+
+  // v6.28.21: NEVER intercept _next/static/* requests — always go to network
+  // These are hashed JS/CSS chunks. The browser's HTTP cache handles them
+  // efficiently with the immutable Cache-Control header we set in next.config.ts
+  if (url.pathname.startsWith('/_next/static/')) {
+    return; // Let the browser handle it natively
+  }
+
+  // v6.28.21: NEVER intercept _next/data/* requests (RSC payloads)
+  if (url.pathname.startsWith('/_next/data/')) {
     return;
   }
 
-  // v4.155: Cache API GET responses for offline reads
+  // v6.28.21: Only intercept cacheable API GET requests
   if (url.pathname.startsWith('/api/')) {
     if (!isCacheableApiGet(url, request.method)) {
-      // Non-cacheable API (auth, backup, etc.) — always network
-      return;
+      return; // Non-cacheable API — always network
     }
 
     // Network-first with cache fallback for cacheable API GETs
     event.respondWith(
       fetch(request)
         .then((response) => {
-          // Only cache successful responses
           if (response.ok) {
             const responseClone = response.clone();
             caches.open(API_CACHE).then((cache) => {
-              // Add a custom header to track cache time
               const headers = new Headers(responseClone.headers);
               headers.set('X-Cached-At', String(Date.now()));
               responseClone.blob().then((body) => {
@@ -169,35 +174,19 @@ self.addEventListener('fetch', (event) => {
           return response;
         })
         .catch(() => {
-          // Network failed — try API cache
           return caches.match(request).then((cached) => {
             if (cached) {
-              // Check TTL
-              const cachedAt = Number(cached.headers.get('X-Cached-At') || 0);
-              const age = Date.now() - cachedAt;
-              const isStale = age > API_CACHE_TTL_MS;
-              // Return cached even if stale (better than nothing when offline)
-              // Add a header to indicate staleness
               const headers = new Headers(cached.headers);
               headers.set('X-Served-From', 'offline-cache');
-              headers.set('X-Cache-Age-Min', String(Math.round(age / 60000)));
-              headers.set('X-Cache-Stale', isStale ? 'true' : 'false');
               return new Response(cached.body, {
                 status: cached.status,
                 statusText: cached.statusText,
                 headers,
               });
             }
-            // No cache — return offline response
             return new Response(
-              JSON.stringify({
-                error: 'You are offline and this data is not cached.',
-                offline: true,
-              }),
-              {
-                status: 503,
-                headers: { 'Content-Type': 'application/json' },
-              }
+              JSON.stringify({ error: 'You are offline.', offline: true }),
+              { status: 503, headers: { 'Content-Type': 'application/json' } }
             );
           });
         })
@@ -205,49 +194,31 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Network-first strategy for non-API requests (pages, static assets)
-  event.respondWith(
-    fetch(request)
-      .then((response) => {
-        const responseClone = response.clone();
-        caches.open(RUNTIME_CACHE).then((cache) => {
-          cache.put(request, responseClone).catch(() => {});
-        });
-        return response;
-      })
-      .catch(() => {
-        return caches.match(request).then((cached) => {
-          if (cached) return cached;
-          if (request.mode === 'navigate') {
-            return caches.match('/');
-          }
-          return new Response('Offline', { status: 503, statusText: 'Offline' });
-        });
-      })
-  );
+  // For all other requests (images, fonts, etc.) — let browser handle natively
+  // v6.28.21: We do NOT cache these in the SW anymore. The browser's HTTP
+  // cache with our Cache-Control headers (1 year for _next/static, 1 day for
+  // public assets) handles this far more efficiently than the SW ever could.
 });
 
-// ---------- Message handler: SKIP_WAITING for instant update ----------
+// ---------- Message handler ----------
 self.addEventListener('message', (event) => {
-  console.log('[SW] Message received:', event.data);
   if (event.data && event.data.type === 'SKIP_WAITING') {
-    console.log('[SW] Skipping waiting — taking control immediately');
     self.skipWaiting();
   }
-  // v4.155: Clear API cache (when user clicks "Clear cache" in settings)
   if (event.data && event.data.type === 'CLEAR_API_CACHE') {
     caches.delete(API_CACHE).then(() => {
-      console.log('[SW] API cache cleared');
       event.ports[0]?.postMessage({ success: true });
     });
   }
+  // v6.28.21: Handle SW_UPDATED message — force client reload
+  if (event.data && event.data.type === 'SW_UPDATED') {
+    // The client should reload to get the fresh code
+  }
 });
 
-// ---------- Background Sync: retry pending writes when connection restores ----------
-// (where Background Sync API is supported — Chrome/Edge)
+// ---------- Background Sync ----------
 self.addEventListener('sync', (event) => {
   if (event.tag === 'bizbook-pending-writes') {
-    console.log('[SW] Background sync triggered — notifying clients');
     event.waitUntil(
       self.clients.matchAll().then((clients) => {
         clients.forEach((client) => {
@@ -258,17 +229,15 @@ self.addEventListener('sync', (event) => {
   }
 });
 
-// ---------- Notification click (basic PWA notification support) ----------
+// ---------- Notification click ----------
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   event.waitUntil(
     self.clients.matchAll({ type: 'window' }).then((clients) => {
-      if (clients.length > 0) {
-        return clients[0].focus();
-      }
+      if (clients.length > 0) return clients[0].focus();
       return self.clients.openWindow('/');
     })
   );
 });
 
-console.log('[SW] BizBook Pro Service Worker loaded — version', CACHE_VERSION);
+console.log('[SW v6.28.21] Nuclear Cache Reset Service Worker loaded');

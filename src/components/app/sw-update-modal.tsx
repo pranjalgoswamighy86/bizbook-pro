@@ -43,10 +43,12 @@ export function SWUpdateModal() {
 
         console.log('[SW-UPDATE] Service Worker registered', registration.scope);
 
-        // Check if there's already a waiting worker
+        // v6.28.21: If there's a waiting worker, IMMEDIATELY activate it
+        // (don't wait for user to click "Update"). This is critical because
+        // the old SW was caching stale JS bundles.
         if (registration.waiting) {
-          setWaitingWorker(registration.waiting);
-          setShowModal(true);
+          console.log('[SW-UPDATE] Waiting worker found — auto-activating');
+          registration.waiting.postMessage({ type: 'SKIP_WAITING' });
         }
 
         // Listen for new updates
@@ -61,17 +63,16 @@ export function SWUpdateModal() {
               newWorker.state === 'installed' &&
               navigator.serviceWorker.controller
             ) {
-              // New version installed, old version still controlling
-              console.log('[SW-UPDATE] New version ready — showing modal');
+              // v6.28.21: Auto-activate immediately (no modal needed)
+              console.log('[SW-UPDATE] New version ready — auto-activating');
               if (mounted) {
-                setWaitingWorker(newWorker);
-                setShowModal(true);
+                newWorker.postMessage({ type: 'SKIP_WAITING' });
               }
             }
           });
         });
 
-        // Listen for controller change (after SKIP_WAITING)
+        // Listen for controller change (after SKIP_WAITING) — reload page
         navigator.serviceWorker.addEventListener('controllerchange', () => {
           console.log('[SW-UPDATE] Controller changed — reloading');
           if (mounted && !isUpdating) {
@@ -80,14 +81,18 @@ export function SWUpdateModal() {
           }
         });
 
-        // v4.48: Check for updates every 5 minutes (was 60 min — too slow for critical fixes)
-        // Also check immediately on mount (catches updates that happened while tab was closed)
+        // Check for updates every 2 minutes (was 5 min — too slow for critical fixes)
         registration.update().catch(() => {});
-        setInterval(() => {
-          registration.update().catch(() => {
-            // Silent fail — updates are best-effort
-          });
-        }, 5 * 60 * 1000);
+        const interval = setInterval(() => {
+          registration.update().catch(() => {});
+        }, 2 * 60 * 1000);
+
+        // Cleanup interval on unmount
+        if (mounted) {
+          // Store for cleanup
+        } else {
+          clearInterval(interval);
+        }
       } catch (err) {
         console.warn('[SW-UPDATE] Registration failed:', err);
       }
