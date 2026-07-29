@@ -109,6 +109,15 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
               This usually happens after a new update. Click below to refresh and load the latest version.
             </p>
           )}
+          {/* v6.28.24: Show full error stack trace for debugging */}
+          {this.state.error?.stack && (
+            <details className="max-w-2xl w-full">
+              <summary className="text-xs text-blue-600 cursor-pointer">Show error details</summary>
+              <pre className="text-xs text-muted-foreground bg-muted p-3 rounded mt-2 overflow-auto max-h-40 whitespace-pre-wrap">
+                {this.state.error.stack}
+              </pre>
+            </details>
+          )}
           <div className="flex gap-2">
             <Button
               onClick={() => this.setState({ hasError: false, error: null })}
