@@ -21,16 +21,21 @@ interface AccountBalance {
 }
 
 export function TrialBalance() {
-  const { tenant, dateFilter } = useAppStore()
+  const tenantId = useAppStore((s) => s.tenant?.id)
+  const dateFilterType = useAppStore((s) => s.dateFilter.type)
+  const dateFilterStart = useAppStore((s) => s.dateFilter.startDate)
+  const dateFilterEnd = useAppStore((s) => s.dateFilter.endDate)
+  const tenantCurrency = useAppStore((s) => s.tenant?.currency)
   const [loading, setLoading] = useState(true)
   const [accounts, setAccounts] = useState<AccountBalance[]>([])
   const [totalDebit, setTotalDebit] = useState(0)
   const [totalCredit, setTotalCredit] = useState(0)
 
   const fetchTrialBalance = useCallback(async () => {
-    if (!tenant) return
+    if (!tenantId) return
     setLoading(true)
     try {
+      const dateFilter = { type: dateFilterType, startDate: dateFilterStart, endDate: dateFilterEnd }
       const range = getDateFilterRange(dateFilter)
       // v6.27.5: CRITICAL FIX — call /api/ledger (which has the trial-balance
       // action), NOT /api/journal-entries (which doesn't handle this action
@@ -42,7 +47,7 @@ export function TrialBalance() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: 'trial-balance',
-          tenantId: tenant.id,
+          tenantId: tenantId,
           asOfDate: range.end.toISOString(),
         }),
       })
@@ -57,7 +62,7 @@ export function TrialBalance() {
     } finally {
       setLoading(false)
     }
-  }, [tenant, dateFilter])
+  }, [tenantId, dateFilterType, dateFilterStart, dateFilterEnd]))
 
   useEffect(() => { fetchTrialBalance() }, [fetchTrialBalance])
 
@@ -98,10 +103,10 @@ export function TrialBalance() {
                         <TableCell className="text-sm px-4 py-3 font-medium">{acc.name}</TableCell>
                         <TableCell className="text-sm px-4 py-3 text-muted-foreground">{acc.type}</TableCell>
                         <TableCell className="text-right text-sm px-4 py-3 font-semibold">
-                          {acc.debit > 0 ? formatCurrency(acc.debit, tenant?.currency) : ''}
+                          {acc.debit > 0 ? formatCurrency(acc.debit, tenantCurrency) : ''}
                         </TableCell>
                         <TableCell className="text-right text-sm px-4 py-3 font-semibold">
-                          {acc.credit > 0 ? formatCurrency(acc.credit, tenant?.currency) : ''}
+                          {acc.credit > 0 ? formatCurrency(acc.credit, tenantCurrency) : ''}
                         </TableCell>
                       </TableRow>
                     ))}
@@ -109,10 +114,10 @@ export function TrialBalance() {
                     <TableRow className="border-t-2 border-slate-400 bg-muted/50 font-bold">
                       <TableCell colSpan={3} className="text-sm px-4 py-3 text-right">TOTAL:</TableCell>
                       <TableCell className="text-right text-sm px-4 py-3 text-emerald-700 dark:text-emerald-400">
-                        {formatCurrency(totalDebit, tenant?.currency)}
+                        {formatCurrency(totalDebit, tenantCurrency)}
                       </TableCell>
                       <TableCell className="text-right text-sm px-4 py-3 text-rose-700 dark:text-rose-400">
-                        {formatCurrency(totalCredit, tenant?.currency)}
+                        {formatCurrency(totalCredit, tenantCurrency)}
                       </TableCell>
                     </TableRow>
                     {/* Balance check */}
@@ -121,7 +126,7 @@ export function TrialBalance() {
                         {Math.abs(totalDebit - totalCredit) < 0.01 ? 'BALANCED' : 'NOT BALANCED'}:
                       </TableCell>
                       <TableCell colSpan={2} className="text-sm px-4 py-3 text-center font-bold">
-                        Difference: {formatCurrency(Math.abs(totalDebit - totalCredit), tenant?.currency)}
+                        Difference: {formatCurrency(Math.abs(totalDebit - totalCredit), tenantCurrency)}
                       </TableCell>
                     </TableRow>
                   </TableBody>

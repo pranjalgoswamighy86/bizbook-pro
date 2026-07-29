@@ -37,19 +37,27 @@ export function PnLSummary() {
   // v6.28.10: Use selectors to prevent re-renders from unrelated store changes
   const tenantId = useAppStore((s) => s.tenant?.id)
   const tenantCurrency = useAppStore((s) => s.tenant?.currency)
-  const dateFilter = useAppStore((s) => s.dateFilter)
+  const dateFilterType = useAppStore((s) => s.dateFilter.type)
+  const dateFilterStart = useAppStore((s) => s.dateFilter.startDate)
+  const dateFilterEnd = useAppStore((s) => s.dateFilter.endDate)
   const [data, setData] = useState<PnLData | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     if (!tenantId) return
+    const dateFilter = { type: dateFilterType, startDate: dateFilterStart, endDate: dateFilterEnd }
     const range = getDateFilterRange(dateFilter)
+    let cancelled = false
     authFetch('/api/reports', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'pnl', tenantId: tenantId, startDate: range.start.toISOString(), endDate: range.end.toISOString() }),
     })
-      .then((r) => { if (!r.ok) throw new Error('API error: ' + r.status); return r.json() }).then(setData).catch(console.error).finally(() => setLoading(false))
-  }, [tenantId, dateFilter])
+      .then((r) => { if (!r.ok) throw new Error('API error: ' + r.status); return r.json() })
+      .then((d) => { if (!cancelled) setData(d) })
+      .catch(console.error)
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [tenantId, dateFilterType, dateFilterStart, dateFilterEnd])
 
   if (loading || !data) return <div><AppHeader title="P&L Summary" /><div className="p-6"><p className="text-muted-foreground">Loading...</p></div></div>
 

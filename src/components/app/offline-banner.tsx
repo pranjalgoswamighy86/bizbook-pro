@@ -13,8 +13,8 @@ import { Wifi, WifiOff, RefreshCw, Check, AlertTriangle, CloudOff, Database } fr
 import { Button } from '@/components/ui/button'
 
 export function OfflineBanner() {
-  const { tenant } = useAppStore()
-  const { isOnline, pendingCount, syncing, lastSyncAt, syncPendingWrites, cacheStats } = useOfflineMode(tenant?.id)
+  const tenantId = useAppStore((s) => s.tenant?.id)
+  const { isOnline, pendingCount, syncing, lastSyncAt, syncPendingWrites, cacheStats } = useOfflineMode(tenantId)
   const [dismissed, setDismissed] = useState(false)
   const [showDetails, setShowDetails] = useState(false)
 

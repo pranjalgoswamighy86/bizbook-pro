@@ -40,19 +40,27 @@ interface DashboardData {
 }
 
 export function Dashboard() {
-  // v6.28.10: Use shallow selector to only re-render when tenant.id or
-  // dateFilter actually changes — NOT on every store update (sidebarOpen,
-  // searchQuery, etc.). This prevents cascading re-renders that caused
-  // React Error #310 (Maximum update depth exceeded).
+  // v6.28.17: CRITICAL FIX — use ONLY primitive values in useEffect deps.
+  // dateFilter is an OBJECT { type: 'all' } — Zustand re-creates this object
+  // reference on every store update, which re-fires the useEffect, which
+  // calls setData, which triggers a re-render, which reads the store again...
+  // → infinite loop → React Error #310.
+  //
+  // FIX: Extract primitive values (type, startDate, endDate) for the dep array.
   const tenantId = useAppStore((s) => s.tenant?.id)
   const tenantCurrency = useAppStore((s) => s.tenant?.currency)
-  const dateFilter = useAppStore((s) => s.dateFilter)
+  const dateFilterType = useAppStore((s) => s.dateFilter.type)
+  const dateFilterStart = useAppStore((s) => s.dateFilter.startDate)
+  const dateFilterEnd = useAppStore((s) => s.dateFilter.endDate)
   const [data, setData] = useState<DashboardData | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     if (!tenantId) return
+    const dateFilter = { type: dateFilterType, startDate: dateFilterStart, endDate: dateFilterEnd }
     const range = getDateFilterRange(dateFilter)
+    let cancelled = false
+    setLoading(true)
     authFetch('/api/reports', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -64,10 +72,11 @@ export function Dashboard() {
       }),
     })
       .then((r) => { if (!r.ok) throw new Error('API error: ' + r.status); return r.json() })
-      .then((d) => setData(d))
+      .then((d) => { if (!cancelled) setData(d) })
       .catch(console.error)
-      .finally(() => setLoading(false))
-  }, [tenantId, dateFilter])
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [tenantId, dateFilterType, dateFilterStart, dateFilterEnd])
 
   if (loading || !data) {
     return (
