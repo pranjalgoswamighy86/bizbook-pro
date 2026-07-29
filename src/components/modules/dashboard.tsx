@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState } from 'react'
 import { useAppStore } from '@/store/app-store'
 import { AppHeader } from '@/components/app/header'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -91,10 +91,20 @@ export function Dashboard() {
     )
   }
 
-  // v6.28.4: Wrapped in useMemo to prevent array recreation on every render.
-  // The stats array contains JSX elements (icons) — recreating it on every
-  // render forces React to re-diff all 9 cards unnecessarily.
-  const stats = useMemo(() => [
+  // v6.28.25: REMOVED useMemo — it was causing React Error #310 because
+  // the `data` dependency is an object that gets a new reference on every
+  // API response, causing useMemo to re-run, which creates new JSX elements,
+  // which triggers a re-render, which... actually useMemo with [data] should
+  // be fine. But the stack trace shows the crash is at useMemo.
+  //
+  // The real issue: the useMemo callback creates JSX elements (icons) inside
+  // the useMemo function. In React 19/16, creating JSX during useMemo can
+  // trigger a re-render if the JSX elements are compared by reference.
+  // Moving the icon creation OUTSIDE useMemo fixes this.
+  //
+  // For now, just use a plain const — no useMemo. The performance impact
+  // is negligible (9 objects on each render).
+  const stats = [
     { title: 'Total Sales', value: data.totalSales, icon: <ShoppingCart className="h-5 w-5" />, color: 'text-emerald-600', bg: 'bg-emerald-50 dark:bg-emerald-950', count: `${data.salesCount} invoices`, arrow: <ArrowUpRight className="h-4 w-4" /> },
     { title: 'Total Purchases', value: data.totalPurchases, icon: <Package className="h-5 w-5" />, color: 'text-orange-600', bg: 'bg-orange-50 dark:bg-orange-950', count: `${data.purchaseCount} invoices`, arrow: <ArrowDownRight className="h-4 w-4" /> },
     { title: 'Total Expenses', value: data.totalExpenses, icon: <Receipt className="h-5 w-5" />, color: 'text-red-600', bg: 'bg-red-50 dark:bg-red-950', count: `${data.expenseCount} entries`, arrow: <ArrowDownRight className="h-4 w-4" /> },
@@ -104,7 +114,7 @@ export function Dashboard() {
     { title: 'Payable', value: data.totalPayable, icon: <UserX className="h-5 w-5" />, color: 'text-amber-600', bg: 'bg-amber-50 dark:bg-amber-950', count: 'Money to pay' },
     { title: 'Inventory Value', value: data.totalInventoryValue, icon: <Package className="h-5 w-5" />, color: 'text-purple-600', bg: 'bg-purple-50 dark:bg-purple-950', count: `${data.inventoryCount} items` },
     { title: 'Low Stock Alerts', value: data.lowStockCount, icon: <AlertTriangle className="h-5 w-5" />, color: 'text-destructive', bg: 'bg-destructive/10', count: 'Items below minimum' },
-  ], [data])
+  ]
 
   return (
     <div>

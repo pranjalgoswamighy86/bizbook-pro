@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback, useMemo } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { useAppStore, canEdit, canCorrect } from '@/store/app-store'
 import { AppHeader } from '@/components/app/header'
 import { Card, CardContent } from '@/components/ui/card'
@@ -172,18 +172,16 @@ export function SaleRegister() {
   // Example: subtotal=₹16,000, discountPercent=50%, GST=18%
   //   OLD (buggy): taxable=₹8,000, tax=₹2,880 (on ₹16,000), total=₹10,880 ❌
   //   NEW (correct): taxable=₹8,000, tax=₹1,440 (on ₹8,000), total=₹9,440 ✓
-  const { subtotal, itemLevelTotalTax, totalDiscount, saleDiscountAmount, taxableAmount, totalTax, totalAmount } = useMemo(() => {
-    const subtotal = items.reduce((s, i) => s + i.amount, 0)
-    const itemLevelTotalTax = items.reduce((s, i) => s + i.totalTax, 0)
-    const totalDiscount = items.reduce((s, i) => s + i.discount, 0)
-    const saleDiscountPercent = form.discountPercent || 0
-    const saleDiscountAmount = roundTo2(subtotal * saleDiscountPercent / 100)
-    const taxableAmount = roundTo2(subtotal - saleDiscountAmount)
-    const taxRatio = subtotal > 0 ? taxableAmount / subtotal : 0
-    const totalTax = roundTo2(itemLevelTotalTax * taxRatio)
-    const totalAmount = roundTo2(taxableAmount + totalTax)
-    return { subtotal, itemLevelTotalTax, totalDiscount, saleDiscountAmount, taxableAmount, totalTax, totalAmount }
-  }, [items, form.discountPercent])
+  // v6.28.25: Removed useMemo — was causing React Error #310 per stack trace
+  const subtotal = items.reduce((s, i) => s + i.amount, 0)
+  const itemLevelTotalTax = items.reduce((s, i) => s + i.totalTax, 0)
+  const totalDiscount = items.reduce((s, i) => s + i.discount, 0)
+  const saleDiscountPercent = form.discountPercent || 0
+  const saleDiscountAmount = roundTo2(subtotal * saleDiscountPercent / 100)
+  const taxableAmount = roundTo2(subtotal - saleDiscountAmount)
+  const taxRatio = subtotal > 0 ? taxableAmount / subtotal : 0
+  const totalTax = roundTo2(itemLevelTotalTax * taxRatio)
+  const totalAmount = roundTo2(taxableAmount + totalTax)
 
   // v4.62.1: Auto-set payment for Cash sales — Total Amount = Amount Received, Balance Due = 0
   useEffect(() => {
