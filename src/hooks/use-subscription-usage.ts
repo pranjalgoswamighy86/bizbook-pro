@@ -20,33 +20,27 @@ import { useAppStore } from '@/store/app-store'
 import { authFetch } from '@/lib/auth-fetch'
 
 export function useSubscriptionUsageTracker() {
-  const { isAuthenticated, tenant, user } = useAppStore()
+  // v6.28.13: Use individual selectors to prevent cascading re-renders
+  const isAuthenticated = useAppStore((s) => s.isAuthenticated)
+  const tenantId = useAppStore((s) => s.tenant?.id)
+  const userRole = useAppStore((s) => s.user?.role)
   const lastDeductionRef = useRef<number>(Date.now())
 
   useEffect(() => {
-    if (!isAuthenticated || !tenant?.id || !user) return
+    if (!isAuthenticated || !tenantId || !userRole) return
 
-    // v4.55: 5-minute interval (was 1 minute) — 5x less server load
-    const TRACKING_INTERVAL = 5 * 60 * 1000 // 5 minutes
-    const SECONDS_PER_INTERVAL = 300 // 5 minutes = 300 seconds
+    const TRACKING_INTERVAL = 5 * 60 * 1000
 
     const trackUsage = async () => {
-      // Only track for non-VIEW_ONLY users
-      if (user.role === 'VIEW_ONLY') return
-
-      // v4.55: Skip if tab is in background (user not actually using app)
+      if (userRole === 'VIEW_ONLY') return
       if (document.visibilityState === 'hidden') return
-
-      // v4.55: Skip if offline (avoid error spam)
       if (!navigator.onLine) return
 
       const now = Date.now()
       const elapsed = Math.floor((now - lastDeductionRef.current) / 1000)
-
-      // v4.55: Only deduct if at least 4 minutes have passed (was 55s)
       if (elapsed < 240) return
 
-      const secondsToDeduct = Math.min(elapsed, 600) // Cap at 10 minutes per deduction
+      const secondsToDeduct = Math.min(elapsed, 600)
       lastDeductionRef.current = now
 
       try {
@@ -55,9 +49,9 @@ export function useSubscriptionUsageTracker() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             action: 'log-usage',
-            tenantId: tenant.id,
+            tenantId: tenantId,
             secondsUsed: secondsToDeduct,
-            userRole: user.role,
+            userRole: userRole,
           }),
         })
       } catch (err) {
@@ -65,15 +59,10 @@ export function useSubscriptionUsageTracker() {
       }
     }
 
-    // v4.55: Add random jitter (0-30s) before first track
-    // This spreads 1000 users' requests across 30 seconds instead of all hitting at once
     const initialDelay = Math.floor(Math.random() * 30000)
     const initialTimer = setTimeout(trackUsage, initialDelay)
-
-    // Then track every 5 minutes
     const interval = setInterval(trackUsage, TRACKING_INTERVAL)
 
-    // v4.55: Track immediately when user switches back to tab
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
         const elapsed = Math.floor((Date.now() - lastDeductionRef.current) / 1000)
@@ -87,6 +76,6 @@ export function useSubscriptionUsageTracker() {
       clearInterval(interval)
       document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
-  }, [isAuthenticated, tenant?.id, user?.id])
+  }, [isAuthenticated, tenantId, userRole])
 }
 

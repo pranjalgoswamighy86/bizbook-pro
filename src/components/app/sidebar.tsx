@@ -92,7 +92,16 @@ const navItems: NavItem[] = [
 ]
 
 export function AppSidebar() {
-  const { currentView, setView, user, tenant, companies, sidebarOpen, setSidebarOpen, logout } = useAppStore()
+  // v6.28.13: Use individual selectors to prevent cascading re-renders
+  const currentView = useAppStore((s) => s.currentView)
+  const setView = useAppStore((s) => s.setView)
+  const user = useAppStore((s) => s.user)
+  const tenantName = useAppStore((s) => s.tenant?.name)
+  const tenantId = useAppStore((s) => s.tenant?.id)
+  const companies = useAppStore((s) => s.companies)
+  const sidebarOpen = useAppStore((s) => s.sidebarOpen)
+  const setSidebarOpen = useAppStore((s) => s.setSidebarOpen)
+  const logout = useAppStore((s) => s.logout)
   const { toast } = useToast()
   const [backupLoading, setBackupLoading] = useState(false)
   const [isMobile, setIsMobile] = useState(false)
@@ -168,13 +177,13 @@ export function AppSidebar() {
   }, [closeMobileDrawer])
 
   const handleDownloadBackup = async (format: 'json' | 'tally') => {
-    if (!tenant) return
+    if (!tenantId) return
     setBackupLoading(true)
     try {
       const res = await authFetch('/api/backup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: format, tenantId: tenant.id }),
+        body: JSON.stringify({ action: format, tenantId: tenantId }),
       })
 
       if (!res.ok) {
@@ -187,7 +196,7 @@ export function AppSidebar() {
         const url = URL.createObjectURL(blob)
         const a = document.createElement('a')
         a.href = url
-        a.download = `${tenant.name.replace(/[^a-zA-Z0-9]/g, '_')}_tally_export.xml`
+        a.download = `${tenantName.replace(/[^a-zA-Z0-9]/g, '_')}_tally_export.xml`
         a.click()
         URL.revokeObjectURL(url)
       } else {
@@ -196,7 +205,7 @@ export function AppSidebar() {
         const url = URL.createObjectURL(blob)
         const a = document.createElement('a')
         a.href = url
-        a.download = `${tenant.name.replace(/[^a-zA-Z0-9]/g, '_')}_backup_${new Date().toISOString().slice(0, 10)}.json`
+        a.download = `${tenantName.replace(/[^a-zA-Z0-9]/g, '_')}_backup_${new Date().toISOString().slice(0, 10)}.json`
         a.click()
         URL.revokeObjectURL(url)
       }
@@ -263,7 +272,7 @@ export function AppSidebar() {
             </button>
           )}
           {/* v4.65: Import Backup only for MAIN_ADMIN */}
-          {tenant && canManage(user?.role || 'VIEW_ONLY') && (
+          {tenantId && canManage(user?.role || 'VIEW_ONLY') && (
             <button
               onClick={() => { setShowBackupImport(true); closeMobileDrawer() }}
               className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-xs text-amber-400 hover:bg-sidebar-accent transition-colors"
@@ -496,7 +505,7 @@ export function AppSidebar() {
                 Add New Company
               </button>
             )}
-            {tenant && canManage(user?.role || 'VIEW_ONLY') && (
+            {tenantId && canManage(user?.role || 'VIEW_ONLY') && (
               <button
                 onClick={() => setShowBackupImport(true)}
                 className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-xs text-amber-400 hover:bg-sidebar-accent transition-colors"

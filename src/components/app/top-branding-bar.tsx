@@ -30,7 +30,14 @@ interface SubscriptionInfo {
 }
 
 export function TopBrandingBar() {
-  const { user, tenant, logout, setView, sidebarOpen, setSidebarOpen } = useAppStore()
+  // v6.28.13: Use individual selectors to prevent cascading re-renders
+  const user = useAppStore((s) => s.user)
+  const tenantName = useAppStore((s) => s.tenant?.name)
+  const tenantId = useAppStore((s) => s.tenant?.id)
+  const logout = useAppStore((s) => s.logout)
+  const setView = useAppStore((s) => s.setView)
+  const sidebarOpen = useAppStore((s) => s.sidebarOpen)
+  const setSidebarOpen = useAppStore((s) => s.setSidebarOpen)
   const router = useRouter()
   const [subInfo, setSubInfo] = useState<SubscriptionInfo | null>(null)
   const [isMobile, setIsMobile] = useState(false)
@@ -47,14 +54,14 @@ export function TopBrandingBar() {
 
   // Fetch subscription info for the badge
   useEffect(() => {
-    if (!tenant?.id) return
+    if (!tenantId) return
     let cancelled = false
     const fetchSub = async () => {
       try {
         const res = await authFetch('/api/subscription', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'get-status', tenantId: tenant?.id }),
+          body: JSON.stringify({ action: 'get-status', tenantId: tenantId }),
         })
         if (!res.ok) return
         const data = await res.json()
@@ -79,7 +86,7 @@ export function TopBrandingBar() {
       cancelled = true
       clearInterval(interval)
     }
-  }, [tenant?.id])
+  }, [tenantId])
 
   const handleLogout = () => {
     logout()
@@ -115,7 +122,7 @@ export function TopBrandingBar() {
           </Button>
         )}
         <span className="text-sm sm:text-base font-bold text-foreground tracking-tight truncate max-w-[120px] sm:max-w-[250px]">
-          {tenant?.name || 'BizBook Pro'}
+          {tenantName || 'BizBook Pro'}
         </span>
       </div>
 
@@ -173,7 +180,7 @@ export function TopBrandingBar() {
         <div className="h-5 w-px bg-slate-200 hidden sm:block" aria-hidden="true" />
 
         {/* User Profile Block */}
-        <div className="hidden sm:flex flex-col text-right min-w-0" title={`Tenant: ${tenant?.name || 'Unknown'}`}>
+        <div className="hidden sm:flex flex-col text-right min-w-0" title={`Tenant: ${tenantName || 'Unknown'}`}>
           <span className="text-xs sm:text-sm font-bold text-foreground tracking-tight truncate max-w-[120px] sm:max-w-[180px]">
             {user?.name || 'Loading...'}
           </span>

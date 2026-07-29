@@ -53,7 +53,7 @@ const PaymentProofReview = lazy(() => import('@/components/modules/payment-proof
 const HelpSupportManagement = lazy(() => import('@/components/modules/help-support-management').then(m => ({ default: m.HelpSupportManagement })))
 
 function ModuleRouter() {
-  const { currentView } = useAppStore()
+  const currentView = useAppStore((s) => s.currentView)
 
   // Dashboard is eagerly loaded (default view — most frequently accessed)
   if (currentView === 'dashboard') return <Dashboard />
