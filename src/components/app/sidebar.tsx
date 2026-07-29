@@ -96,7 +96,7 @@ export function AppSidebar() {
   const currentView = useAppStore((s) => s.currentView)
   const setView = useAppStore((s) => s.setView)
   const user = useAppStore((s) => s.user)
-  const tenantName = useAppStore((s) => s.tenant?.name)
+  const tenantName = useAppStore((s) => s.tenantName)
   const tenantId = useAppStore((s) => s.tenant?.id)
   const companies = useAppStore((s) => s.companies)
   const sidebarOpen = useAppStore((s) => s.sidebarOpen)
@@ -393,7 +393,7 @@ export function AppSidebar() {
     <BackupImportDialog
       open={showBackupImport}
       onOpenChange={setShowBackupImport}
-      companyName={tenant?.name || ''}
+      companyName={tenantName || ''}
     />
   )
 
@@ -415,7 +415,7 @@ export function AppSidebar() {
           </Button>
           {/* v4.18: No logos in mobile sidebar top bar — TopBrandingBar handles branding */}
           <div className="min-w-0 flex-1">
-            <p className="text-xs font-medium text-muted-foreground truncate">{tenant?.name || 'Business'}</p>
+            <p className="text-xs font-medium text-muted-foreground truncate">{tenantName || 'Business'}</p>
           </div>
         </div>
 
