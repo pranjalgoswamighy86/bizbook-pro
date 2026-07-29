@@ -62,7 +62,7 @@ export function TrialBalance() {
     } finally {
       setLoading(false)
     }
-  }, [tenantId, dateFilterType, dateFilterStart, dateFilterEnd]))
+  }, [tenantId, dateFilterType, dateFilterStart, dateFilterEnd])
 
   useEffect(() => { fetchTrialBalance() }, [fetchTrialBalance])
 
