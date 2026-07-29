@@ -1,88 +1,31 @@
 'use client';
 
 /**
- * SW Update Modal — v6.28.22 SELF-DESTRUCT MODE
- * ==============================================
+ * SW Update Modal — v6.28.23 COMPLETELY DISABLED
+ * =================================================
  * 
- * This component now ONLY registers the self-destruct service worker
- * and reloads the page when it activates. No modal is shown.
+ * The service worker was causing infinite reload loops. The self-destruct
+ * SW would unregister itself, then this component would re-register it
+ * on the next page load, then it would self-destruct again → infinite loop.
  * 
- * The self-destruct SW will:
- *   1. Delete ALL caches
- *   2. Unregister itself
- *   3. Notify the client to reload
+ * FIX: Do NOT register any service worker at all. The browser's native
+ * HTTP cache is sufficient. PWA/offline features are disabled until the
+ * React Error #310 issue is fully resolved.
  * 
- * After reload, no service worker will be active. The browser will
- * use its native HTTP cache only, eliminating the SW as a variable
- * in the React Error #310 debugging.
+ * This component is kept in the codebase (it's imported in layout.tsx)
+ * but renders null and does nothing.
  */
 
-import { useEffect } from 'react';
-
 export function SWUpdateModal() {
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    if (!('serviceWorker' in navigator)) return;
+  // v6.28.23: Do NOT register any service worker.
+  // If a stale SW exists from a previous version, it will eventually
+  // be cleaned up by the browser's natural lifecycle. We can't force
+  // unregister from here because that requires the SW to be active.
+  //
+  // Users who have a stale SW should:
+  //   1. Open DevTools → Application → Service Workers → Unregister
+  //   2. Or clear all site data: DevTools → Application → Clear storage
+  //   3. Or use incognito/private browsing mode (no SW)
 
-    let mounted = true;
-
-    const registerSelfDestructSW = async () => {
-      try {
-        // Register the self-destruct SW
-        const registration = await navigator.serviceWorker.register('/sw.js', {
-          scope: '/',
-          updateViaCache: 'none',
-        });
-
-        console.log('[SW-UPDATE] Self-destruct SW registered');
-
-        // Auto-activate if waiting
-        if (registration.waiting) {
-          registration.waiting.postMessage({ type: 'SKIP_WAITING' });
-        }
-
-        // Listen for new SW installations
-        registration.addEventListener('updatefound', () => {
-          const newWorker = registration.installing;
-          if (!newWorker) return;
-          newWorker.addEventListener('statechange', () => {
-            if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-              newWorker.postMessage({ type: 'SKIP_WAITING' });
-            }
-          });
-        });
-
-        // Listen for controller change — reload to get fresh code
-        navigator.serviceWorker.addEventListener('controllerchange', () => {
-          if (mounted) {
-            window.location.reload();
-          }
-        });
-
-        // Listen for self-destruct message
-        navigator.serviceWorker.addEventListener('message', (event) => {
-          if (event.data?.type === 'SW_SELF_DESTRUCTED') {
-            console.log('[SW-UPDATE] SW self-destructed — reloading');
-            if (mounted) {
-              window.location.reload();
-            }
-          }
-        });
-
-        // Check for updates immediately
-        registration.update().catch(() => {});
-      } catch (err) {
-        console.warn('[SW-UPDATE] Registration failed:', err);
-      }
-    };
-
-    registerSelfDestructSW();
-
-    return () => {
-      mounted = false;
-    };
-  }, []);
-
-  // Render nothing — no modal
   return null;
 }

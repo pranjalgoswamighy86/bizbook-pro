@@ -74,7 +74,9 @@ export default function RootLayout({
         {children}
         <Toaster />
         <SonnerToaster />
-        {/* v4.8: PWA Service Worker Update Interceptor (Spec Section 20) */}
+        {/* v6.28.23: SWUpdateModal DISABLED — was causing infinite reload loop.
+            The component still renders null (no-op) but we keep it imported
+            to avoid breaking the build. */}
         <SWUpdateModal />
         {/* v4.155: Offline mode banner + IndexedDB cache indicator */}
         <OfflineBanner />
