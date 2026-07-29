@@ -21,7 +21,14 @@
  * UPDATE MODAL: src/components/app/sw-update-modal.tsx
  */
 
-const CACHE_VERSION = 'bizbook-pro-v6.15.0-2026-07-08';
+// v6.28.20: Bumped cache version to force SW update and clear ALL old caches.
+// The old version (v6.15.0) was stuck — browsers kept serving stale JS
+// bundles from the v6.15.0 cache even after 15+ new deployments.
+// This new version will:
+//   1. Install as a NEW service worker (different cache namespace)
+//   2. On activate, DELETE all caches that don't match the new version
+//   3. Force the browser to fetch fresh JS chunks from the server
+const CACHE_VERSION = 'bizbook-pro-v6.28.20-2026-07-30';
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 const API_CACHE = `${CACHE_VERSION}-api`;

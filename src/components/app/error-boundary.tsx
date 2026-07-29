@@ -48,16 +48,30 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
   handleManualReload = () => {
     this.setState({ isReloading: true })
     const w = window as any
-    // Clear all caches then reload
-    if (w && 'caches' in w) {
-      w.caches.keys().then((names: string[]) => {
-        Promise.all(names.map((name: string) => w.caches.delete(name))).then(() => {
-          w.location.reload()
+    // v6.28.20: NUCLEAR cache clear — unregister ALL service workers,
+    // delete ALL caches, then reload. This ensures no stale JS bundles
+    // survive from the old v6.15.0 SW cache.
+    const doReload = () => {
+      if (w && 'caches' in w) {
+        w.caches.keys().then((names: string[]) => {
+          Promise.all(names.map((name: string) => w.caches.delete(name))).then(() => {
+            // Also unregister the service worker
+            if ('serviceWorker' in navigator) {
+              navigator.serviceWorker.getRegistrations().then((registrations) => {
+                Promise.all(registrations.map((reg) => reg.unregister())).then(() => {
+                  w.location.reload()
+                })
+              })
+            } else {
+              w.location.reload()
+            }
+          })
         })
-      })
-    } else if (w) {
-      w.location.reload()
+      } else if (w) {
+        w.location.reload()
+      }
     }
+    doReload()
   }
 
   render() {

@@ -114,6 +114,18 @@ const nextConfig: NextConfig = {
         source: "/:path*",
         headers: securityHeaders,
       },
+      // v6.28.20: Service Worker must NEVER be cached by the browser HTTP cache.
+      // If sw.js is cached, the browser serves the OLD service worker which
+      // has the OLD cache version, which serves OLD JS bundles → stale app.
+      {
+        source: "/sw.js",
+        headers: [
+          { key: "Cache-Control", value: "no-store, no-cache, must-revalidate, max-age=0" },
+          { key: "Pragma", value: "no-cache" },
+          { key: "Expires", value: "0" },
+          ...securityHeaders,
+        ],
+      },
       {
         // v4.58: Static assets — cache for 1 year (immutable, hashed filenames)
         source: "/_next/static/:path*",
