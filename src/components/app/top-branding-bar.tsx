@@ -131,14 +131,10 @@ export function TopBrandingBar() {
 
       {/* ============= RIGHT ZONE: Download Desktop (DESKTOP ONLY) + Subscription + Profile + Logout ============= */}
       <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-        {/* v5.1: Download Desktop button — now opens a modal with platform
-            selection (Windows .exe, macOS .dmg, Linux .AppImage).
-            Replaces the old PWA install hint alert. */}
-        {!isMobile && (
-          <div className="hidden md:flex">
-            <DownloadForDesktop />
-          </div>
-        )}
+        {/* v6.28.26: DownloadForDesktop component now handles its own visibility
+            logic internally (Electron → hide, Mobile → hide, Desktop browser → show).
+            No need for external isMobile / hidden md:flex guards. */}
+        <DownloadForDesktop />
 
         {/* Subscription Badge */}
         <button

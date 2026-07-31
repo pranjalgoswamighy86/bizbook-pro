@@ -56,14 +56,13 @@ export function DownloadForDesktop() {
   const [showGuide, setShowGuide] = useState(false)
   const [selectedPlatform, setSelectedPlatform] = useState<Platform | null>(null)
   const [platform, setPlatform] = useState<Platform>('unknown')
-  const [isDesktop, setIsDesktop] = useState(false)
+  const [isDesktopBrowser, setIsDesktopBrowser] = useState(false)
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null)
   const modalRef = useRef<HTMLDivElement>(null)
 
   // Scroll modal to top when it opens
   useEffect(() => {
     if (showModal) {
-      // Use setTimeout to ensure the modal is rendered before scrolling
       const timer = setTimeout(() => {
         if (modalRef.current) {
           modalRef.current.scrollTop = 0
@@ -73,15 +72,50 @@ export function DownloadForDesktop() {
     }
   }, [showModal])
 
+  // v6.28.26: Precise environment detection per the user's spec:
+  //   Desktop Web Browser (Chrome, Edge, Firefox, Safari, etc.) → SHOW
+  //   Electron App Shell (window.electron present)             → HIDE
+  //   Mobile Browser (iOS Safari, Android Chrome, etc.)        → HIDE
   useEffect(() => {
-    const checkDesktop = () => setIsDesktop(window.innerWidth >= 900)
-    checkDesktop()
-    window.addEventListener('resize', checkDesktop)
-    return () => window.removeEventListener('resize', checkDesktop)
+    const checkEnvironment = () => {
+      // Rule 1: If running inside Electron desktop app → HIDE
+      if (typeof window !== 'undefined' && window.electron) {
+        setIsDesktopBrowser(false)
+        return
+      }
+
+      // Rule 2: If mobile browser (touch + small screen) → HIDE
+      // Use multiple signals for reliable mobile detection:
+      //   - User agent contains Mobi/Android/iPhone/iPad
+      //   - Or: touch screen + screen width < 900px
+      const ua = navigator.userAgent || ''
+      const isMobileUA = /Mobi|Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua)
+      const isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0
+      const isSmallScreen = window.innerWidth < 900
+
+      if (isMobileUA || (isTouch && isSmallScreen)) {
+        setIsDesktopBrowser(false)
+        return
+      }
+
+      // Rule 3: Desktop web browser (wide screen, no Electron) → SHOW
+      // Additional check: some tablets report as desktop but have touch
+      // Only show if screen is wide enough AND not primarily touch
+      if (window.innerWidth >= 900 && !isMobileUA) {
+        setIsDesktopBrowser(true)
+        return
+      }
+
+      setIsDesktopBrowser(false)
+    }
+
+    checkEnvironment()
+    window.addEventListener('resize', checkEnvironment)
+    return () => window.removeEventListener('resize', checkEnvironment)
   }, [])
 
   useEffect(() => {
-    if (!isDesktop) return
+    if (!isDesktopBrowser) return
     setPlatform(detectPlatform())
 
     const handler = (e: Event) => {
@@ -90,10 +124,10 @@ export function DownloadForDesktop() {
     }
     window.addEventListener('beforeinstallprompt', handler)
     return () => window.removeEventListener('beforeinstallprompt', handler)
-  }, [isDesktop])
+  }, [isDesktopBrowser])
 
-  // Hard block on mobile
-  if (!isDesktop) return null
+  // v6.28.26: Only render on desktop web browsers (not Electron, not mobile)
+  if (!isDesktopBrowser) return null
 
   const handleDownload = (plat: Platform) => {
     // v6.13: Show installation guide first, then proceed to download
