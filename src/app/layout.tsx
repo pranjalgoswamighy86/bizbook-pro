@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Toaster as SonnerToaster } from "@/components/ui/sonner";
@@ -36,23 +36,28 @@ export const metadata: Metadata = {
     icon: "/favicon.png",
   },
   manifest: "/manifest.json",
-  // v6.28.4: MOBILE PERFORMANCE — viewport configuration for responsive rendering.
-  // `width=device-width` ensures the layout matches the device width.
-  // `initialScale=1` prevents zoom on load. `maximumScale=5` allows pinch-zoom
-  // for accessibility while preventing layout breakage.
-  viewport: {
-    width: "device-width",
-    initialScale: 1,
-    maximumScale: 5,
-  },
-  // v6.28.4: MOBILE PERFORMANCE — theme color for mobile browser chrome
-  themeColor: "#059669",
+  // v6.29.4: viewport + themeColor MOVED to a separate `viewport` export
+  // below — Next.js 16 deprecated putting them in `metadata` and emits a
+  // build warning for every layout that does it.
   // v6.28.4: MOBILE PERFORMANCE — prefetch hints for faster LCP
   formatDetection: {
     telephone: false,
     address: false,
     email: false,
   },
+};
+
+// v6.29.4: Next.js 16 — viewport + themeColor must live in their own export,
+// not inside `metadata`. See https://nextjs.org/docs/app/api-reference/functions/generate-viewport
+// v6.28.4: MOBILE PERFORMANCE — viewport configuration for responsive rendering.
+// `width=device-width` ensures the layout matches the device width.
+// `initialScale=1` prevents zoom on load. `maximumScale=5` allows pinch-zoom
+// for accessibility while preventing layout breakage.
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 5,
+  themeColor: "#059669", // v6.28.4: mobile browser chrome color
 };
 
 export default function RootLayout({

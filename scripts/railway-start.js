@@ -15,7 +15,7 @@ const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
-console.log('=== BizBook Pro Startup (v6.24.0 — PostgreSQL + Direct Server + Rate-Limited) ===');
+console.log('=== BizBook Pro Startup (v6.29.4 — PostgreSQL + Direct Server + Rate-Limited) ===');
 
 // CRITICAL: Delete HOSTNAME so Next.js binds to 0.0.0.0 (fixes Railway 502)
 delete process.env.HOSTNAME;
@@ -220,8 +220,20 @@ function runAutoRepair() {
       for (const [userId, tenantIds] of Object.entries(ownerMap)) {
         if (tenantIds.length < 2) continue; // Only one company, no consolidation needed
 
+        // v6.29.4: CRITICAL FIX — exclude CONVERTED_TO_VIEW_ONLY subs from the
+        // re-sum. Previously this query fetched ALL subs (including ones that
+        // had already been zeroed on a prior deploy), so every restart re-summed
+        // 'wallet.remainingSeconds + 0 + 0 + ...' and wrote the SAME total back.
+        // That was harmless IF the user hadn't spent AI time between deploys —
+        // but if they had, the consumed minutes got silently re-credited to the
+        // wallet. Excluding CONVERTED_TO_VIEW_ONLY here makes the consolidation
+        // idempotent across deploys: a sub that's already been zeroed stays zeroed,
+        // and only ACTIVE subs contribute to the wallet total.
         const subs = await prisma.subscription.findMany({
-          where: { tenantId: { in: tenantIds } },
+          where: {
+            tenantId: { in: tenantIds },
+            status: { not: 'CONVERTED_TO_VIEW_ONLY' },
+          },
           orderBy: { createdAt: 'asc' },
         });
 
