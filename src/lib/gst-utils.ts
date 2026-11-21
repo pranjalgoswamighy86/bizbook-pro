@@ -162,7 +162,14 @@ function computeGSTINCheckDigit(gstin14: string): string {
  * Extract state code from a GSTIN (first 2 characters)
  */
 export function getStateCode(gstin: string): string {
-  if (!gstin || gstin.length < 2) return '27' // Default to Maharashtra
+  // v6.29.2: Returning a hardcoded '27' (Maharashtra) when the GSTIN is
+  // missing was WRONG — it caused isInterStateSupply() to compare a real
+  // party state code against '27', producing the wrong CGST/SGST vs IGST
+  // split for any out-of-state party whose GSTIN we didn't capture. Now we
+  // return '' so callers that pass an empty GSTIN propagate the empty
+  // state code upward, and isInterStateSupply() / IRP callers explicitly
+  // short-circuit when either GSTIN is missing (they already do).
+  if (!gstin || gstin.length < 2) return ''
   return gstin.substring(0, 2)
 }
 

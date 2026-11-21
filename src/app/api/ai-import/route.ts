@@ -83,6 +83,21 @@ async function handleFileUpload(req: NextRequest) {
   if (!file) {
     return NextResponse.json({ error: 'No file provided' }, { status: 400 })
   }
+
+  // v6.29.2: Move file-size cap BEFORE the auth check. Reasons:
+  //   1. Cheap reject — file.size is a header field, no I/O needed. Running
+  //      auth (JWT verify + tenant lookup) first wastes a DB round-trip on
+  //      oversized uploads that will be rejected anyway.
+  //   2. Security — unauthenticated attackers probing the endpoint get a 413
+  //      instead of a 401, leaking no information about which tenantIds exist.
+  //   3. Smoke tests can verify the cap live without an authenticated session.
+  const fileSizeEarly = file.size || 0
+  if (fileSizeEarly > MAX_FILE_SIZE_BYTES) {
+    return NextResponse.json({
+      error: `File too large (${(fileSizeEarly / 1024 / 1024).toFixed(1)} MB). Maximum allowed is ${MAX_FILE_SIZE_BYTES / 1024 / 1024} MB. Please split the file or trim large sheets.`,
+    }, { status: 413 })
+  }
+
   if (!tenantId) {
     return NextResponse.json({ error: 'No tenant ID provided' }, { status: 400 })
   }
@@ -95,13 +110,6 @@ async function handleFileUpload(req: NextRequest) {
   const fileSize = file.size
 
   console.log(`[AI-Import] File: ${file.name}, Size: ${fileSize}, Ext: ${ext}, Category: ${userCategory}`)
-
-  // v6.29.1: File-size cap — reject > 1 MB before we read the buffer
-  if (fileSize > MAX_FILE_SIZE_BYTES) {
-    return NextResponse.json({
-      error: `File too large (${(fileSize / 1024 / 1024).toFixed(1)} MB). Maximum allowed is ${MAX_FILE_SIZE_BYTES / 1024 / 1024} MB. Please split the file or trim large sheets.`,
-    }, { status: 413 })
-  }
 
   // v6.29.0: Free-tier wallet check — block AI calls when the tenant's
   // subscription wallet has zero remaining seconds. Paid plans with 0

@@ -150,10 +150,34 @@ export async function postSaleJE(
   const amountReceived = roundTo2(sale.amountReceived || sale.amountPaid || 0)
   const amountDue = roundTo2(sale.totalAmount - amountReceived)
 
-  // v6.28.7: 0% GST → credit full totalAmount to Sales Revenue
-  const grossSubtotal = (sale.gstAmount || 0) > 0
-    ? (sale.subtotal || roundTo2(sale.totalAmount - (sale.gstAmount || 0)))
-    : sale.totalAmount
+  // v6.29.2: CRITICAL FIX — grossSubtotal / discount math
+  //
+  // The pre-discount subtotal (grossSubtotal) is what gets CREDITED to Sales
+  // Revenue. The sale-level discount is then posted as a separate DEBIT to
+  // Discount Allowed (40150). Balance check:
+  //
+  //   Dr Cash + Dr Debtors + Dr Discount Allowed = Cr Sales Revenue + Cr GST
+  //
+  // v6.28.7 BUG: when gstAmount = 0, it set grossSubtotal = totalAmount.
+  // That is correct ONLY when there is no sale-level discount (in which
+  // case totalAmount == subtotal). But with discountPercent > 0:
+  //
+  //     totalAmount = (subtotal × (1 - discountPercent/100)) + gstAmount
+  //
+  // For non-GST (gstAmount=0): totalAmount = subtotal × (1 - dp/100).
+  // Setting grossSubtotal = totalAmount makes:
+  //   - Sales credit short by `subtotal × dp/100` (the discount amount)
+  //   - Discount Allowed computed off the wrong base (post-discount, not pre)
+  //   - JE unbalanced by exactly `discountAllowed` (Dr > Cr).
+  //
+  // v6.29.2 fix: always use sale.subtotal as the gross when available;
+  // only fall back to totalAmount - gstAmount (or totalAmount when gst=0)
+  // when subtotal is null/0. This matches the v6.28.5 fix's intent.
+  const grossSubtotal = sale.subtotal && sale.subtotal > 0
+    ? sale.subtotal
+    : (sale.gstAmount || 0) > 0
+      ? roundTo2(sale.totalAmount - (sale.gstAmount || 0))
+      : sale.totalAmount
   const saleDiscountAmount = roundTo2(grossSubtotal * (sale.discountPercent || 0) / 100)
 
   const jeLines: JELineInput[] = []

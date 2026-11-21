@@ -224,7 +224,7 @@ export async function cancelIrn(irn: string, reason: string): Promise<IrpSubmitR
         'Content-Type': 'application/json',
         'gsp-code': process.env.IRP_GSP_CODE!,
       },
-      body: JSON.stringify({ Irb: irn, CnlRsn: reason, CnlRem: 'Cancelled via BizBook Pro' }),
+      body: JSON.stringify({ Irn: irn, CnlRsn: reason, CnlRem: 'Cancelled via BizBook Pro' }),
     })
 
     if (!res.ok) {

@@ -302,7 +302,11 @@ export async function POST(req: NextRequest) {
         purchaseAccount = await db.account.create({ data: { accountCode: '50200', name: 'Purchase Expenses', type: 'Expense', tenantId } })
       }
       if (!gstInputAccount) {
-        gstInputAccount = await db.account.create({ data: { accountCode: '50600', name: 'GST Input Credit', type: 'Expense', tenantId } })
+        // v6.29.2: GST Input Credit is a recoverable asset (money owed by the
+        // government), NOT an expense. Matches src/app/api/purchases/route.ts
+        // and src/lib/gl-posting.ts. Previous type:'Expense' created a CoA
+        // inconsistency that inflated the P&L expense total.
+        gstInputAccount = await db.account.create({ data: { accountCode: '50600', name: 'GST Input Credit', type: 'Asset', tenantId } })
       }
 
       const isCash = (purchaseData.partyName || '').trim().toLowerCase() === 'cash'

@@ -383,9 +383,16 @@ export async function POST(req: NextRequest) {
           //
           // For a GST sale: totalAmount=8000, gstAmount=950, subtotal=7050
           //   Dr Cash = 2000, Dr AR = 6000, Cr Sales = 7050, Cr GST = 950  ✓
-          const grossSubtotal = (sale.gstAmount || 0) > 0
-            ? (sale.subtotal || roundTo2(sale.totalAmount - (sale.gstAmount || 0)))
-            : sale.totalAmount  // 0% GST: full total goes to Sales Revenue
+          // v6.29.2: CRITICAL FIX — grossSubtotal must use sale.subtotal when
+          // available, NOT totalAmount, so sale-level discounts post correctly.
+          // The v6.28.7 logic (totalAmount when gstAmount=0) was correct only
+          // when discountPercent=0; with a discount it produced an unbalanced
+          // JE (Dr > Cr by the discount amount). See src/lib/gl-posting.ts.
+          const grossSubtotal = sale.subtotal && sale.subtotal > 0
+            ? sale.subtotal
+            : (sale.gstAmount || 0) > 0
+              ? roundTo2(sale.totalAmount - (sale.gstAmount || 0))
+              : sale.totalAmount
           const saleDiscountAmount = roundTo2(grossSubtotal * (sale.discountPercent || 0) / 100)
 
           jeLines.push({
