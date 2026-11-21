@@ -2,16 +2,33 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db-soft-delete'
 import { analyzeWithAI } from '@/lib/multi-ai'
 import { requireAuthAndTenant } from '@/lib/api-helpers'
+import { postSaleJE, postPurchaseJE, postExpenseJE } from '@/lib/gl-posting'
+import { roundTo2 } from '@/lib/gst-utils'
 
 // ============================================================
-// AI Smart Import API — v6.15
+// AI Smart Import API — v6.29.0
 // ============================================================
-// Handles TWO types of requests:
-// 1. FormData (file upload) — parses Excel/CSV/PDF/images, analyzes with AI
-// 2. JSON (search query) — searches across modules with AI summary
-//
-// v6.15 FIX: The old code tried to JSON.parse FormData, causing
-// "No number after minus sign in JSON at position 1" error.
+// v6.29.0 fixes (see also src/lib/gl-posting.ts):
+//   1. handleApplyImport now posts Journal Entries to the GL via the
+//      shared postSaleJE / postPurchaseJE / postExpenseJE helpers.
+//      Previously imported records bypassed the accounting engine —
+//      they showed in the Sale/Purchase Register but never hit Trial
+//      Balance, P&L, or Balance Sheet, silently undoing the v6.28.x GL work.
+//   2. Each module is wrapped in db.$transaction so a failure midway
+//      rolls back both the Sale/Purchase row AND its JE — no half-posted GL.
+//   3. Duplicate detection: skip records whose (tenantId, invoiceNumber)
+//      already exist for sales/purchases, or whose (tenantId, description,
+//      date, amount) already exist for expenses. Skipped records are reported
+//      in results[module].skipped.
+//   4. Collision-safe invoice numbers — when AI didn't return one, generate
+//      IMP-<seq> from a per-import counter instead of `IMP-${Date.now()}`
+//      which collided when multiple records landed in the same ms.
+//   5. File-size cap (5 MB) + row-count cap (5,000) on uploads.
+//   6. Free-tier wallet check (remainingSeconds > 0) before AI call.
+// ============================================================
+
+const MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024 // 5 MB
+const MAX_ROWS_PER_MODULE = 5000
 
 export async function POST(req: NextRequest) {
   try {
@@ -75,6 +92,28 @@ async function handleFileUpload(req: NextRequest) {
 
   console.log(`[AI-Import] File: ${file.name}, Size: ${fileSize}, Ext: ${ext}, Category: ${userCategory}`)
 
+  // v6.29.0: File-size cap — reject > 5 MB before we read the buffer
+  if (fileSize > MAX_FILE_SIZE_BYTES) {
+    return NextResponse.json({
+      error: `File too large (${(fileSize / 1024 / 1024).toFixed(1)} MB). Maximum allowed is ${MAX_FILE_SIZE_BYTES / 1024 / 1024} MB. Please split the file or trim large sheets.`,
+    }, { status: 413 })
+  }
+
+  // v6.29.0: Free-tier wallet check — block AI calls when the tenant's
+  // subscription wallet has zero remaining seconds. Paid plans with 0
+  // remaining also get blocked here; they should recharge first.
+  const subscription = await db.subscription.findFirst({
+    where: { tenantId: auth.tenantId },
+    select: { remainingSeconds: true, isFreeTier: true, planName: true },
+  })
+  if (subscription && (subscription.remainingSeconds ?? 0) <= 0) {
+    return NextResponse.json({
+      error: `Your ${subscription.isFreeTier ? 'free tier' : 'plan'} hours are exhausted. Please recharge to continue using AI Smart Import.`,
+      code: 'WALLET_EMPTY',
+      planName: subscription.planName,
+    }, { status: 402 })
+  }
+
   // Read file content
   const arrayBuffer = await file.arrayBuffer()
   const buffer = Buffer.from(arrayBuffer)
@@ -97,9 +136,18 @@ async function handleFileUpload(req: NextRequest) {
         sheets[sheetName] = XLSX.utils.sheet_to_json(sheet, { raw: false, defval: '' })
       }
 
+      // v6.29.0: Row-count cap — reject files with > 5,000 total rows before
+      // AI analysis to prevent provider OOM / 30s timeouts on huge exports.
+      const totalExcelRows = Object.values(sheets).reduce((a: number, b: any[]) => a + b.length, 0)
+      if (totalExcelRows > MAX_ROWS_PER_MODULE) {
+        return NextResponse.json({
+          error: `Excel has ${totalExcelRows} rows across all sheets. Maximum allowed is ${MAX_ROWS_PER_MODULE}. Please split the file into batches.`,
+        }, { status: 413 })
+      }
+
       parsedData = sheets
       dataType = 'excel'
-      console.log(`[AI-Import] Parsed Excel: ${Object.keys(sheets).length} sheet(s), ${Object.values(sheets).reduce((a: number, b: any[]) => a + b.length, 0)} total rows`)
+      console.log(`[AI-Import] Parsed Excel: ${Object.keys(sheets).length} sheet(s), ${totalExcelRows} total rows`)
     } else if (['csv', 'tsv'].includes(ext)) {
       // CSV/TSV file — parse as text
       const text = buffer.toString('utf-8')
@@ -112,6 +160,13 @@ async function handleFileUpload(req: NextRequest) {
         headers.forEach((h, i) => { row[h] = values[i] || '' })
         return row
       })
+
+      // v6.29.0: Row-count cap for CSV/TSV
+      if (rows.length > MAX_ROWS_PER_MODULE) {
+        return NextResponse.json({
+          error: `CSV has ${rows.length} rows. Maximum allowed is ${MAX_ROWS_PER_MODULE}. Please split the file into batches.`,
+        }, { status: 413 })
+      }
 
       parsedData = { 'Sheet1': rows }
       dataType = 'csv'
@@ -536,15 +591,29 @@ async function handleSearchQuery(req: NextRequest) {
 }
 
 // ============================================================
-// v6.27.5: Apply Import Handler
+// v6.29.0: Apply Import Handler — GL-aware, transactional, dedup-aware
 // ============================================================
 // Commits the AI-analyzed import data to the database. The frontend sends
 // FormData with action='apply', tenantId, and importData (a JSON string with
 // keys: sales, purchases, expenses, products, parties, staff, bankTransactions).
-// Each array contains records to be created in the respective tables.
+//
+// v6.29.0 changes vs v6.27.5:
+//   • Sales / Purchases / Expenses are now created INSIDE db.$transaction
+//     together with their GL Journal Entry (via src/lib/gl-posting.ts).
+//     If the JE assert fails or any write throws, the entire module-level
+//     transaction rolls back — no half-posted GL entries, no Sale without JE.
+//   • Duplicate detection: skip records whose (tenantId, invoiceNumber)
+//     already exist for sales/purchases, or whose (tenantId, description,
+//     date, amount) already exist for expenses. Skipped records are counted
+//     in results[module].skipped and do NOT count as failures.
+//   • Collision-safe invoice numbers: when AI didn't return one, generate
+//     `IMP-<seq>` from a per-import counter instead of `IMP-${Date.now()}`
+//     which collided when multiple records landed in the same ms.
+//   • Products / Parties / Staff / BankTransactions remain non-GL modules
+//     and use a simpler bulkCreate (still per-record, with error tracking).
 //
 // Returns { success, results, message } where results is a per-module
-// breakdown of { total, created, failed, errors[] }.
+// breakdown of { total, created, failed, skipped, errors[] }.
 // ============================================================
 async function handleApplyImport(req: NextRequest, formData: FormData, tenantId: string) {
   if (!tenantId) {
@@ -565,75 +634,244 @@ async function handleApplyImport(req: NextRequest, formData: FormData, tenantId:
     return NextResponse.json({ error: 'importData is not valid JSON' }, { status: 400 })
   }
 
-  const results: Record<string, { total: number; created: number; failed: number; errors: string[] }> = {}
   const tid = auth.tenantId
+  const uid = auth.userId
 
-  // Helper to safely create records in bulk
-  const bulkCreate = async (
-    module: string,
-    model: any,
-    records: any[],
-    buildRow: (r: any) => any
-  ) => {
-    results[module] = { total: records.length, created: 0, failed: 0, errors: [] }
-    for (const rec of records) {
-      try {
-        const row = buildRow(rec)
-        await model.create({ data: { ...row, tenantId: tid } })
-        results[module].created++
-      } catch (err: any) {
-        results[module].failed++
-        results[module].errors.push(`${err.message || err}`)
-      }
-    }
+  // Per-module results include `skipped` (dedup) + `glPosted` (GL-aware modules)
+  type ModuleResult = { total: number; created: number; failed: number; skipped: number; glPosted: number; errors: string[] }
+  const results: Record<string, ModuleResult> = {}
+  const initResult = (module: string, total: number) => {
+    results[module] = { total, created: 0, failed: 0, skipped: 0, glPosted: 0, errors: [] }
+  }
+
+  // Per-import counter for collision-safe IMP-<seq> invoice numbers
+  let impSeq = 0
+  const nextImpNumber = (prefix: string) => {
+    impSeq += 1
+    return `${prefix}-${Date.now()}-${impSeq.toString().padStart(3, '0')}`
   }
 
   try {
+    // ============================================================
+    // SALES — transactional + GL posting + dedup
+    // ============================================================
     if (Array.isArray(importData.sales) && importData.sales.length > 0) {
-      await bulkCreate('sales', db.sale, importData.sales, (s: any) => ({
-        invoiceNumber: s.invoiceNumber || `IMP-${Date.now()}`,
-        date: s.date ? new Date(s.date) : new Date(),
-        partyName: s.partyName || 'Unknown',
-        partyAddress: s.partyAddress || null,
-        partyGst: s.partyGst || null,
-        items: JSON.stringify(s.items || []),
-        subtotal: Number(s.subtotal || 0),
-        gstAmount: Number(s.gstAmount || 0),
-        totalAmount: Number(s.totalAmount || 0),
-        amountReceived: Number(s.amountReceived || s.amountPaid || 0),
-        amountPaid: Number(s.amountPaid || s.amountReceived || 0),
-        paymentStatus: s.paymentStatus || 'PENDING',
-        paymentMode: s.paymentMode || null,
-        invoiceStatus: 'INVOICE',
-      }))
+      const sales = importData.sales as any[]
+      initResult('sales', sales.length)
+      for (const s of sales) {
+        try {
+          const invoiceNumber = (s.invoiceNumber && String(s.invoiceNumber).trim()) || nextImpNumber('IMP-SALE')
+          // v6.29.0: dedup — skip if (tenantId, invoiceNumber) already exists
+          const existing = await db.sale.findFirst({
+            where: { tenantId: tid, invoiceNumber, isDeleted: false },
+            select: { id: true },
+          })
+          if (existing) {
+            results.sales.skipped++
+            results.sales.errors.push(`Sale ${invoiceNumber}: skipped (already exists)`)
+            continue
+          }
+
+          const sale = await db.$transaction(async (tx) => {
+            const subtotal = roundTo2(Number(s.subtotal || 0))
+            const gstAmount = roundTo2(Number(s.gstAmount || 0))
+            const totalAmount = roundTo2(Number(s.totalAmount || 0))
+            const amountReceived = roundTo2(Number(s.amountReceived || s.amountPaid || 0))
+            const created = await tx.sale.create({
+              data: {
+                invoiceNumber,
+                date: s.date ? new Date(s.date) : new Date(),
+                partyName: s.partyName || 'Unknown',
+                partyAddress: s.partyAddress || null,
+                partyGst: s.partyGst || null,
+                items: JSON.stringify(s.items || []),
+                subtotal,
+                gstAmount,
+                totalAmount,
+                amountReceived,
+                amountPaid: amountReceived,
+                paymentStatus: s.paymentStatus || 'PENDING',
+                paymentMode: s.paymentMode || null,
+                invoiceStatus: 'INVOICE',
+                tenantId: tid,
+                createdBy: uid,
+              },
+            })
+            // v6.29.0: post GL entry inside the same tx — if it throws, the
+            // Sale row is rolled back too, so we never end up with a Sale
+            // missing its JE.
+            await postSaleJE(tx, tid, uid, {
+              id: created.id,
+              invoiceNumber,
+              date: created.date,
+              partyName: created.partyName,
+              partyGst: created.partyGst,
+              subtotal: created.subtotal,
+              gstAmount: created.gstAmount,
+              totalAmount: created.totalAmount,
+              amountReceived: created.amountReceived,
+              amountPaid: created.amountPaid,
+              paymentStatus: created.paymentStatus,
+              paymentMode: created.paymentMode,
+              discountPercent: 0,
+            })
+            return created
+          })
+          results.sales.created++
+          results.sales.glPosted++
+          void sale
+        } catch (err: any) {
+          results.sales.failed++
+          results.sales.errors.push(`${err.message || err}`)
+        }
+      }
     }
 
+    // ============================================================
+    // PURCHASES — transactional + GL posting + dedup
+    // ============================================================
     if (Array.isArray(importData.purchases) && importData.purchases.length > 0) {
-      await bulkCreate('purchases', db.purchase, importData.purchases, (p: any) => ({
-        invoiceNumber: p.invoiceNumber || `IMP-${Date.now()}`,
-        date: p.date ? new Date(p.date) : new Date(),
-        partyName: p.partyName || 'Unknown',
-        items: JSON.stringify(p.items || []),
-        subtotal: Number(p.subtotal || 0),
-        gstAmount: Number(p.gstAmount || 0),
-        totalAmount: Number(p.totalAmount || 0),
-        amountPaid: Number(p.amountPaid || 0),
-        paymentStatus: p.paymentStatus || 'UNPAID',
-      }))
+      const purchases = importData.purchases as any[]
+      initResult('purchases', purchases.length)
+      for (const p of purchases) {
+        try {
+          const invoiceNumber = (p.invoiceNumber && String(p.invoiceNumber).trim()) || nextImpNumber('IMP-PUR')
+          const existing = await db.purchase.findFirst({
+            where: { tenantId: tid, invoiceNumber, isDeleted: false },
+            select: { id: true },
+          })
+          if (existing) {
+            results.purchases.skipped++
+            results.purchases.errors.push(`Purchase ${invoiceNumber}: skipped (already exists)`)
+            continue
+          }
+
+          const purchase = await db.$transaction(async (tx) => {
+            const subtotal = roundTo2(Number(p.subtotal || 0))
+            const gstAmount = roundTo2(Number(p.gstAmount || 0))
+            const totalAmount = roundTo2(Number(p.totalAmount || 0))
+            const amountPaid = roundTo2(Number(p.amountPaid || 0))
+            const created = await tx.purchase.create({
+              data: {
+                invoiceNumber,
+                date: p.date ? new Date(p.date) : new Date(),
+                partyName: p.partyName || 'Unknown',
+                partyAddress: p.partyAddress || null,
+                partyGst: p.partyGst || null,
+                items: JSON.stringify(p.items || []),
+                subtotal,
+                gstAmount,
+                totalAmount,
+                amountPaid,
+                paymentStatus: p.paymentStatus || 'UNPAID',
+                paymentMode: p.paymentMode || null,
+                tenantId: tid,
+                createdBy: uid,
+              },
+            })
+            await postPurchaseJE(tx, tid, uid, {
+              id: created.id,
+              invoiceNumber,
+              date: created.date,
+              partyName: created.partyName,
+              partyGst: created.partyGst,
+              subtotal: created.subtotal,
+              gstAmount: created.gstAmount,
+              totalAmount: created.totalAmount,
+              amountPaid: created.amountPaid,
+              paymentStatus: created.paymentStatus,
+              paymentMode: created.paymentMode,
+            })
+            return created
+          })
+          results.purchases.created++
+          results.purchases.glPosted++
+          void purchase
+        } catch (err: any) {
+          results.purchases.failed++
+          results.purchases.errors.push(`${err.message || err}`)
+        }
+      }
     }
 
+    // ============================================================
+    // EXPENSES — transactional + GL posting + dedup
+    // ============================================================
     if (Array.isArray(importData.expenses) && importData.expenses.length > 0) {
-      await bulkCreate('expenses', db.expense, importData.expenses, (e: any) => ({
-        date: e.date ? new Date(e.date) : new Date(),
-        description: e.description || 'Imported expense',
-        amount: Number(e.amount || 0),
-        category: e.category || 'General',
-        paymentMode: e.paymentMode || 'OTHERS',
-      }))
+      const expenses = importData.expenses as any[]
+      initResult('expenses', expenses.length)
+      for (const e of expenses) {
+        try {
+          const description = e.description || 'Imported expense'
+          const amount = roundTo2(Number(e.amount || 0))
+          const date = e.date ? new Date(e.date) : new Date()
+          // v6.29.0: dedup — skip if (tenantId, description, date, amount) already exists
+          const existing = await db.expense.findFirst({
+            where: { tenantId: tid, description, date, amount, isDeleted: false },
+            select: { id: true },
+          })
+          if (existing) {
+            results.expenses.skipped++
+            results.expenses.errors.push(`Expense "${description}" ${date.toISOString().slice(0, 10)} ₹${amount}: skipped (already exists)`)
+            continue
+          }
+
+          const expense = await db.$transaction(async (tx) => {
+            const created = await tx.expense.create({
+              data: {
+                date,
+                description,
+                amount,
+                category: e.category || 'General',
+                paymentMode: e.paymentMode || 'OTHERS',
+                tenantId: tid,
+                createdBy: uid,
+              },
+            })
+            await postExpenseJE(tx, tid, uid, {
+              id: created.id,
+              date: created.date,
+              category: created.category,
+              description: created.description,
+              amount: created.amount,
+              paymentMode: created.paymentMode,
+            })
+            return created
+          })
+          results.expenses.created++
+          results.expenses.glPosted++
+          void expense
+        } catch (err: any) {
+          results.expenses.failed++
+          results.expenses.errors.push(`${err.message || err}`)
+        }
+      }
+    }
+
+    // ============================================================
+    // Non-GL modules — Products, Parties, Staff, Bank Transactions
+    // (These do not post JEs; they remain per-record bulkCreate.)
+    // ============================================================
+    const bulkCreateSimple = async (
+      module: string,
+      model: any,
+      records: any[],
+      buildRow: (r: any) => any,
+    ) => {
+      initResult(module, records.length)
+      for (const rec of records) {
+        try {
+          await model.create({ data: { ...buildRow(rec), tenantId: tid } })
+          results[module].created++
+        } catch (err: any) {
+          results[module].failed++
+          results[module].errors.push(`${err.message || err}`)
+        }
+      }
     }
 
     if (Array.isArray(importData.products) && importData.products.length > 0) {
-      await bulkCreate('products', db.inventoryItem, importData.products, (p: any) => ({
+      await bulkCreateSimple('products', db.inventoryItem, importData.products, (p: any) => ({
         name: p.name || 'Unnamed Product',
         hsnCode: p.hsnCode || null,
         category: p.category || null,
@@ -644,11 +882,12 @@ async function handleApplyImport(req: NextRequest, formData: FormData, tenantId:
         currentStock: Number(p.currentStock || 0),
         gstRate: Number(p.gstRate || 0),
         value: Number(p.currentStock || 0) * Number(p.purchasePrice || 0),
+        createdBy: uid,
       }))
     }
 
     if (Array.isArray(importData.parties) && importData.parties.length > 0) {
-      await bulkCreate('parties', db.party, importData.parties, (p: any) => ({
+      await bulkCreateSimple('parties', db.party, importData.parties, (p: any) => ({
         name: p.name || 'Unnamed Party',
         type: p.type || 'CUSTOMER',
         address: p.address || null,
@@ -659,7 +898,7 @@ async function handleApplyImport(req: NextRequest, formData: FormData, tenantId:
     }
 
     if (Array.isArray(importData.staff) && importData.staff.length > 0) {
-      await bulkCreate('staff', db.staff, importData.staff, (s: any) => ({
+      await bulkCreateSimple('staff', db.staff, importData.staff, (s: any) => ({
         name: s.name || 'Unnamed Staff',
         role: s.role || 'Staff',
         salary: Number(s.salary || 0),
@@ -668,7 +907,7 @@ async function handleApplyImport(req: NextRequest, formData: FormData, tenantId:
     }
 
     if (Array.isArray(importData.bankTransactions) && importData.bankTransactions.length > 0) {
-      await bulkCreate('bankTransactions', db.bankTransaction, importData.bankTransactions, (b: any) => ({
+      await bulkCreateSimple('bankTransactions', db.bankTransaction, importData.bankTransactions, (b: any) => ({
         date: b.date ? new Date(b.date) : new Date(),
         description: b.description || 'Imported transaction',
         deposit: Number(b.deposit || 0),
@@ -681,9 +920,17 @@ async function handleApplyImport(req: NextRequest, formData: FormData, tenantId:
 
     const totalCreated = Object.values(results).reduce((sum, r) => sum + r.created, 0)
     const totalFailed = Object.values(results).reduce((sum, r) => sum + r.failed, 0)
-    const message = totalFailed === 0
-      ? `Successfully imported ${totalCreated} record(s).`
-      : `Imported ${totalCreated} record(s) with ${totalFailed} failure(s).`
+    const totalSkipped = Object.values(results).reduce((sum, r) => sum + r.skipped, 0)
+    const totalGLPosted = Object.values(results).reduce((sum, r) => sum + r.glPosted, 0)
+
+    let message: string
+    if (totalFailed === 0 && totalSkipped === 0) {
+      message = `Successfully imported ${totalCreated} record(s). GL entries posted: ${totalGLPosted}.`
+    } else if (totalFailed === 0) {
+      message = `Imported ${totalCreated} record(s); ${totalSkipped} skipped as duplicates. GL entries posted: ${totalGLPosted}.`
+    } else {
+      message = `Imported ${totalCreated} record(s) with ${totalFailed} failure(s); ${totalSkipped} skipped as duplicates. GL entries posted: ${totalGLPosted}.`
+    }
 
     return NextResponse.json({ success: true, results, message })
   } catch (err: any) {
