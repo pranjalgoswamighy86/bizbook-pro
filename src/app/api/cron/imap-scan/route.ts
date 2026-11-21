@@ -29,18 +29,24 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db-soft-delete';
+import { verifyCronSecret } from '@/lib/cron-guard';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30; // Railway cron max 30s
 
 export async function GET(req: NextRequest) {
   // ---------- Auth check ----------
-  const expectedSecret = process.env.CRON_SECRET;
-  const providedSecret = req.nextUrl.searchParams.get('secret');
-
-  if (expectedSecret && providedSecret !== expectedSecret) {
-    return NextResponse.json({ error: 'UNAUTHORIZED' }, { status: 401 });
-  }
+  // v6.29.6: CRITICAL SECURITY FIX — was fail-open:
+  //   if (expectedSecret && providedSecret !== expectedSecret) { return 401 }
+  // If CRON_SECRET was unset (operator forgot / config drift), the && would
+  // short-circuit and the ENTIRE auth check was bypassed — endpoint became
+  // fully unauthenticated. imap-scan scans a mailbox AND can CREATE
+  // SUBSCRIPTIONS (credits AI hours) — an unauthenticated attacker could
+  // trigger fake wallet top-ups by hitting this with no secret.
+  // Now fail-closed via verifyCronSecret (500 if secret unset, 401 if
+  // mismatch, constant-time comparison).
+  const guard = verifyCronSecret(req)
+  if (guard instanceof NextResponse) return guard
 
   // ---------- Self-disable if not configured ----------
   const emailUser = process.env.AUTO_ALERT_EMAIL_USER;

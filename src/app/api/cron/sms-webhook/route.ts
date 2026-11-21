@@ -40,6 +40,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db-soft-delete';
+import crypto from 'crypto';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 10; // Quick webhook response
@@ -158,7 +159,12 @@ async function processSmsWebhook(
       { status: 500 }
     );
   }
-  if (secret !== expectedSecret) {
+  // v6.29.6: constant-time comparison (was `secret !== expectedSecret` which
+  // leaks length + prefix info via timing). Already fail-closed above; this
+  // just hardens the comparison itself.
+  const providedBuf = Buffer.from(secret || '', 'utf-8')
+  const expectedBuf = Buffer.from(expectedSecret, 'utf-8')
+  if (providedBuf.length !== expectedBuf.length || !crypto.timingSafeEqual(providedBuf, expectedBuf)) {
     console.warn('[SMS-WEBHOOK] Invalid secret provided');
     return NextResponse.json(
       { status: 'error', error: 'Invalid secret' },

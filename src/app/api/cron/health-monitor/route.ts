@@ -24,6 +24,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db-soft-delete';
+import { verifyCronSecret } from '@/lib/cron-guard';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
@@ -32,11 +33,15 @@ export async function GET(req: NextRequest) {
   const startTime = Date.now();
 
   // ---------- Auth check ----------
-  const expectedSecret = process.env.CRON_SECRET;
-  const providedSecret = req.nextUrl.searchParams.get('secret');
-  if (expectedSecret && providedSecret !== expectedSecret) {
-    return NextResponse.json({ error: 'UNAUTHORIZED' }, { status: 401 });
-  }
+  // v6.29.6: CRITICAL SECURITY FIX — was fail-open:
+  //   if (expectedSecret && providedSecret !== expectedSecret) { return 401 }
+  // If CRON_SECRET was unset (operator forgot / config drift), the && would
+  // short-circuit and the ENTIRE auth check was bypassed — endpoint became
+  // fully unauthenticated (leaks user counts, DB stats, sends Brevo emails).
+  // Now fail-closed via verifyCronSecret (returns 500 if secret unset,
+  // 401 if mismatch, constant-time comparison).
+  const guard = verifyCronSecret(req)
+  if (guard instanceof NextResponse) return guard
 
   console.log('[HEALTH-MONITOR] === Hourly Health Check Started ===');
 
