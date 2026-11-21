@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireDebugAccess } from '@/lib/debug-guard'
 
 /**
  * DEBUG ENDPOINT — Check which environment variables are loaded.
@@ -7,11 +8,16 @@ import { NextRequest, NextResponse } from 'next/server'
  * env vars. This helps diagnose "OTP not working" issues by confirming
  * whether Railway is actually loading the env vars.
  *
+ * v6.29.5: SECURITY — was unauthenticated. Now gated behind requireDebugAccess
+ * (requires a valid session AND email match against ADMIN_EMAIL env var).
+ *
  * Usage:
- *   GET /api/debug-env
+ *   GET /api/debug-env  (authenticated, admin only)
  */
-
 export async function GET(req: NextRequest) {
+  const guard = await requireDebugAccess(req)
+  if (guard instanceof NextResponse) return guard
+
   const envStatus: Record<string, { set: boolean; maskedValue: string }> = {}
 
   const checkVar = (name: string) => {

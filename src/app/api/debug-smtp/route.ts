@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import nodemailer from 'nodemailer'
+import { requireDebugAccess } from '@/lib/debug-guard'
 
 export const maxDuration = 30
 
@@ -10,8 +11,13 @@ export const maxDuration = 30
  * EXACT error (if any) that Gmail is returning. It does NOT send a
  * real OTP — just a test email + verbose diagnostic info.
  *
+ * v6.29.5: SECURITY — was unauthenticated. Anyone could trigger real
+ * email sends via BizBook's Gmail account (spam/abuse vector, and a
+ * way to burn Gmail's daily send quota). Now gated behind
+ * requireDebugAccess (valid session + ADMIN_EMAIL match).
+ *
  * Usage:
- *   GET /api/debug-smtp?email=your@email.com
+ *   GET /api/debug-smtp?email=your@email.com  (authenticated, admin only)
  *
  * Returns JSON with:
  *   - smtpConfigured: bool (whether SMTP_USER + SMTP_PASS are set)
@@ -26,6 +32,10 @@ export const maxDuration = 30
  */
 
 export async function GET(req: NextRequest) {
+  // v6.29.5: auth gate — prevents unauthenticated email abuse
+  const guard = await requireDebugAccess(req)
+  if (guard instanceof NextResponse) return guard
+
   const url = new URL(req.url)
   const testEmail = url.searchParams.get('email') || process.env.SMTP_USER || 'test@example.com'
 

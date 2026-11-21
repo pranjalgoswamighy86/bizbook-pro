@@ -371,20 +371,83 @@ export async function POST(req: NextRequest) {
       }
 
       // v6.10: Deduct from the SINGLE wallet (not per-company)
-      const walletRemaining = walletSubscription.remainingSeconds
-      const newRemaining = Math.max(0, walletRemaining - secondsUsed)
+      // v6.29.5: CRITICAL FIX — atomic conditional decrement.
+      //
+      // PREVIOUS BUG: read walletRemaining, compute newRemaining, then write
+      // newRemaining in a separate update. Two concurrent AI imports could
+      // both read the same walletRemaining (say 3600s), both compute 3500s,
+      // and the second write would overwrite the first → lost update =
+      // free AI time (one import not billed).
+      //
+      // FIX: use updateMany with a WHERE clause that requires
+      // remainingSeconds >= secondsUsed. This makes the decrement atomic at
+      // the DB level — Postgres row-level locking ensures only one of the
+      // two concurrent requests succeeds in decrementing; the other finds
+      // remainingSeconds < secondsUsed (already decremented) and affects 0
+      // rows. We then re-read to get the authoritative post-update value.
+      //
+      // Edge case: if wallet had LESS than secondsUsed remaining (partial
+      // exhaustion), the update also affects 0 rows — but in that case we
+      // want to clamp to 0 (don't reject the AI work the user already did).
+      // So we fall back to a second updateMany that clamps to 0 if the
+      // remaining balance is below the requested deduction.
       const wasActive = walletSubscription.status !== 'CONVERTED_TO_VIEW_ONLY'
-      const isNowExhausted = newRemaining === 0
-      const newStatus = isNowExhausted ? 'CONVERTED_TO_VIEW_ONLY' : walletSubscription.status
 
-      // Update the wallet
-      await db.subscription.update({
-        where: { id: walletSubscription.id },
+      // Attempt 1: full atomic decrement (only succeeds if enough balance)
+      const fullDecrement = await db.subscription.updateMany({
+        where: {
+          id: walletSubscription.id,
+          remainingSeconds: { gte: secondsUsed },
+        },
         data: {
-          remainingSeconds: newRemaining,
-          status: newStatus,
+          remainingSeconds: { decrement: secondsUsed },
         },
       })
+
+      let finalRemaining: number
+      if (fullDecrement.count > 0) {
+        // Decrement succeeded — re-read to get the authoritative value
+        const updated = await db.subscription.findUnique({
+          where: { id: walletSubscription.id },
+          select: { remainingSeconds: true },
+        })
+        finalRemaining = updated?.remainingSeconds ?? 0
+      } else {
+        // Either: (a) someone else decremented first (race lost — their
+        // decrement won, ours is a no-op, which is correct), or (b) the
+        // wallet had less than secondsUsed remaining (partial exhaustion).
+        // For (b), clamp to 0. For (a), the re-read below gives us the
+        // other request's post-decrement value.
+        const current = await db.subscription.findUnique({
+          where: { id: walletSubscription.id },
+          select: { remainingSeconds: true },
+        })
+        const currentRemaining = current?.remainingSeconds ?? 0
+        if (currentRemaining < secondsUsed && currentRemaining > 0) {
+          // Partial exhaustion — clamp the remaining balance to 0
+          await db.subscription.updateMany({
+            where: { id: walletSubscription.id, remainingSeconds: { lt: secondsUsed } },
+            data: { remainingSeconds: 0 },
+          })
+          finalRemaining = 0
+        } else {
+          // Race lost — the other request already decremented (or wallet
+          // was already at 0). Use the current value as-is.
+          finalRemaining = currentRemaining
+        }
+      }
+
+      const isNowExhausted = finalRemaining === 0
+      const newStatus = isNowExhausted ? 'CONVERTED_TO_VIEW_ONLY' : walletSubscription.status
+
+      // Update status (separate from the atomic decrement above, since
+      // status doesn't need to be in the race-critical path)
+      if (newStatus !== walletSubscription.status) {
+        await db.subscription.update({
+          where: { id: walletSubscription.id },
+          data: { status: newStatus },
+        })
+      }
 
       // Log usage
       await db.usageLog.create({
@@ -393,11 +456,11 @@ export async function POST(req: NextRequest) {
           userId: access.userId,
           userRole,
           secondsUsed,
-          remainingAfter: newRemaining,
+          remainingAfter: finalRemaining,
         },
       })
 
-      console.log(`[WALLET] Tenant used ${secondsUsed}s. Wallet: ${walletRemaining} → ${newRemaining}`)
+      console.log(`[WALLET] Tenant used ${secondsUsed}s. Wallet remaining: ${finalRemaining}s (status: ${newStatus})`)
 
       // v6.5: Check usage limit (maxSecondsPerMonth) for this user in this tenant
       const userTenant = await db.userTenant.findUnique({
