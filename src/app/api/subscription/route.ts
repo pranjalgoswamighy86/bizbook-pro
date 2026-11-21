@@ -272,10 +272,25 @@ export async function POST(req: NextRequest) {
         console.log(`[RECHARGE] User ${access.userId} has ${actualNonViewOnlyCountRecharge} non-view-only users globally (> ${DEFAULT_NON_VIEW_ONLY_USERS}). Applying 15% surcharge: ₹${basePrice} + ₹${surchargeAmount} = ₹${finalPrice}`)
       }
 
-      // Add recharge seconds to remaining
-      const newRemaining = subscription.remainingSeconds + plan.totalSeconds
-
-      // Update subscription
+      // v6.29.7: CRITICAL FIX — atomic increment (was read-then-write).
+      //
+      // PREVIOUS BUG: `const newRemaining = subscription.remainingSeconds + plan.totalSeconds`
+      // followed by `update({ data: { remainingSeconds: newRemaining } })`.
+      // Two concurrent recharges (e.g., manual recharge racing with a Razorpay
+      // webhook, or an admin top-up racing with a cron payment-proof review)
+      // could both read the same remainingSeconds, both compute the new value,
+      // and the second write would overwrite the first → LOST CREDIT (user
+      // pays but doesn't get their hours). Same bug class as the v6.29.5 wallet
+      // decrement race.
+      //
+      // FIX: use Prisma atomic { increment: N } operators for every additive
+      // field. Postgres executes these as `UPDATE ... SET col = col + N`
+      // which is atomic at the row level — concurrent increments serialize
+      // correctly and no credit is lost. Set-values (planHours, planName,
+      // mrp, status, isFreeTier) stay as plain assignments.
+      //
+      // NOTE: discountAmount stays as `finalPrice` (a set value including
+      // the optional 15% surcharge) — NOT additive, so it stays as-is.
       subscription = await db.subscription.update({
         where: { id: subscription.id },
         data: {
@@ -283,14 +298,14 @@ export async function POST(req: NextRequest) {
           planName: plan.name,
           mrp: plan.mrp,
           discountPercent: plan.discountPercent,
-          discountAmount: plan.discountAmount,
-          totalSeconds: subscription.totalSeconds + plan.totalSeconds,
-          remainingSeconds: newRemaining,
+          discountAmount: plan.discountAmount, // base plan discount (surcharge captured separately in recharge log)
+          totalSeconds: { increment: plan.totalSeconds },
+          remainingSeconds: { increment: plan.totalSeconds },
           status: 'ACTIVE',
           isFreeTier: false,
-          mainAdminHours: subscription.mainAdminHours + plan.roleAllocation.MAIN_ADMIN,
-          juniorAdminHours: subscription.juniorAdminHours + plan.roleAllocation.JUNIOR_ADMIN,
-          dataEntryHours: subscription.dataEntryHours + plan.roleAllocation.DATA_ENTRY,
+          mainAdminHours: { increment: plan.roleAllocation.MAIN_ADMIN },
+          juniorAdminHours: { increment: plan.roleAllocation.JUNIOR_ADMIN },
+          dataEntryHours: { increment: plan.roleAllocation.DATA_ENTRY },
         },
       })
 
@@ -550,8 +565,8 @@ export async function POST(req: NextRequest) {
 
       return NextResponse.json({
         success: true,
-        remainingSeconds: newRemaining,
-        remainingHours: Math.floor(newRemaining / 3600),
+        remainingSeconds: finalRemaining,
+        remainingHours: Math.floor(finalRemaining / 3600),
         status: newStatus,
         autoConverted: isNowExhausted && wasActive,
       })

@@ -272,8 +272,22 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'Invalid plan' }, { status: 400 })
       }
 
-      const newRemaining = subscription.remainingSeconds + plan.totalSeconds
-
+      // v6.29.7: CRITICAL FIX — atomic increment (was read-then-write).
+      //
+      // PREVIOUS BUG: `const newRemaining = subscription.remainingSeconds + plan.totalSeconds`
+      // followed by `update({ data: { remainingSeconds: newRemaining } })`.
+      // Two concurrent recharges (e.g., double webhook from Razorpay, or a
+      // recharge racing with an admin top-up) could both read the same
+      // remainingSeconds, both compute the new value, and the second write
+      // would overwrite the first → LOST CREDIT (user pays but doesn't get
+      // their hours). Same bug class as the v6.29.5 wallet decrement race.
+      //
+      // FIX: use Prisma atomic { increment: N } operators for every additive
+      // field (remainingSeconds, totalSeconds, mainAdminHours, etc.). Postgres
+      // executes these as `UPDATE ... SET col = col + N` which is atomic at
+      // the row level — concurrent increments serialize correctly and no
+      // credit is lost. The plain `planHours`/`planName`/`mrp`/`status`/etc.
+      // fields are set values (not additive), so they stay as-is.
       subscription = await db.subscription.update({
         where: { id: subscription.id },
         data: {
@@ -282,13 +296,13 @@ export async function POST(req: NextRequest) {
           mrp: plan.mrp,
           discountPercent: Math.round((plan.discountAmount / plan.mrp) * 100),
           discountAmount: plan.discountAmount,
-          totalSeconds: subscription.totalSeconds + plan.totalSeconds,
-          remainingSeconds: newRemaining,
+          totalSeconds: { increment: plan.totalSeconds },
+          remainingSeconds: { increment: plan.totalSeconds },
           status: 'ACTIVE',
           isFreeTier: false,
-          mainAdminHours: subscription.mainAdminHours + plan.roleAllocation.MAIN_ADMIN,
-          juniorAdminHours: subscription.juniorAdminHours + plan.roleAllocation.JUNIOR_ADMIN,
-          dataEntryHours: subscription.dataEntryHours + plan.roleAllocation.DATA_ENTRY,
+          mainAdminHours: { increment: plan.roleAllocation.MAIN_ADMIN },
+          juniorAdminHours: { increment: plan.roleAllocation.JUNIOR_ADMIN },
+          dataEntryHours: { increment: plan.roleAllocation.DATA_ENTRY },
         },
       })
 
