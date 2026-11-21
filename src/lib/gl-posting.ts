@@ -147,7 +147,17 @@ export async function postSaleJE(
   ])
 
   const isCashSale = (sale.partyName || '').trim().toLowerCase() === 'cash'
-  const amountReceived = roundTo2(sale.amountReceived || sale.amountPaid || 0)
+  // v6.29.3: Over-payment clamp — found by accounting math Test 13.
+  // If a (buggy import, or hand-edited) sale has amountReceived > totalAmount,
+  // the unclamped code created a NEGATIVE amountDue (credit to Debtors 10300),
+  // which is wrong: a customer can't become a creditor from an over-payment.
+  // Over-payments should be classified as 'Advances from Customers' (20150),
+  // but for the AI-import path the safest behavior is to clamp the JE posting
+  // to totalAmount and let the import-review UI flag the discrepancy.
+  // The live sales/route.ts has business validation that may legitimately
+  // allow over-payments for advance handling — that path is NOT changed here.
+  const rawAmountReceived = roundTo2(sale.amountReceived || sale.amountPaid || 0)
+  const amountReceived = roundTo2(Math.min(Math.max(rawAmountReceived, 0), sale.totalAmount))
   const amountDue = roundTo2(sale.totalAmount - amountReceived)
 
   // v6.29.2: CRITICAL FIX — grossSubtotal / discount math
@@ -315,7 +325,10 @@ export async function postPurchaseJE(
   }
 
   // Cr Cash + Creditors (split for partial payment)
-  const amountPaid = roundTo2(purchase.amountPaid || 0)
+  // v6.29.3: Over-payment clamp (mirrors the sale path) — prevents negative
+  // Accounts Payable if a purchase has amountPaid > totalAmount.
+  const rawAmountPaid = roundTo2(purchase.amountPaid || 0)
+  const amountPaid = roundTo2(Math.min(Math.max(rawAmountPaid, 0), purchase.totalAmount))
   const amountDue = roundTo2(purchase.totalAmount - amountPaid)
   if (isCashPurchase || amountPaid > 0) {
     jeLines.push({ accountId: cashAccount.id, debit: 0, credit: amountPaid, description: `Cash paid for ${purchase.invoiceNumber}` })

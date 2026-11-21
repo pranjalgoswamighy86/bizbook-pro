@@ -13,6 +13,7 @@ import {
   getFinancialYear,
   formatDateForEinvoice,
   roundTo2,
+  extractPinCode,
 } from '@/lib/gst-utils'
 // v4.152: IRP direct integration
 import { submitToIrp, cancelIrn, isIrpConfigured, getIrpBaseUrl } from '@/lib/irp-integration'
@@ -175,7 +176,7 @@ export async function POST(req: NextRequest) {
           TrdNm: tenant.name,
           Addr1: tenant.address || '',
           Loc: '',
-          Pin: 0,
+          Pin: extractPinCode(tenant.address, tenant.gstNumber),
           Stcd: supplierState,
         },
         RecDtls: {
@@ -184,7 +185,7 @@ export async function POST(req: NextRequest) {
           TrdNm: sale.partyName,
           Addr1: sale.partyAddress || '',
           Loc: '',
-          Pin: 0,
+          Pin: extractPinCode(sale.partyAddress, sale.partyGst),
           Pos: buyerState,
           Stcd: buyerState,
         },
@@ -405,11 +406,19 @@ export async function POST(req: NextRequest) {
         SupDtls: {
           Gstin: purchase.partyGst,
           LglNm: purchase.partyName,
+          TrdNm: purchase.partyName,
+          Addr1: purchase.partyAddress || (purchase as any).address || '',
+          Loc: '',
+          Pin: extractPinCode(purchase.partyAddress, purchase.partyGst),
           Stcd: supplierState,
         },
         RecDtls: {
           Gstin: tenant.gstNumber,
           LglNm: tenant.name,
+          TrdNm: tenant.name,
+          Addr1: tenant.address || '',
+          Loc: '',
+          Pin: extractPinCode(tenant.address, tenant.gstNumber),
           Pos: buyerState,
           Stcd: buyerState,
         },
@@ -554,20 +563,24 @@ export async function POST(req: NextRequest) {
 
       const inv01Payload = {
         Version: '1.1',
-        TranDtls: { TaxSch: 'GST', SupTyp: interState ? 'B2B' : 'B2B', RegRev: 'N' },
+        // v6.29.3: SupTyp ternary was dead code (both branches 'B2B'). The
+        // earlier validateGSTIN guard already ensured buyerGstin is a valid
+        // 15-char GSTIN, so this path is by definition B2B. For SEZ / export
+        // / unregistered B2C, the route returns a 400 before reaching here.
+        TranDtls: { TaxSch: 'GST', SupTyp: 'B2B', RegRev: 'N' },
         DocDtls: { Typ: 'INV', No: sale.invoiceNumber, Dt: formatDateForEinvoice(sale.date) },
         SellerDtls: {
           Gstin: tenant.gstNumber,
           LglNm: tenant.name,
           Addr1: tenant.address || '',
-          Pin: 0,  // TODO: add pinCode to Tenant
+          Pin: extractPinCode(tenant.address, tenant.gstNumber),
           Stcd: getStateCode(tenant.gstNumber),
         },
         BuyerDtls: {
           Gstin: buyerGstin,
           LglNm: sale.partyName,
           Addr1: sale.partyAddress || '',
-          Pin: 0,
+          Pin: extractPinCode(sale.partyAddress, buyerGstin),
           Stcd: getStateCode(buyerGstin),
           Pos: getStateCode(buyerGstin),
         },
