@@ -23,11 +23,15 @@ import { roundTo2 } from '@/lib/gst-utils'
 //   4. Collision-safe invoice numbers — when AI didn't return one, generate
 //      IMP-<seq> from a per-import counter instead of `IMP-${Date.now()}`
 //      which collided when multiple records landed in the same ms.
-//   5. File-size cap (5 MB) + row-count cap (5,000) on uploads.
+//   5. File-size cap (1 MB) + row-count cap (5,000) on uploads.
 //   6. Free-tier wallet check (remainingSeconds > 0) before AI call.
 // ============================================================
 
-const MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024 // 5 MB
+// v6.29.1: File-size cap lowered from 5 MB → 1 MB per user request.
+// Reason: AI providers charge per-token; large uploads blow the budget
+// on free-trial tenants before the wallet gate even has a chance to fire.
+// 1 MB is enough for ~10k rows of typical sales CSV data.
+const MAX_FILE_SIZE_BYTES = 1 * 1024 * 1024 // 1 MB
 const MAX_ROWS_PER_MODULE = 5000
 
 export async function POST(req: NextRequest) {
@@ -92,7 +96,7 @@ async function handleFileUpload(req: NextRequest) {
 
   console.log(`[AI-Import] File: ${file.name}, Size: ${fileSize}, Ext: ${ext}, Category: ${userCategory}`)
 
-  // v6.29.0: File-size cap — reject > 5 MB before we read the buffer
+  // v6.29.1: File-size cap — reject > 1 MB before we read the buffer
   if (fileSize > MAX_FILE_SIZE_BYTES) {
     return NextResponse.json({
       error: `File too large (${(fileSize / 1024 / 1024).toFixed(1)} MB). Maximum allowed is ${MAX_FILE_SIZE_BYTES / 1024 / 1024} MB. Please split the file or trim large sheets.`,
