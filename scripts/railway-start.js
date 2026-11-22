@@ -15,7 +15,7 @@ const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
-console.log('=== BizBook Pro Startup (v6.29.8 — PostgreSQL + Direct Server + Rate-Limited) ===');
+console.log('=== BizBook Pro Startup (v6.30.0 — PostgreSQL + Direct Server + Rate-Limited) ===');
 
 // CRITICAL: Delete HOSTNAME so Next.js binds to 0.0.0.0 (fixes Railway 502)
 delete process.env.HOSTNAME;

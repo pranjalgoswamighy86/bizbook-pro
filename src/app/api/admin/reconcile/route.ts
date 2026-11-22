@@ -654,6 +654,7 @@ async function runRepairSaleJEs(tenantId: string, userId: string, userName: stri
         discountPercent: true,
         partyName: true,
         paymentStatus: true,
+        isDeleted: true, // v6.30.0: FIX — added; was missing so `sale.isDeleted` was always undefined → reconciled soft-deleted sales too
       },
     })
     if (!sale || sale.isDeleted) continue

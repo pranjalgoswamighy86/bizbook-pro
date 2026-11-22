@@ -129,12 +129,19 @@ export async function POST(req: NextRequest) {
 
     // ── UPDATE ──────────────────────────────────────────────
     if (action === 'update') {
+      // v6.30.0: FIX — `tenantId` was not destructured from body in this
+      // block (only the create/search/autocomplete blocks destructured it).
+      // The variable was block-scoped to the `create` if-block, so here it
+      // was undefined → requireAuthAndTenant(req, undefined) → 400 "No
+      // business selected" on EVERY party update. Parties could be created
+      // but never edited. Caught by tsc --noEmit (TS2304: Cannot find name
+      // 'tenantId'); runtime failed safe (requireTenantAccess rejects
+      // !tenantId) so this was a functional bug, not a security hole.
+      const { tenantId, id, data } = body
       // ---- SECURITY PATCH v1: auth + tenant access ----
       const access = await requireAuthAndTenant(req, tenantId)
       if (access instanceof NextResponse) return access
       // --------------------------------------------------
-
-      const { id, data } = body
 
       // Fetch current party to compute balance adjustment
       const current = await db.party.findUnique({ where: { id } })
@@ -181,12 +188,12 @@ export async function POST(req: NextRequest) {
 
     // ── DELETE ──────────────────────────────────────────────
     if (action === 'delete') {
+      // v6.30.0: FIX — same undefined-tenantId bug as the update block above.
+      const { tenantId, id } = body
       // ---- SECURITY PATCH v1: auth + tenant access ----
       const access = await requireAuthAndTenant(req, tenantId)
       if (access instanceof NextResponse) return access
       // --------------------------------------------------
-
-      const { id } = body
 
       // Fetch party before deletion so we can also clean up Debtor/Creditor
       const party = await db.party.findUnique({ where: { id } })

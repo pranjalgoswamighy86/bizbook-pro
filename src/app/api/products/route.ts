@@ -84,12 +84,15 @@ export async function POST(req: NextRequest) {
     // UPDATE - Update product and its BOM
     // -------------------------------------------------------
     if (action === 'update') {
+      // v6.30.0: FIX — same undefined-tenantId bug as parties route (TS2304).
+      // tenantId was block-scoped to the create block; here it was undefined
+      // → requireAuthAndTenant(req, undefined) → 400 on EVERY product update.
+      const { tenantId, id, data } = body
       // ---- SECURITY PATCH v1: auth + tenant access ----
       const access = await requireAuthAndTenant(req, tenantId)
       if (access instanceof NextResponse) return access
       // --------------------------------------------------
 
-      const { id, data } = body
       const { name, description, sku, category, salePrice, gstRate, ingredients } = data
 
       // Update the Product record
@@ -166,12 +169,14 @@ export async function POST(req: NextRequest) {
     // DELETE - Delete a product
     // -------------------------------------------------------
     if (action === 'delete') {
+      // v6.30.0: FIX — same undefined-tenantId bug as parties route (TS2304).
+      const { tenantId, id } = body
       // ---- SECURITY PATCH v1: auth + tenant access ----
       const access = await requireAuthAndTenant(req, tenantId)
       if (access instanceof NextResponse) return access
       // --------------------------------------------------
 
-      const { id } = body
+      // Fetch product to get its linked InventoryItem (for cleanup)
 
       // Get product info before deleting (to find linked inventory item)
       const product = await db.product.findUnique({ where: { id } })
