@@ -82,9 +82,16 @@ const nextConfig: NextConfig = {
   },
 
   experimental: {
-    serverActions: {
-      bodySizeLimit: "50mb",
-    },
+    // v6.29.8: removed `serverActions` config — BizBook Pro uses Route
+    // Handlers (/api/* routes) exclusively, not Next.js Server Actions (no
+    // `"use server"` directive exists anywhere in src/). The dead config was
+    // enabling the Server Action dispatch path, which caused error-log noise
+    // every time a bot/scanner sent a bogus `Next-Action: x` header:
+    //   Error: Failed to find Server Action "x".
+    //   This request might be from an older or newer deployment.
+    // Next.js correctly rejected these (the action ID `"x"` is not a valid
+    // hash), but logged each rejection as an [err], polluting the Railway
+    // deploy logs. Removing the config disables the dispatch path entirely.
     optimizePackageImports: ["lucide-react", "recharts", "@radix-ui/react-icons"],
   },
 
