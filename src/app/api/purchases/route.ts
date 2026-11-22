@@ -96,6 +96,31 @@ export async function POST(req: NextRequest) {
 
       const purchase = await db.purchase.create({ data })
 
+      // v6.29.9: partial-failure tracking.
+      // The create flow performs 6 side-effecting writes after the purchase
+      // record is saved (inventory, payables, party, journal entry, payment,
+      // audit log). Each was wrapped in its own try/catch that silently
+      // swallowed errors, so the API returned { purchase } even when the
+      // books were left inconsistent (e.g., JE failed → purchase exists but
+      // trial balance doesn't reflect it; inventory succeeded but JE failed
+      // → stock up with no matching liability entry). This made partial
+      // failures invisible to both the client and the operator.
+      //
+      // Fix: collect each catch into a `warnings` array, log them under a
+      // structured [PURCHASE-INTEGRITY] tag (greppable in Railway logs), and
+      // return them in the response so the client can surface them to the
+      // user ("Purchase saved, but journal entry failed — contact support").
+      // The purchase itself is NOT rolled back (that would require a full
+      // db.$transaction refactor — deferred), but now the failure is
+      // visible instead of silent.
+      const warnings: string[] = []
+      const recordWarning = (step: string, err: unknown) => {
+        const msg = err instanceof Error ? err.message : String(err)
+        const warning = `${step}: ${msg}`
+        warnings.push(warning)
+        console.error(`[PURCHASE-INTEGRITY] purchase ${purchase.invoiceNumber} (${purchase.id}) partial failure — ${warning}`)
+      }
+
       // ===== AUTO INVENTORY UPDATE: Stock IN on Purchase =====
       const inventoryUpdates: string[] = []
       try {
@@ -155,7 +180,7 @@ export async function POST(req: NextRequest) {
           }
         }
       } catch (invError) {
-        console.error('Auto inventory update error (purchase):', invError)
+        recordWarning('inventory', invError)
       }
 
       // ===== AUTO PAYABLES UPDATE =====
@@ -201,7 +226,7 @@ export async function POST(req: NextRequest) {
             }
           }
         } catch (payableError) {
-          console.error('Auto payables update error (purchase):', payableError)
+          recordWarning('payables', payableError)
         }
       }
 
@@ -224,7 +249,7 @@ export async function POST(req: NextRequest) {
             })
           }
         } catch (partyError) {
-          console.error('Auto party create error (purchase):', partyError)
+          recordWarning('party', partyError)
         }
       }
 
@@ -325,7 +350,7 @@ export async function POST(req: NextRequest) {
           })
         }
       } catch (jeError) {
-        console.error('Auto journal entry error (purchase):', jeError)
+        recordWarning('journal-entry', jeError)
       }
 
       // v4.159: Create Payment record if amountPaid > 0 (was missing — broke cash flow tracking)
@@ -343,7 +368,7 @@ export async function POST(req: NextRequest) {
             },
           })
         } catch (payErr) {
-          console.error('Payment record creation error (purchase):', payErr)
+          recordWarning('payment', payErr)
         }
       }
 
@@ -369,12 +394,20 @@ export async function POST(req: NextRequest) {
           })
         }
       } catch (auditErr) {
-        console.error('Audit log error (purchase):', auditErr)
+        recordWarning('audit-log', auditErr)
       }
 
       // v4.155: Auto Excel backup after purchase create
       triggerAutoBackup(tenantId, 'purchase:create')
-      return NextResponse.json({ purchase, inventoryUpdates })
+      // v6.29.9: surface partial failures. If warnings is non-empty, the
+      // purchase saved but one or more side-effecting writes failed. The
+      // client should display these to the user so they know the books may
+      // need a manual reconciliation.
+      const response: { purchase: typeof purchase; inventoryUpdates: string[]; warnings?: string[] } = { purchase, inventoryUpdates }
+      if (warnings.length > 0) {
+        response.warnings = warnings
+      }
+      return NextResponse.json(response)
     }
 
     if (action === 'update') {
@@ -410,6 +443,17 @@ export async function POST(req: NextRequest) {
       }
 
       const purchase = await db.purchase.update({ where: { id }, data })
+
+      // v6.29.9: partial-failure tracking (same pattern as create flow above).
+      // Update reverses old inventory/payables/JE and reapplies new ones —
+      // any of these failing silently leaves the books inconsistent.
+      const warnings: string[] = []
+      const recordWarning = (step: string, err: unknown) => {
+        const msg = err instanceof Error ? err.message : String(err)
+        const warning = `${step}: ${msg}`
+        warnings.push(warning)
+        console.error(`[PURCHASE-INTEGRITY] purchase update ${purchase.invoiceNumber} (${purchase.id}) partial failure — ${warning}`)
+      }
 
       // Reverse old inventory, then apply new
       const inventoryUpdates: string[] = []
@@ -465,7 +509,7 @@ export async function POST(req: NextRequest) {
             }
           }
         } catch (invError) {
-          console.error('Auto inventory update error (purchase update):', invError)
+          recordWarning('inventory', invError)
         }
       }
 
@@ -511,9 +555,9 @@ export async function POST(req: NextRequest) {
             }
           }
         }
-      } catch (payableError) {
-        console.error('Payables update error (purchase update):', payableError)
-      }
+        } catch (payableError) {
+          recordWarning('payables', payableError)
+        }
 
       // v6.28.0: CRITICAL FIX — reverse the original auto-posted Journal Entry
       // and post a new one with the updated purchase amounts. Previously the
@@ -612,13 +656,18 @@ export async function POST(req: NextRequest) {
             },
           })
         }
-      } catch (jeError) {
-        console.error('JE reversal/repost error (purchase update):', jeError)
-      }
+        } catch (jeError) {
+          recordWarning('journal-entry', jeError)
+        }
 
       // v4.155: Auto Excel backup after purchase update
       triggerAutoBackup(tenantId, 'purchase:update')
-      return NextResponse.json({ purchase, inventoryUpdates })
+      // v6.29.9: surface partial failures (same pattern as create flow).
+      const updateResponse: { purchase: typeof purchase; inventoryUpdates: string[]; warnings?: string[] } = { purchase, inventoryUpdates }
+      if (warnings.length > 0) {
+        updateResponse.warnings = warnings
+      }
+      return NextResponse.json(updateResponse)
     }
 
     if (action === 'delete') {
@@ -643,45 +692,48 @@ export async function POST(req: NextRequest) {
       }
 
       await db.$transaction(async (tx) => {
+        // v6.29.9: REMOVED silent try/catch around inventory + payables
+        // reversal. Previously these swallowed errors, so if inventory
+        // reversal failed but the JE reversal succeeded, the transaction
+        // would COMMIT with the purchase soft-deleted + JE reversed but
+        // inventory still showing the deleted purchase's stock and payables
+        // still showing the debt → inconsistent books. Now any error in
+        // inventory/payables/JE reversal propagates to $transaction, which
+        // rolls back ALL operations (including the soft-delete), so the
+        // purchase is NOT deleted and the books stay consistent. The outer
+        // catch returns a 500 so the client knows the delete failed.
+
         // Reverse inventory
-        try {
-          const items = JSON.parse(purchase.items || '[]')
-          for (const item of items) {
-            if (!item.name || !item.qty || item.qty <= 0) continue
-            const tid2 = tid || purchase.tenantId
-            const allItems = await tx.inventoryItem.findMany({ where: { tenantId: tid2 } })
-            const existingItem = allItems.find(i => i.name.toLowerCase() === item.name.toLowerCase())
-            if (existingItem) {
-              const newStock = Math.max(0, existingItem.currentStock - (item.qty || 0))
-              await tx.inventoryItem.update({
-                where: { id: existingItem.id },
-                data: { currentStock: newStock, value: roundTo2(newStock * existingItem.purchasePrice) }
-              })
-            }
+        const items = JSON.parse(purchase.items || '[]')
+        for (const item of items) {
+          if (!item.name || !item.qty || item.qty <= 0) continue
+          const tid2 = tid || purchase.tenantId
+          const allItems = await tx.inventoryItem.findMany({ where: { tenantId: tid2 } })
+          const existingItem = allItems.find(i => i.name.toLowerCase() === item.name.toLowerCase())
+          if (existingItem) {
+            const newStock = Math.max(0, existingItem.currentStock - (item.qty || 0))
+            await tx.inventoryItem.update({
+              where: { id: existingItem.id },
+              data: { currentStock: newStock, value: roundTo2(newStock * existingItem.purchasePrice) }
+            })
           }
-        } catch (invError) {
-          console.error('Auto inventory reverse error (purchase delete):', invError)
         }
 
         // Reverse payable
-        try {
-          const isCash = purchase.partyName.trim().toLowerCase() === 'cash'
-          if (!isCash && purchase.paymentStatus !== 'PAID') {
-            const due = roundTo2(purchase.totalAmount - (purchase.amountPaid || 0))
-            if (due > 0) {
-              const creditor = await tx.creditor.findFirst({
-                where: { name: purchase.partyName, tenantId: tid || purchase.tenantId }
+        const isCash = purchase.partyName.trim().toLowerCase() === 'cash'
+        if (!isCash && purchase.paymentStatus !== 'PAID') {
+          const due = roundTo2(purchase.totalAmount - (purchase.amountPaid || 0))
+          if (due > 0) {
+            const creditor = await tx.creditor.findFirst({
+              where: { name: purchase.partyName, tenantId: tid || purchase.tenantId }
+            })
+            if (creditor) {
+              await tx.creditor.update({
+                where: { id: creditor.id },
+                data: { currentBalance: roundTo2(creditor.currentBalance - due) }
               })
-              if (creditor) {
-                await tx.creditor.update({
-                  where: { id: creditor.id },
-                  data: { currentBalance: roundTo2(creditor.currentBalance - due) }
-                })
-              }
             }
           }
-        } catch (payableError) {
-          console.error('Payables reverse error (purchase delete):', payableError)
         }
 
         // v6.27.5: CRITICAL FIX — reverse the original auto-posted Journal Entry.
