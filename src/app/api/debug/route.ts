@@ -19,7 +19,7 @@ export async function POST(req: NextRequest) {
   const guard = await requireDebugAccess(req)
   if (guard instanceof NextResponse) return guard
 
-  let body = null
+  let body: unknown = null // v6.30.1: FIX TS2322 — was `null` type, then assigned 'parse error' string in catch
   try {
     body = await req.json()
   } catch {

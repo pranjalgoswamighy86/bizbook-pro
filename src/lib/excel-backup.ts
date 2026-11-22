@@ -797,8 +797,11 @@ export async function restoreFromExcelData(
                   subtotal: num(row.subtotal),
                   gstAmount: num(row.gstAmount),
                   totalAmount: num(row.totalAmount),
-                  invoiceType: String(row.invoiceType || 'TAX_INVOICE'),
-                  invoiceStatus: String(row.invoiceStatus || 'CONFIRMED'),
+                  // v6.30.1: FIX — removed `invoiceType` (Sale schema has no such field; was silently
+                  // dropped by Prisma on restore). `invoiceStatus` already captures the
+                  // TAX_INVOICE/QUOTATION/CONFIRMED distinction. The Excel column is kept in the
+                  // header for backward compat with old backup files, but no longer written to DB.
+                  invoiceStatus: String(row.invoiceStatus || row.invoiceType || 'CONFIRMED'),
                   paymentStatus: String(row.paymentStatus || 'PENDING'),
                   amountReceived: num(row.amountReceived),
                   amountPaid: num(row.amountPaid),
@@ -821,8 +824,11 @@ export async function restoreFromExcelData(
                   subtotal: num(row.subtotal),
                   gstAmount: num(row.gstAmount),
                   totalAmount: num(row.totalAmount),
-                  invoiceType: String(row.invoiceType || 'TAX_INVOICE'),
-                  invoiceStatus: String(row.invoiceStatus || 'CONFIRMED'),
+                  // v6.30.1: FIX — removed `invoiceType` (Sale schema has no such field; was silently
+                  // dropped by Prisma on restore). `invoiceStatus` already captures the
+                  // TAX_INVOICE/QUOTATION/CONFIRMED distinction. The Excel column is kept in the
+                  // header for backward compat with old backup files, but no longer written to DB.
+                  invoiceStatus: String(row.invoiceStatus || row.invoiceType || 'CONFIRMED'),
                   paymentStatus: String(row.paymentStatus || 'PENDING'),
                   amountReceived: num(row.amountReceived),
                   amountPaid: num(row.amountPaid),
@@ -1135,8 +1141,7 @@ export async function restoreFromExcelData(
                   gstNumber: strOrNull(row.gstNumber),
                   openingBalance: num(row.openingBalance),
                   currentBalance: num(row.currentBalance),
-                  sourceType: String(row.sourceType || 'PURCHASE'),
-                  sourceId: strOrNull(row.sourceId),
+                  // v6.30.1: removed sourceType + sourceId (Creditor schema has neither; both were silently dropped by Prisma)
                   isDeleted: row.isDeleted === 'Yes',
                   deletedAt: dateOrNull(row.deletedAt),
                 },
@@ -1149,8 +1154,7 @@ export async function restoreFromExcelData(
                   gstNumber: strOrNull(row.gstNumber),
                   openingBalance: num(row.openingBalance),
                   currentBalance: num(row.currentBalance),
-                  sourceType: String(row.sourceType || 'PURCHASE'),
-                  sourceId: strOrNull(row.sourceId),
+                  // v6.30.1: removed sourceType + sourceId (Creditor schema has neither)
                   tenantId,
                   isDeleted: row.isDeleted === 'Yes',
                   deletedAt: dateOrNull(row.deletedAt),

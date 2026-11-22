@@ -144,7 +144,7 @@ export async function GET(req: NextRequest) {
       `;
 
       // Use Brevo to send alert email
-      const axios = await import('axios');
+      const axios = (await import('axios')).default as any; // v6.30.1: FIX TS2339 — use .default (dynamic import namespace doesn't expose .post on the type)
       await axios.post('https://api.brevo.com/v3/smtp/email', {
         sender: { name: 'BizBook Pro Monitor', email: process.env.BREVO_FROM_EMAIL || 'pranjalgoswamighy86@gmail.com' },
         to: [{ email: 'pranjalgoswamighy86@gmail.com', name: 'Pranjal' }],

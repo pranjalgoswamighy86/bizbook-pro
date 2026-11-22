@@ -168,7 +168,7 @@ async function handleGenerateAndDownload(tenantId: string, companyName?: string,
       return `${safeName}_BizBook_Backup.xlsx`
     })()
 
-    return new NextResponse(buffer, {
+    return new NextResponse(new Uint8Array(buffer) as BodyInit, { // v6.30.1: FIX TS2345 — Buffer→Uint8Array (Buffer extends Uint8Array at runtime but TS BodyInit type doesn't include Node Buffer)
       headers: {
         'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         'Content-Disposition': `attachment; filename="${downloadFilename}"`,
@@ -218,6 +218,9 @@ async function handleFileUpload(req: NextRequest): Promise<NextResponse> {
     // If action is 'analyze', just return the parsed data for preview
     if (action === 'analyze') {
       // ---- SECURITY PATCH v1: auth + tenant access ----
+      if (!tenantId) { // v6.30.1: FIX TS2345 — narrow tenantId to string before passing to requireAuthAndRole
+        return NextResponse.json({ error: 'Company ID is required' }, { status: 400 })
+      }
       const access = await requireAuthAndRole(req, tenantId, ['MAIN_ADMIN'])
       if (access instanceof NextResponse) return access
       // --------------------------------------------------

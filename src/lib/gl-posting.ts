@@ -397,7 +397,7 @@ export async function postExpenseJE(
 ): Promise<void> {
   const accounts = new AccountCache(tx, tenantId)
   const expenseAccCode = expenseCategoryToAccountCode(expense.category)
-  const creditAccCode = expensePaymentModeToCreditAccount(expense.paymentMode)
+  const creditAccCode = expensePaymentModeToCreditAccount(expense.paymentMode ?? undefined) // v6.30.1: FIX TS2345 — coerce null→undefined (runtime was fine via `|| ''`, but the type mismatch blocked typecheck)
 
   const expenseAccount = await accounts.ensure(expenseAccCode, expense.category || 'Expense', 'Expense')
   const creditAccount = await accounts.ensure(

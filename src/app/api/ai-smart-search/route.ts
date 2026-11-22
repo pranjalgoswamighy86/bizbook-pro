@@ -1,9 +1,9 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { analyzeWithAI } from '@/lib/multi-ai';
 import { requireAuthAndTenant } from '@/lib/api-helpers';
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) { // v6.30.1: was `Request` (missing cookies/nextUrl props that requireAuthAndTenant expects)
   try {
     const body = await req.json();
     const { tenantId, query, searchResults } = body;
@@ -71,7 +71,7 @@ export async function POST(req: Request) {
           name: { contains: query, mode: 'insensitive' },
         },
         take: 5,
-        select: { id: true, name: true, phone: true, gst: true },
+        select: { id: true, name: true, phone: true, gstNumber: true }, // v6.30.1: FIX — was `gst` (non-existent field); Prisma silently ignored it so GST was always undefined
       });
       results.push(...parties.map(p => ({ ...p, type: 'party' })));
     }
