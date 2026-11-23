@@ -16,7 +16,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto'); // v6.30.3: for random SESSION_SECRET generation
 
-console.log('=== BizBook Pro Startup (v6.30.5 — PostgreSQL + Direct Server + Rate-Limited) ===');
+console.log('=== BizBook Pro Startup (v6.30.6 — PostgreSQL + Direct Server + Rate-Limited) ===');
 
 // CRITICAL: Delete HOSTNAME so Next.js binds to 0.0.0.0 (fixes Railway 502)
 delete process.env.HOSTNAME;
@@ -30,9 +30,43 @@ process.env.NODE_ENV = process.env.NODE_ENV || 'production';
 // per-boot secret as a last resort (sessions won't survive restarts, but
 // at least they're not forgeable). Set SESSION_SECRET in Railway for
 // stable sessions across restarts.
-if (!process.env.SESSION_SECRET) {
-  console.warn('⚠️  v6.30.3 WARNING: SESSION_SECRET is not set. Generating a random per-boot secret.');
-  console.warn('   Sessions will NOT survive server restarts. Set SESSION_SECRET in Railway for stability.');
+//
+// v6.30.6: MALFORMED-SECRET GUARD — found in production (screenshot IMG_6903):
+// an operator pasted the LITERAL COMMAND 'openssl rand -hex 48' into the
+// Railway SESSION_SECRET variable instead of running that command and
+// pasting its OUTPUT (a 96-char hex string). The result was a 20-char
+// predictable secret — anyone who has seen the README or this comment
+// could forge session tokens. The v6.30.3 `if (!SESSION_SECRET)` check
+// did NOT catch this, because the variable WAS set (to the wrong value).
+// Now we also reject secrets that look like a command/placeholder or are
+// shorter than the minimum entropy threshold, and regenerate a strong
+// random one as a last resort (with a loud warning).
+const _SESSION_SECRET_MIN_LEN = 32; // chars; ~160 bits of entropy for hex
+const _secretLooksMalformed = (s) => {
+  if (!s || typeof s !== 'string') return true;
+  if (s.length < _SESSION_SECRET_MIN_LEN) return true;
+  // Reject command strings and obvious placeholders (the operator mis-paste class)
+  const lower = s.toLowerCase();
+  if (lower.includes('openssl') || lower.includes('rand -') || lower.includes('your-secret') ||
+      lower.includes('replace-this') || lower.includes('changeme') || lower.includes('xxx') ||
+      s.trim() === '') return true;
+  return false;
+};
+if (_secretLooksMalformed(process.env.SESSION_SECRET)) {
+  const wasSet = !!process.env.SESSION_SECRET;
+  const shown = wasSet ? `"${String(process.env.SESSION_SECRET).slice(0, 40)}"` : '(unset)';
+  console.warn('⚠️  v6.30.6 WARNING: SESSION_SECRET is ' + (wasSet ? 'MALFORMED' : 'not set') + '.');
+  console.warn('   Current value (truncated): ' + shown);
+  if (wasSet) {
+    console.warn('   This usually means the command "openssl rand -hex 48" was pasted as the');
+    console.warn('   value instead of its OUTPUT. A short/predictable secret lets attackers');
+    console.warn('   forge session tokens. Regenerating a strong random secret for this boot.');
+    console.warn('   FIX: run `openssl rand -hex 48` in a terminal and paste the OUTPUT (96 hex');
+    console.warn('   chars) as the Railway SESSION_SECRET variable.');
+  } else {
+    console.warn('   Generating a random per-boot secret. Sessions will NOT survive restarts.');
+    console.warn('   Set SESSION_SECRET in Railway for stability.');
+  }
   process.env.SESSION_SECRET = crypto.randomBytes(48).toString('hex');
 }
 process.env.MASTER_MOBILE_NUMBER = process.env.MASTER_MOBILE_NUMBER || '9101555075';
