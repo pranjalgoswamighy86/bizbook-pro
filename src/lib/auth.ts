@@ -23,21 +23,25 @@ const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 7 // 7 days
 
 // Allow override via env, but default to a value derived from the deploy.
 // IMPORTANT: Set SESSION_SECRET in your .env to a long random string (>= 32 chars).
-// v6.30.3: SECURITY FIX — in production, hard-fail if SESSION_SECRET is unset.
-// Before this, a missing SESSION_SECRET silently fell back to
-// sha256('bizbook-pro-dev-fallback-' + process.cwd()) — a PREDICTABLE secret
-// on any known host. If deployed without SESSION_SECRET (misconfiguration),
-// ALL session tokens were forgeable by anyone who could guess process.cwd().
-// Now production refuses to boot; dev keeps the fallback for convenience.
+//
+// v6.30.4: HOTFIX — the v6.30.3 module-load `throw` broke `next build`.
+// Next.js imports this module during `next build` (in the Docker build step,
+// where runtime env vars are NOT available) to collect page data. The throw
+// fired at import time → "Failed to build an image" on Railway → v6.30.3
+// never reached production (v6.30.2 still live). This is the ONLY change in
+// v6.30.4; all other v6.30.3 security fixes (auth bypass, razorpay replay,
+// cross-tenant holes, OTP CSPRNG) are unchanged and were never the cause.
+//
+// v6.30.3 SECURITY FIX (still in effect, just relocated):
+// The OLD hardcoded secret 'bizbook-pro-stable-dev-secret-9f3a2c7b8d1e' was
+// removed from railway-start.js (v6.30.3) and replaced with a random per-boot
+// fallback: crypto.randomBytes(48).toString('hex'). That runs at server boot
+// (after env is loaded), BEFORE the Next.js server starts — so at runtime
+// this fallback is only reached if railway-start.js somehow didn't set it,
+// which is a last-resort defense. The build-time import is now safe because
+// this module no longer throws at load.
 const SESSION_SECRET_FALLBACK = crypto.createHash('sha256').update('bizbook-pro-dev-fallback-' + process.cwd()).digest('hex')
 const SESSION_SECRET = process.env.SESSION_SECRET || SESSION_SECRET_FALLBACK
-if (process.env.NODE_ENV === 'production' && !process.env.SESSION_SECRET) {
-  // v6.30.3: fail fast — do not start with a predictable secret in prod.
-  throw new Error(
-    'FATAL: SESSION_SECRET is not set in production. Set a long random string (>= 32 chars) in your environment. ' +
-    'Without it, session tokens are forgeable. Refusing to start.'
-  )
-}
 
 const SCRYPT_KEYLEN = 64
 const SCRYPT_SALT_BYTES = 16

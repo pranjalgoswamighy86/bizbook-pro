@@ -16,7 +16,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto'); // v6.30.3: for random SESSION_SECRET generation
 
-console.log('=== BizBook Pro Startup (v6.30.3 — PostgreSQL + Direct Server + Rate-Limited) ===');
+console.log('=== BizBook Pro Startup (v6.30.4 — PostgreSQL + Direct Server + Rate-Limited) ===');
 
 // CRITICAL: Delete HOSTNAME so Next.js binds to 0.0.0.0 (fixes Railway 502)
 delete process.env.HOSTNAME;
