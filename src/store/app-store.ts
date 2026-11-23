@@ -33,6 +33,8 @@ export type ViewType =
   | 'ai-valuation'
   | 'super-admin-subscriptions'
   | 'help-support-management'
+  | 'tds-register' // v6.30.2: FIX — was missing from ViewType union; app/page.tsx switch case + TDSRegister import existed but type rejected it
+  | 'payment-proof-review' // v6.30.2: FIX — same; PaymentProofReview view existed but wasn't in the union
 
 export type UserRole = 'VIEW_ONLY' | 'DATA_ENTRY' | 'JUNIOR_ADMIN' | 'MAIN_ADMIN' | 'SUPER_ADMIN'
 

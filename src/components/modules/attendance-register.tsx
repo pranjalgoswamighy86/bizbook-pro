@@ -399,7 +399,7 @@ export function AttendanceRegister() {
                 {fingerprintStatus === 'idle' && <Fingerprint className="h-4 w-4" />}
                 {fingerprintInput || 'Waiting for scan...'}
               </div>
-              <Volume2 className="h-4 w-4 text-muted-foreground" title="Audio feedback enabled" />
+              <span title="Audio feedback enabled"><Volume2 className="h-4 w-4 text-muted-foreground" /></span>{/* v6.30.2: FIX — moved title to wrapper span (LucideProps doesn't accept title in this version) */}
               <p className="text-xs text-muted-foreground">Scan a fingerprint or type staff ID/Fingerprint ID to auto check-in/out</p>
               <div className="text-xs text-muted-foreground">
                 {staffList.filter(s => s.fingerprintId).length}/{staffList.length} staff enrolled

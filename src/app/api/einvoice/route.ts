@@ -236,7 +236,13 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'Sale not found' }, { status: 404 })
       }
 
-      const updateData: Record<string, unknown> = {
+      const updateData: {
+        einvoiceStatus?: string
+        einvoiceIrn?: string | null
+        einvoiceAckNo?: string | null
+        einvoiceAckDate?: string | null
+        einvoiceQrCodeText?: string | null
+      } = { // v6.30.2: FIX TS2322 — was Record<string, unknown> (too loose for Prisma Exact type)
         einvoiceStatus: status || 'GENERATED',
       }
       if (irn) updateData.einvoiceIrn = irn
@@ -443,7 +449,13 @@ export async function POST(req: NextRequest) {
       const purchase = await db.purchase.findUnique({ where: { id: purchaseId } })
       if (!purchase || purchase.tenantId !== access.tenantId) return NextResponse.json({ error: 'Purchase not found' }, { status: 404 })
 
-      const updateData: Record<string, unknown> = { einvoiceStatus: status || 'GENERATED' }
+      const updateData: {
+        einvoiceStatus?: string
+        einvoiceIrn?: string | null
+        einvoiceAckNo?: string | null
+        einvoiceAckDate?: string | null
+        einvoiceQrCodeText?: string | null
+      } = { einvoiceStatus: status || 'GENERATED' } // v6.30.2: FIX TS2322 — was Record<string, unknown>
       if (irn) updateData.einvoiceIrn = irn
       if (ackNo) updateData.einvoiceAckNo = ackNo
       if (ackDate) updateData.einvoiceAckDate = ackDate

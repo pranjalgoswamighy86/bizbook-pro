@@ -45,6 +45,16 @@ export async function POST(req: NextRequest) {
       // --------------------------------------------------
 
       const { id, data } = body
+      // v6.30.2: SECURITY FIX — verify the debtor belongs to this tenant before
+      // updating. Without this, a caller from tenant A could pass tenant B's
+      // debtor ID and mutate it (cross-tenant data modification).
+      const existing = await db.debtor.findFirst({
+        where: { id, tenantId: access.tenantId, isDeleted: false },
+        select: { id: true },
+      })
+      if (!existing) {
+        return NextResponse.json({ error: 'Debtor not found' }, { status: 404 })
+      }
       const debtor = await db.debtor.update({ where: { id }, data })
       return NextResponse.json({ debtor })
     }
@@ -56,6 +66,14 @@ export async function POST(req: NextRequest) {
       // --------------------------------------------------
 
       const { id } = body
+      // v6.30.2: SECURITY FIX — same tenant-ownership check as update.
+      const existing = await db.debtor.findFirst({
+        where: { id, tenantId: access.tenantId, isDeleted: false },
+        select: { id: true },
+      })
+      if (!existing) {
+        return NextResponse.json({ error: 'Debtor not found' }, { status: 404 })
+      }
       await db.debtor.update({ where: { id }, data: { isDeleted: true, deletedAt: new Date() } })
       return NextResponse.json({ success: true })
     }

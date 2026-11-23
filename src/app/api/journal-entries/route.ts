@@ -226,6 +226,21 @@ export async function POST(req: NextRequest) {
       const isCash = (saleData.partyName || '').trim().toLowerCase() === 'cash'
       const lines: { accountId: string; debit: number; credit: number; description: string }[] = []
 
+      // v6.30.2: ACCOUNTING FIX — this route posted unbalanced JEs for any sale
+      // with discountPercent > 0. The JE was Dr totalAmount / Cr (subtotal +
+      // gstAmount), but totalAmount = subtotal - discount + gst, so debits were
+      // short by exactly the discount amount. This is the same bug class that
+      // src/lib/gl-posting.ts was fixed for in v6.29.2 — this live API route
+      // was never updated to match. Now adds a Dr Discount Allowed (40150) line
+      // so Dr (totalAmount + discount) == Cr (subtotal + gstAmount).
+      const discountPercent = Number(saleData.discountPercent || 0)
+      const grossSubtotal = saleData.subtotal && saleData.subtotal > 0
+        ? saleData.subtotal
+        : (saleData.gstAmount || 0) > 0
+          ? Math.round((saleData.totalAmount - (saleData.gstAmount || 0)) * 100) / 100
+          : saleData.totalAmount
+      const saleDiscountAmount = Math.round(grossSubtotal * discountPercent / 100 * 100) / 100
+
       // Debit: Cash or Debtors
       lines.push({
         accountId: isCash ? cashAccount!.id : debtorsAccount!.id,
@@ -233,6 +248,21 @@ export async function POST(req: NextRequest) {
         credit: 0,
         description: isCash ? 'Cash received' : `Amount receivable from ${saleData.partyName}`,
       })
+
+      // Debit: Discount Allowed (if invoice-level discount applied)
+      if (saleDiscountAmount > 0.01) {
+        // v6.30.2: find or create the Discount Allowed (40150) account
+        let discountAccount = findAccount('40150')
+        if (!discountAccount) {
+          discountAccount = await db.account.create({ data: { accountCode: '40150', name: 'Discount Allowed', type: 'Expense', tenantId } })
+        }
+        lines.push({
+          accountId: discountAccount.id,
+          debit: saleDiscountAmount,
+          credit: 0,
+          description: `Invoice-level discount on ${saleData.invoiceNumber || ''}`,
+        })
+      }
 
       // Credit: Sales Revenue
       lines.push({

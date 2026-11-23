@@ -96,11 +96,16 @@ type DialogStep = 'prompt' | 'analyzing' | 'results' | 'importing' | 'complete' 
 
 interface BackupImportDialogProps {
   open: boolean
-  onOpenChange: (open: boolean) => void
+  // v6.30.2: made onOpenChange OPTIONAL (was required, but company-select
+  // didn't pass it → tsc error). The dialog still closes via CustomEvent
+  // ('close-backup-import') for backward compat, but if onOpenChange is
+  // provided it's called too — so the sidebar (which passes it but never
+  // listened for the CustomEvent) can now actually close the dialog.
+  onOpenChange?: (open: boolean) => void
   companyName: string
 }
 
-export function BackupImportDialog({ open, companyName }: BackupImportDialogProps) {
+export function BackupImportDialog({ open, onOpenChange, companyName }: BackupImportDialogProps) { // v6.30.2: destructure onOpenChange (was unused) so resetAndClose can call it
   const { tenant, setView, setPendingImportFile } = useAppStore()
   const { toast } = useToast()
 
@@ -144,10 +149,14 @@ export function BackupImportDialog({ open, companyName }: BackupImportDialogProp
     setSelectedModules(new Set())
     setErrorMessage('')
     setImportResults(null)
+    // v6.30.2: call onOpenChange if provided (sidebar passes it) so the dialog
+    // actually closes. The CustomEvent is kept for backward compat with
+    // company-select which listens for it instead of passing onOpenChange.
+    onOpenChange?.(false)
     // Close the dialog by dispatching close event on the Dialog
     const event = new CustomEvent('close-backup-import')
     window.dispatchEvent(event)
-  }, [])
+  }, [onOpenChange])
 
   const handleSkip = () => {
     resetAndClose()

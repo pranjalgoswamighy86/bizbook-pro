@@ -45,6 +45,16 @@ export async function POST(req: NextRequest) {
       // --------------------------------------------------
 
       const { id, data } = body
+      // v6.30.2: SECURITY FIX — verify the creditor belongs to this tenant before
+      // updating. Without this, a caller from tenant A could pass tenant B's
+      // creditor ID and mutate it (cross-tenant data modification).
+      const existing = await db.creditor.findFirst({
+        where: { id, tenantId: access.tenantId, isDeleted: false },
+        select: { id: true },
+      })
+      if (!existing) {
+        return NextResponse.json({ error: 'Creditor not found' }, { status: 404 })
+      }
       const creditor = await db.creditor.update({ where: { id }, data })
       return NextResponse.json({ creditor })
     }
@@ -56,6 +66,14 @@ export async function POST(req: NextRequest) {
       // --------------------------------------------------
 
       const { id } = body
+      // v6.30.2: SECURITY FIX — same tenant-ownership check as update.
+      const existing = await db.creditor.findFirst({
+        where: { id, tenantId: access.tenantId, isDeleted: false },
+        select: { id: true },
+      })
+      if (!existing) {
+        return NextResponse.json({ error: 'Creditor not found' }, { status: 404 })
+      }
       await db.creditor.update({ where: { id }, data: { isDeleted: true, deletedAt: new Date() } })
       return NextResponse.json({ success: true })
     }

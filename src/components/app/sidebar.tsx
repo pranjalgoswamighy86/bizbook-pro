@@ -96,7 +96,7 @@ export function AppSidebar() {
   const currentView = useAppStore((s) => s.currentView)
   const setView = useAppStore((s) => s.setView)
   const user = useAppStore((s) => s.user)
-  const tenantName = useAppStore((s) => s.tenantName)
+  const tenantName = useAppStore((s) => s.tenant?.name) || '' // v6.30.2: FIX — AppState had no tenantName field; was always undefined → download filenames were "undefined_tally_export.xml" and sidebar showed no business name
   const tenantId = useAppStore((s) => s.tenant?.id)
   const companies = useAppStore((s) => s.companies)
   const sidebarOpen = useAppStore((s) => s.sidebarOpen)

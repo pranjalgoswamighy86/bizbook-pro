@@ -517,6 +517,7 @@ export function SaleRegister() {
           einvoiceAckDate: null,
           einvoiceQrCodeText: null,
           einvoiceStatus: 'PENDING',
+          discountPercent: form.discountPercent || 0, // v6.30.2: FIX — was missing from savedSale object; Print Invoice got discountPercent: undefined → "NaN%" or broken discount display
           createdBy: user?.id || null,
         }
         setJustSavedSale(savedSale)
