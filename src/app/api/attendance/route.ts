@@ -14,12 +14,24 @@ export async function POST(req: NextRequest) {
 
     // Check-in: record a staff member's check-in time
     if (action === 'check-in') {
+      // v6.30.3: SECURITY FIX — was missing auth entirely. A caller could
+      // create attendance records for ANY tenant's staff by passing their
+      // staffId + the caller's own tenantId, polluting another tenant's
+      // attendance data. Now requires auth + scopes the staff lookup by
+      // tenantId so you can only check in your own tenant's staff.
+      const access = await requireAuthAndTenant(req, tenantId)
+      if (access instanceof NextResponse) return access
+
       const { staffId, date, checkInTime, method } = body
       const checkIn = new Date(checkInTime || new Date())
       const attendanceDate = new Date(date || new Date())
 
       // v4.149: Lookup staff name for denormalized field
-      const staff = await db.staff.findUnique({ where: { id: staffId }, select: { name: true } })
+      // v6.30.3: scope by tenantId — blocks cross-tenant check-in
+      const staff = await db.staff.findFirst({
+        where: { id: staffId, tenantId: access.tenantId, isDeleted: false },
+        select: { name: true },
+      })
       if (!staff) {
         return NextResponse.json({ error: 'Staff not found' }, { status: 404 })
       }
@@ -59,12 +71,18 @@ export async function POST(req: NextRequest) {
 
     // Check-out: record a staff member's check-out time
     if (action === 'check-out') {
+      // v6.30.3: SECURITY FIX — was missing auth entirely. Now requires auth
+      // and scopes the check-in lookup by tenantId so you can't check out
+      // another tenant's staff.
+      const access = await requireAuthAndTenant(req, tenantId)
+      if (access instanceof NextResponse) return access
+
       const { staffId, date, checkOutTime, method } = body
       const checkOut = new Date(checkOutTime || new Date())
       const attendanceDate = new Date(date || new Date())
 
       const existing = await db.staffAttendance.findFirst({
-        where: { staffId, date: attendanceDate, isDeleted: false },
+        where: { staffId, tenantId: access.tenantId, date: attendanceDate, isDeleted: false },
       })
 
       if (!existing) {
@@ -133,6 +151,16 @@ export async function POST(req: NextRequest) {
       // --------------------------------------------------
 
       const { id, data } = body
+      // v6.30.3: SECURITY FIX — verify the attendance record belongs to this
+      // tenant before updating. Was: db.staffAttendance.update({ where: { id } })
+      // with no tenant check → cross-tenant mutation hole.
+      const existing = await db.staffAttendance.findFirst({
+        where: { id, tenantId: access.tenantId, isDeleted: false },
+        select: { id: true },
+      })
+      if (!existing) {
+        return NextResponse.json({ error: 'Attendance record not found' }, { status: 404 })
+      }
       // Recalculate working hours if check-in/check-out changed
       if (data.checkIn && data.checkOut) {
         const diffMs = new Date(data.checkOut).getTime() - new Date(data.checkIn).getTime()
@@ -146,6 +174,11 @@ export async function POST(req: NextRequest) {
 
     // Monthly summary
     if (action === 'monthly-summary') {
+      // v6.30.3: SECURITY FIX — was missing auth entirely. Now requires auth +
+      // tenant access before returning the monthly attendance summary.
+      const access = await requireAuthAndTenant(req, tenantId)
+      if (access instanceof NextResponse) return access
+
       const { month } = body // format: "2025-03"
       const [year, mon] = month.split('-').map(Number)
       const start = new Date(year, mon - 1, 1)

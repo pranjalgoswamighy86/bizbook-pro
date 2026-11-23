@@ -144,7 +144,14 @@ export async function POST(req: NextRequest) {
       // --------------------------------------------------
 
       // Fetch current party to compute balance adjustment
-      const current = await db.party.findUnique({ where: { id } })
+      // v6.30.3: SECURITY FIX — was findUnique({ where: { id } }) with no
+      // tenantId filter → cross-tenant mutation hole. A caller from tenant A
+      // could pass tenant B's party id and mutate it (and its linked
+      // Debtor/Creditor via syncToDebtorCreditor). Now scopes by tenantId +
+      // isDeleted so you can only edit your own tenant's parties.
+      const current = await db.party.findFirst({
+        where: { id, tenantId: access.tenantId, isDeleted: false },
+      })
       if (!current) {
         return NextResponse.json({ error: 'Party not found' }, { status: 404 })
       }
@@ -196,21 +203,30 @@ export async function POST(req: NextRequest) {
       // --------------------------------------------------
 
       // Fetch party before deletion so we can also clean up Debtor/Creditor
-      const party = await db.party.findUnique({ where: { id } })
-      if (party) {
-        // Remove linked Debtor if exists
-        if (party.type === 'CUSTOMER' || party.type === 'BOTH') {
-          const debtor = await db.debtor.findFirst({ where: { name: party.name, tenantId: party.tenantId, isDeleted: false } })
-          if (debtor) {
-            await db.debtor.update({ where: { id: debtor.id }, data: { isDeleted: true, deletedAt: new Date() } })
-          }
+      // v6.30.3: SECURITY FIX — was findUnique({ where: { id } }) with no
+      // tenantId filter → cross-tenant soft-delete hole (same bug class as
+      // the v6.30.2 debtors/creditors fix). Now scopes by tenantId +
+      // isDeleted. The downstream Debtor/Creditor cleanup was already scoped
+      // by tenantId (lines 210, 217), but the Party lookup + soft-delete
+      // itself was not.
+      const party = await db.party.findFirst({
+        where: { id, tenantId: access.tenantId, isDeleted: false },
+      })
+      if (!party) {
+        return NextResponse.json({ error: 'Party not found' }, { status: 404 })
+      }
+      // Remove linked Debtor if exists
+      if (party.type === 'CUSTOMER' || party.type === 'BOTH') {
+        const debtor = await db.debtor.findFirst({ where: { name: party.name, tenantId: party.tenantId, isDeleted: false } })
+        if (debtor) {
+          await db.debtor.update({ where: { id: debtor.id }, data: { isDeleted: true, deletedAt: new Date() } })
         }
-        // Remove linked Creditor if exists
-        if (party.type === 'SUPPLIER' || party.type === 'BOTH') {
-          const creditor = await db.creditor.findFirst({ where: { name: party.name, tenantId: party.tenantId, isDeleted: false } })
-          if (creditor) {
-            await db.creditor.update({ where: { id: creditor.id }, data: { isDeleted: true, deletedAt: new Date() } })
-          }
+      }
+      // Remove linked Creditor if exists
+      if (party.type === 'SUPPLIER' || party.type === 'BOTH') {
+        const creditor = await db.creditor.findFirst({ where: { name: party.name, tenantId: party.tenantId, isDeleted: false } })
+        if (creditor) {
+          await db.creditor.update({ where: { id: creditor.id }, data: { isDeleted: true, deletedAt: new Date() } })
         }
       }
 

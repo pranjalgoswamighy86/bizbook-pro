@@ -14,15 +14,27 @@
 const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto'); // v6.30.3: for random SESSION_SECRET generation
 
-console.log('=== BizBook Pro Startup (v6.30.2 — PostgreSQL + Direct Server + Rate-Limited) ===');
+console.log('=== BizBook Pro Startup (v6.30.3 — PostgreSQL + Direct Server + Rate-Limited) ===');
 
 // CRITICAL: Delete HOSTNAME so Next.js binds to 0.0.0.0 (fixes Railway 502)
 delete process.env.HOSTNAME;
 
 // Set env var defaults
 process.env.NODE_ENV = process.env.NODE_ENV || 'production';
-process.env.SESSION_SECRET = process.env.SESSION_SECRET || 'bizbook-pro-stable-dev-secret-9f3a2c7b8d1e';
+// v6.30.3: SECURITY FIX — was a HARDCODED fallback secret
+// 'bizbook-pro-stable-dev-secret-9f3a2c7b8d1e' checked into the public repo.
+// Anyone reading the repo could forge session tokens for any deployment
+// that didn't set SESSION_SECRET explicitly. Now generates a random
+// per-boot secret as a last resort (sessions won't survive restarts, but
+// at least they're not forgeable). Set SESSION_SECRET in Railway for
+// stable sessions across restarts.
+if (!process.env.SESSION_SECRET) {
+  console.warn('⚠️  v6.30.3 WARNING: SESSION_SECRET is not set. Generating a random per-boot secret.');
+  console.warn('   Sessions will NOT survive server restarts. Set SESSION_SECRET in Railway for stability.');
+  process.env.SESSION_SECRET = crypto.randomBytes(48).toString('hex');
+}
 process.env.MASTER_MOBILE_NUMBER = process.env.MASTER_MOBILE_NUMBER || '9101555075';
 process.env.ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin@bizbook.pro';
 process.env.NEXT_TELEMETRY_DISABLED = '1';

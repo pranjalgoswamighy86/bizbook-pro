@@ -62,6 +62,17 @@ export async function POST(req: NextRequest) {
       // --------------------------------------------------
 
       const { id, data: rawData } = body
+      // v6.30.3: SECURITY FIX — verify the inventory item belongs to this
+      // tenant before updating. Was: db.inventoryItem.update({ where: { id } })
+      // with no tenant check → cross-tenant mutation hole. The findUnique
+      // below already exists for stock/price recalc, but it didn't check
+      // tenantId; now it's a findFirst with tenantId + isDeleted.
+      const existing = await db.inventoryItem.findFirst({
+        where: { id, tenantId: access.tenantId, isDeleted: false },
+      })
+      if (!existing) {
+        return NextResponse.json({ error: 'Inventory item not found' }, { status: 404 })
+      }
       // v4.90: Whitelist allowed fields to prevent Prisma errors from unknown fields
       const data: Record<string, unknown> = {}
       const allowedFields = ['name', 'sku', 'barcode', 'hsnCode', 'unit', 'category', 'brand', 'itemType', 'purchasePrice', 'salePrice', 'mrp', 'openingStock', 'currentStock', 'minStock', 'gstRate', 'value']
@@ -75,12 +86,9 @@ export async function POST(req: NextRequest) {
         }
       }
       if (data.currentStock !== undefined || data.purchasePrice !== undefined) {
-        const existing = await db.inventoryItem.findUnique({ where: { id } })
-        if (existing) {
-          const stock = Number(data.currentStock) ?? existing.currentStock
-          const price = Number(data.purchasePrice) ?? existing.purchasePrice
-          data.value = stock * price
-        }
+        const stock = Number(data.currentStock) ?? existing.currentStock
+        const price = Number(data.purchasePrice) ?? existing.purchasePrice
+        data.value = stock * price
       }
       const item = await db.inventoryItem.update({ where: { id }, data: data as any })
       return NextResponse.json({ item })
@@ -93,6 +101,14 @@ export async function POST(req: NextRequest) {
       // --------------------------------------------------
 
       const { id } = body
+      // v6.30.3: SECURITY FIX — same tenant-ownership check as update.
+      const existing = await db.inventoryItem.findFirst({
+        where: { id, tenantId: access.tenantId, isDeleted: false },
+        select: { id: true },
+      })
+      if (!existing) {
+        return NextResponse.json({ error: 'Inventory item not found' }, { status: 404 })
+      }
       await db.inventoryItem.update({ where: { id }, data: { isDeleted: true, deletedAt: new Date() } })
       return NextResponse.json({ success: true })
     }

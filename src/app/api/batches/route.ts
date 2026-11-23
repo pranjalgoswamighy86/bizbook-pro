@@ -119,6 +119,17 @@ export async function POST(req: NextRequest) {
       // --------------------------------------------------
 
       const { id, data } = body
+      // v6.30.3: SECURITY FIX — verify the batch belongs to this tenant
+      // before updating. Was: db.batch.update({ where: { id } }) with no
+      // tenant check → cross-tenant mutation hole. Also fixes the
+      // audit-log actor: was taken from body (forgeable) now from auth.
+      const existing = await db.batch.findFirst({
+        where: { id, tenantId: access.tenantId, isActive: true },
+        select: { id: true },
+      })
+      if (!existing) {
+        return NextResponse.json({ error: 'Batch not found' }, { status: 404 })
+      }
       const updateData: Record<string, unknown> = {}
       if (data.batchNumber !== undefined) updateData.batchNumber = data.batchNumber
       if (data.manufacturingDate !== undefined) updateData.manufacturingDate = data.manufacturingDate ? new Date(data.manufacturingDate) : null
@@ -137,9 +148,9 @@ export async function POST(req: NextRequest) {
       // Audit log
       await db.auditLog.create({
         data: {
-          tenantId,
-          userId: body.userId || null,
-          userName: body.userName || null,
+          tenantId: access.tenantId, // v6.30.3: use access.tenantId (auth-verified)
+          userId: access.userId, // v6.30.3: from auth context, not body (forgeable)
+          userName: access.user.name,
           action: 'UPDATE',
           entityType: 'Batch',
           entityId: id,
@@ -158,6 +169,14 @@ export async function POST(req: NextRequest) {
       // --------------------------------------------------
 
       const { id } = body
+      // v6.30.3: SECURITY FIX — same tenant-ownership check as update.
+      const existing = await db.batch.findFirst({
+        where: { id, tenantId: access.tenantId, isActive: true },
+        select: { id: true },
+      })
+      if (!existing) {
+        return NextResponse.json({ error: 'Batch not found' }, { status: 404 })
+      }
       const batch = await db.batch.update({
         where: { id },
         data: { isActive: false },
@@ -167,9 +186,9 @@ export async function POST(req: NextRequest) {
       // Audit log
       await db.auditLog.create({
         data: {
-          tenantId,
-          userId: body.userId || null,
-          userName: body.userName || null,
+          tenantId: access.tenantId,
+          userId: access.userId,
+          userName: access.user.name,
           action: 'DELETE',
           entityType: 'Batch',
           entityId: id,

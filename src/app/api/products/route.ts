@@ -95,6 +95,17 @@ export async function POST(req: NextRequest) {
 
       const { name, description, sku, category, salePrice, gstRate, ingredients } = data
 
+      // v6.30.3: SECURITY FIX — verify the product belongs to this tenant
+      // before updating. Was: db.product.update({ where: { id } }) with no
+      // tenant check → cross-tenant mutation hole.
+      const owned = await db.product.findFirst({
+        where: { id, tenantId: access.tenantId, isDeleted: false },
+        select: { id: true },
+      })
+      if (!owned) {
+        return NextResponse.json({ error: 'Product not found' }, { status: 404 })
+      }
+
       // Update the Product record
       const product = await db.product.update({
         where: { id },
@@ -179,7 +190,11 @@ export async function POST(req: NextRequest) {
       // Fetch product to get its linked InventoryItem (for cleanup)
 
       // Get product info before deleting (to find linked inventory item)
-      const product = await db.product.findUnique({ where: { id } })
+      // v6.30.3: SECURITY FIX — was findUnique({ where: { id } }) with no
+      // tenant check → cross-tenant soft-delete hole. Now scopes by tenantId.
+      const product = await db.product.findFirst({
+        where: { id, tenantId: access.tenantId, isDeleted: false },
+      })
       if (!product) {
         return NextResponse.json({ error: 'Product not found' }, { status: 404 })
       }

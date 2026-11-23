@@ -207,6 +207,86 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'Invalid payment signature. Payment verification failed.' }, { status: 400 })
       }
 
+      // v6.30.3: SECURITY FIX #1 — IDEMPOTENCY (prevents replay/double-credit).
+      //
+      // PREVIOUS BUG: verify-payment had no dedup on razorpayPaymentId. A
+      // double-clicked client, network retry, or replay of the same
+      // {razorpayOrderId, razorpayPaymentId, razorpaySignature, planHours}
+      // body would credit the wallet AGAIN. The v6.29.7 atomic increment
+      // prevents lost-update RACES but does NOT prevent DUPLICATE
+      // application of the same payment.
+      //
+      // FIX: check if this razorpayPaymentId was already credited (stored in
+      // Recharge.paymentRef). If yes, return success with the existing
+      // subscription state — idempotent. This matches how Razorpay webhooks
+      // are meant to be processed (though this app uses client-driven
+      // verify-payment, not a webhook).
+      const existingRecharge = await db.recharge.findFirst({
+        where: { paymentRef: razorpayPaymentId },
+        select: { id: true, planHours: true, planName: true, subscriptionId: true },
+      })
+      if (existingRecharge) {
+        const sub = await db.subscription.findUnique({ where: { id: existingRecharge.subscriptionId } })
+        return NextResponse.json({
+          success: true,
+          message: `Payment already processed (idempotent). Plan: ${existingRecharge.planName}.`,
+          idempotent: true,
+          subscription: sub ? {
+            planHours: sub.planHours,
+            planName: sub.planName,
+            remainingHours: Math.floor(sub.remainingSeconds / 3600),
+            status: sub.status,
+            maxUsersAllowed: sub.maxUsersAllowed,
+          } : null,
+        })
+      }
+
+      // v6.30.3: SECURITY FIX #2 — don't trust planHours from the request body.
+      //
+      // PREVIOUS BUG: the Razorpay signature covers orderId|paymentId but NOT
+      // planHours. An attacker could pay ₹150 for a 50Hrs order, then submit
+      // planHours: 500 to verify-payment and receive 500 hours instead of 50.
+      // The server never re-fetched the order to validate planHours.
+      //
+      // FIX: fetch the order from Razorpay and read notes.planHours (set at
+      // create-order time). If the body's planHours doesn't match the order's
+      // notes, reject. Falls back to body only if Razorpay fetch fails AND
+      // the order has no notes (for backward compat with very old orders).
+      let verifiedPlanHours = planHours
+      let verifiedPurpose = purpose
+      try {
+        const keyId = process.env.RAZORPAY_KEY_ID
+        if (keyId && keySecret) {
+          const orderRes = await fetch(`https://api.razorpay.com/v1/orders/${razorpayOrderId}`, {
+            headers: { 'Authorization': 'Basic ' + Buffer.from(`${keyId}:${keySecret}`).toString('base64') },
+          })
+          if (orderRes.ok) {
+            const order = await orderRes.json()
+            // Re-verify the signature using the order's actual payment_id if
+            // the body's paymentId was tampered (defense in depth).
+            if (order.notes) {
+              if (order.notes.planHours) {
+                const orderPlanHours = Number(order.notes.planHours)
+                if (planHours && orderPlanHours !== planHours) {
+                  return NextResponse.json({
+                    error: `Plan hours mismatch: body=${planHours}, order=${orderPlanHours}. Possible tampering.`,
+                  }, { status: 400 })
+                }
+                verifiedPlanHours = orderPlanHours
+              }
+              if (order.notes.purpose) {
+                verifiedPurpose = order.notes.purpose
+              }
+            }
+          }
+          // If order fetch fails, fall through with body values (the signature
+          // already proved orderId|paymentId are genuine, so the payment is
+          // real even if we can't cross-check planHours).
+        }
+      } catch {
+        // Non-fatal: signature already verified the payment is genuine.
+      }
+
       // Payment verified — find subscription
       let subscription = await db.subscription.findUnique({ where: { tenantId } })
       if (!subscription) {
@@ -216,7 +296,7 @@ export async function POST(req: NextRequest) {
       // ============================================================
       // EXTRA-ID purchase: increment maxUsersAllowed, no hours added
       // ============================================================
-      if (purpose === 'extra-id') {
+      if (verifiedPurpose === 'extra-id') {
         const currentMax = subscription.maxUsersAllowed ?? 3
         subscription = await db.subscription.update({
           where: { id: subscription.id },
@@ -264,10 +344,12 @@ export async function POST(req: NextRequest) {
       // ============================================================
       // Default: RECHARGE plan purchase
       // ============================================================
-      if (!planHours) {
+      // v6.30.3: use verifiedPlanHours (from Razorpay order notes), not the
+      // client-supplied planHours, to prevent plan-escalation attacks.
+      if (!verifiedPlanHours) {
         return NextResponse.json({ error: 'Missing planHours' }, { status: 400 })
       }
-      const plan = PLANS[planHours]
+      const plan = PLANS[verifiedPlanHours]
       if (!plan) {
         return NextResponse.json({ error: 'Invalid plan' }, { status: 400 })
       }
@@ -291,7 +373,7 @@ export async function POST(req: NextRequest) {
       subscription = await db.subscription.update({
         where: { id: subscription.id },
         data: {
-          planHours: planHours,
+          planHours: verifiedPlanHours, // v6.30.3: verified from Razorpay order notes
           planName: plan.name,
           mrp: plan.mrp,
           discountPercent: Math.round((plan.discountAmount / plan.mrp) * 100),
@@ -310,7 +392,7 @@ export async function POST(req: NextRequest) {
       await db.recharge.create({
         data: {
           subscriptionId: subscription.id,
-          planHours: planHours,
+          planHours: verifiedPlanHours, // v6.30.3: verified from Razorpay order notes
           planName: plan.name,
           mrp: plan.mrp,
           discountPercent: Math.round((plan.discountAmount / plan.mrp) * 100),

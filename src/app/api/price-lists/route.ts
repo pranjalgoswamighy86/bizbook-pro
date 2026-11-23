@@ -120,10 +120,21 @@ export async function POST(req: NextRequest) {
       // --------------------------------------------------
 
       const { id, data } = body
+      // v6.30.3: SECURITY FIX — verify the price list belongs to this tenant
+      // before updating. Was: db.priceList.update({ where: { id } }) with no
+      // tenant check → cross-tenant mutation hole. Also fixes the audit-log
+      // actor (was from body, forgeable; now from auth context).
+      const existing = await db.priceList.findFirst({
+        where: { id, tenantId: access.tenantId, isActive: true },
+        select: { id: true },
+      })
+      if (!existing) {
+        return NextResponse.json({ error: 'Price list not found' }, { status: 404 })
+      }
 
       if (data.isDefault) {
         await db.priceList.updateMany({
-          where: { tenantId, isDefault: true },
+          where: { tenantId: access.tenantId, isDefault: true },
           data: { isDefault: false },
         })
       }
@@ -140,9 +151,9 @@ export async function POST(req: NextRequest) {
       // Audit log
       await db.auditLog.create({
         data: {
-          tenantId,
-          userId: body.userId || null,
-          userName: body.userName || null,
+          tenantId: access.tenantId,
+          userId: access.userId,
+          userName: access.user.name,
           action: 'UPDATE',
           entityType: 'PriceList',
           entityId: id,
@@ -161,6 +172,14 @@ export async function POST(req: NextRequest) {
       // --------------------------------------------------
 
       const { id } = body
+      // v6.30.3: SECURITY FIX — same tenant-ownership check as update.
+      const existing = await db.priceList.findFirst({
+        where: { id, tenantId: access.tenantId, isActive: true },
+        select: { id: true, name: true },
+      })
+      if (!existing) {
+        return NextResponse.json({ error: 'Price list not found' }, { status: 404 })
+      }
       const priceList = await db.priceList.update({
         where: { id },
         data: { isActive: false },
@@ -169,9 +188,9 @@ export async function POST(req: NextRequest) {
       // Audit log
       await db.auditLog.create({
         data: {
-          tenantId,
-          userId: body.userId || null,
-          userName: body.userName || null,
+          tenantId: access.tenantId,
+          userId: access.userId,
+          userName: access.user.name,
           action: 'DELETE',
           entityType: 'PriceList',
           entityId: id,
@@ -184,7 +203,24 @@ export async function POST(req: NextRequest) {
 
     // Set/update prices for items in a price list
     if (action === 'set-prices') {
+      // v6.30.3: SECURITY FIX — was missing auth + tenant access ENTIRELY.
+      // Any authenticated user (or even unauthenticated, depending on
+      // middleware) could rewrite prices on ANY tenant's price list by
+      // passing its priceListId. Now requires auth + verifies the price
+      // list belongs to the caller's tenant before allowing price edits.
+      const access = await requireAuthAndTenant(req, tenantId)
+      if (access instanceof NextResponse) return access
+
       const { priceListId, prices } = body // prices: [{ inventoryItemId, price }]
+
+      // Verify the price list belongs to this tenant
+      const ownedList = await db.priceList.findFirst({
+        where: { id: priceListId, tenantId: access.tenantId, isActive: true },
+        select: { id: true },
+      })
+      if (!ownedList) {
+        return NextResponse.json({ error: 'Price list not found' }, { status: 404 })
+      }
 
       // Delete existing items not in the new list
       const existingItems = await db.priceListItem.findMany({

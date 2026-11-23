@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import crypto from 'crypto' // v6.30.3: for crypto.randomInt (CSPRNG OTP generation)
 import { db } from '@/lib/db-soft-delete'
 import { sendOtpEmail, isEmailConfigured } from '@/lib/email'
 // v4.43: SMS/2Factor imports removed — email-only OTP per user requirement
@@ -15,6 +16,7 @@ import {
   hashPassword,
   verifyPassword,
   createSessionToken,
+  createPreWorkspaceToken, // v6.30.3: short-lived pre-workspace token (fixes select-workspace auth bypass)
   setSessionCookie,
   clearSessionCookie,
   SESSION_COOKIE,
@@ -164,7 +166,7 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      const otp = String(Math.floor(100000 + Math.random() * 900000))
+      const otp = String(crypto.randomInt(100000, 1000000)) // v6.30.3: CSPRNG (was Math.random — not cryptographically secure)
       const expiresAt = new Date(Date.now() + 5 * 60 * 1000)
 
       await db.passwordReset.updateMany({
@@ -558,7 +560,15 @@ export async function POST(req: NextRequest) {
       // Frontend shows modal, user picks workspace, then calls select-workspace action
       if (companies.length > 1) {
         console.log(`[AUTH-GATE] User ${user.email} has ${companies.length} workspaces — requiring selection`);
-        return NextResponse.json({
+        // v6.30.3: SECURITY FIX — issue a short-lived (5-min) pre-workspace
+        // token so the follow-up `select-workspace` action can verify the
+        // caller actually authenticated as this user. Before this fix,
+        // select-workspace trusted `userId` from the request body with NO
+        // auth check — anyone who knew a userId+tenantId pair got a full
+        // admin session (auth bypass). The frontend stores this token and
+        // sends it as the session cookie when calling select-workspace.
+        const preWorkspaceToken = createPreWorkspaceToken(user.id, user.email)
+        const res = NextResponse.json({
           status: 'WORKSPACE_SELECTION_REQUIRED',
           user: { id: user.id, email: user.email, name: user.name },
           workspaces: companies.map(c => ({
@@ -568,8 +578,11 @@ export async function POST(req: NextRequest) {
             isOwner: c.isOwner,
             isOwnTenant: c.role === 'MAIN_ADMIN' && c.isOwner,
           })),
-          // NO session token issued yet — user must select workspace first
+          preWorkspaceToken, // v6.30.3: 5-min token; select-workspace requires this
         });
+        // Set as cookie so requireAuth picks it up in select-workspace
+        setSessionCookie(res, preWorkspaceToken)
+        return res
       }
 
       // v4.109: If still no defaultTenant and no companies, the user's
@@ -718,6 +731,29 @@ export async function POST(req: NextRequest) {
 
       if (!userId || !tenantId) {
         return NextResponse.json({ error: 'userId and tenantId required' }, { status: 400 })
+      }
+
+      // v6.30.3: SECURITY FIX — CRITICAL auth bypass.
+      // Before this fix, select-workspace trusted `userId` + `tenantId` from
+      // the request body with NO authentication check. Anyone who knew (or
+      // guessed) a userId+tenantId pair could call this endpoint directly
+      // and receive a signed session token granting MAIN_ADMIN-equivalent
+      // access to that tenant. The login flow deliberately issues no real
+      // session token at the WORKSPACE_SELECTION_REQUIRED step, so this
+      // endpoint was the only way to get a session for multi-workspace
+      // users — and it was completely unauthenticated.
+      //
+      // Fix: require a valid pre-workspace token (issued at login, 5-min
+      // expiry) AND verify its userId matches the body's userId. This proves
+      // the caller recently authenticated as the user they're selecting a
+      // workspace for, without breaking the multi-workspace UX.
+      const auth = await requireAuth(req)
+      if (auth instanceof NextResponse) return auth
+      if (auth.userId !== userId) {
+        // Token is valid but for a DIFFERENT user — reject. This blocks
+        // both the original bypass (no token at all) and token-swapping
+        // (using user A's token to select user B's workspace).
+        return NextResponse.json({ error: 'Token does not match requested user' }, { status: 403 })
       }
 
       // Verify user has access to this tenant
@@ -1358,7 +1394,7 @@ export async function POST(req: NextRequest) {
         })
       }
 
-      const otp = String(Math.floor(100000 + Math.random() * 900000))
+      const otp = String(crypto.randomInt(100000, 1000000)) // v6.30.3: CSPRNG (was Math.random — not cryptographically secure)
       const expiresAt = new Date(Date.now() + 5 * 60 * 1000)
 
       await db.passwordReset.updateMany({

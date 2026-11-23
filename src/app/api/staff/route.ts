@@ -26,6 +26,16 @@ export async function POST(req: NextRequest) {
       // --------------------------------------------------
 
       const { id, data } = body
+      // v6.30.3: SECURITY FIX — verify the staff belongs to this tenant
+      // before updating. Was: db.staff.update({ where: { id } }) with no
+      // tenant check → cross-tenant mutation hole.
+      const existing = await db.staff.findFirst({
+        where: { id, tenantId: access.tenantId, isDeleted: false },
+        select: { id: true },
+      })
+      if (!existing) {
+        return NextResponse.json({ error: 'Staff not found' }, { status: 404 })
+      }
       const staff = await db.staff.update({ where: { id }, data })
       return NextResponse.json({ staff })
     }
@@ -37,6 +47,14 @@ export async function POST(req: NextRequest) {
       // --------------------------------------------------
 
       const { id } = body
+      // v6.30.3: SECURITY FIX — same tenant-ownership check as update.
+      const existing = await db.staff.findFirst({
+        where: { id, tenantId: access.tenantId, isDeleted: false },
+        select: { id: true },
+      })
+      if (!existing) {
+        return NextResponse.json({ error: 'Staff not found' }, { status: 404 })
+      }
       await db.staff.update({ where: { id }, data: { isDeleted: true, deletedAt: new Date() } })
       return NextResponse.json({ success: true })
     }
@@ -445,8 +463,19 @@ export async function POST(req: NextRequest) {
       // --------------------------------------------------
 
       const { staffId } = body
+      // v6.30.3: SECURITY FIX — was: findMany({ where: { staffId } }) with no
+      // tenantId filter. A caller could read another tenant's staff salary
+      // history by passing their staffId. Now scopes by tenantId + verifies
+      // the staff belongs to this tenant first.
+      const staffExists = await db.staff.findFirst({
+        where: { id: staffId, tenantId: access.tenantId, isDeleted: false },
+        select: { id: true },
+      })
+      if (!staffExists) {
+        return NextResponse.json({ error: 'Staff not found' }, { status: 404 })
+      }
       const payments = await db.salaryPayment.findMany({
-        where: { staffId },
+        where: { staffId, tenantId: access.tenantId },
         orderBy: { paidDate: 'desc' },
       })
       return NextResponse.json({ payments })

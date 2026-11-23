@@ -23,12 +23,21 @@ const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 7 // 7 days
 
 // Allow override via env, but default to a value derived from the deploy.
 // IMPORTANT: Set SESSION_SECRET in your .env to a long random string (>= 32 chars).
-const SESSION_SECRET =
-  process.env.SESSION_SECRET ||
-  // Fallback: derive a per-process secret so dev still works.
-  // In production, ALWAYS set SESSION_SECRET explicitly — otherwise all
-  // sessions invalidate on every server restart.
-  crypto.createHash('sha256').update('bizbook-pro-dev-fallback-' + process.cwd()).digest('hex')
+// v6.30.3: SECURITY FIX — in production, hard-fail if SESSION_SECRET is unset.
+// Before this, a missing SESSION_SECRET silently fell back to
+// sha256('bizbook-pro-dev-fallback-' + process.cwd()) — a PREDICTABLE secret
+// on any known host. If deployed without SESSION_SECRET (misconfiguration),
+// ALL session tokens were forgeable by anyone who could guess process.cwd().
+// Now production refuses to boot; dev keeps the fallback for convenience.
+const SESSION_SECRET_FALLBACK = crypto.createHash('sha256').update('bizbook-pro-dev-fallback-' + process.cwd()).digest('hex')
+const SESSION_SECRET = process.env.SESSION_SECRET || SESSION_SECRET_FALLBACK
+if (process.env.NODE_ENV === 'production' && !process.env.SESSION_SECRET) {
+  // v6.30.3: fail fast — do not start with a predictable secret in prod.
+  throw new Error(
+    'FATAL: SESSION_SECRET is not set in production. Set a long random string (>= 32 chars) in your environment. ' +
+    'Without it, session tokens are forgeable. Refusing to start.'
+  )
+}
 
 const SCRYPT_KEYLEN = 64
 const SCRYPT_SALT_BYTES = 16
@@ -105,6 +114,30 @@ interface SessionPayload {
  */
 export function createSessionToken(userId: string, email: string): string {
   const expiresAt = Date.now() + SESSION_MAX_AGE_SECONDS * 1000
+  const payload: SessionPayload = { userId, email, expiresAt }
+  const payloadJson = JSON.stringify(payload)
+  const payloadB64 = Buffer.from(payloadJson, 'utf-8').toString('base64url')
+  const sig = crypto.createHmac('sha256', SESSION_SECRET).update(payloadB64).digest('base64url')
+  return `${payloadB64}.${sig}`
+}
+
+/**
+ * v6.30.3: Create a SHORT-LIVED pre-workspace-selection token (5 minutes).
+ *
+ * Context: the login flow returns WORKSPACE_SELECTION_REQUIRED with NO session
+ * token when a user has 2+ workspaces. The follow-up `select-workspace` action
+ * then issues the real session. Before v6.30.3, `select-workspace` trusted the
+ * `userId` from the request body with NO authentication check — so anyone who
+ * knew a userId+tenantId pair could call it directly and get a full admin
+ * session (auth bypass).
+ *
+ * Fix: login now issues this 5-minute pre-workspace token (tied to the just-
+ * authenticated user). `select-workspace` calls `requireAuth` and verifies
+ * `auth.userId === body.userId`. The short expiry limits the window even if a
+ * token leaks, and the userId binding prevents swapping to a different user.
+ */
+export function createPreWorkspaceToken(userId: string, email: string): string {
+  const expiresAt = Date.now() + 5 * 60 * 1000 // 5 minutes
   const payload: SessionPayload = { userId, email, expiresAt }
   const payloadJson = JSON.stringify(payload)
   const payloadB64 = Buffer.from(payloadJson, 'utf-8').toString('base64url')
