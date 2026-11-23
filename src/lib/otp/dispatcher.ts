@@ -8,10 +8,40 @@
  *
  * User must enter the SAME OTP (both email and SMS contain the same 6-digit code)
  * to verify their identity during registration.
+ *
+ * v6.30.7: Added per-channel timeout (OTP_TIMEOUT_MS = 12s). When email/SMS
+ * providers are unreachable or API keys aren't configured but the code still
+ * attempts a connection, the network call hangs indefinitely (observed: 45s+
+ * timeout on /api/auth action=register-send-otp in production). The timeout
+ * races each send against a 12-second deadline; if it fires, the existing
+ * try/catch sets fallbackReason to include 'NOT_CONFIGURED' so the auth
+ * route's production gate (503 'OTP delivery service is not configured')
+ * fires immediately instead of after 45s. 12s is generous — real sends
+ * complete in <3s.
  */
 
 import { sendOtpEmail } from '@/lib/email';
 import { sendSmsTextOnly } from '@/lib/sms-text';
+
+// v6.30.7: Per-channel timeout for email/SMS sends.
+const OTP_TIMEOUT_MS = 12_000;
+
+/**
+ * Race a promise against a timeout. If the timeout fires first, reject with
+ * an Error whose message includes 'NOT_CONFIGURED' so downstream callers
+ * (auth route production gate) treat it as a configuration issue, not a
+ * transient network blip.
+ */
+function withTimeout<T>(promise: Promise<T>, label: string): Promise<T> {
+  const timeout = new Promise<never>((_, reject) =>
+    setTimeout(() => {
+      const msg = `${label}: NOT_CONFIGURED — timed out after ${OTP_TIMEOUT_MS / 1000}s (provider unreachable or API keys not set)`;
+      console.error(`[OTP] ⏱ ${msg}`);
+      reject(new Error(msg));
+    }, OTP_TIMEOUT_MS),
+  );
+  return Promise.race([promise, timeout]) as Promise<T>;
+}
 
 // ---------- Types ----------
 export interface OtpTarget {
@@ -85,7 +115,10 @@ export async function dispatchOtp(
   if (target.email) {
     try {
       console.log(`[OTP] Sending email to ${target.email}`);
-      const emailResult = await sendOtpEmail(target.email, otp, undefined);
+      const emailResult = await withTimeout(
+        sendOtpEmail(target.email, otp, undefined),
+        'Email OTP',
+      );
 
       if (emailResult.success) {
         result.emailDelivered = true;
@@ -106,11 +139,14 @@ export async function dispatchOtp(
   if (sendSms && target.mobile) {
     try {
       console.log(`[OTP] Sending SMS to ${target.mobile}`);
-      const smsResult = await sendSmsTextOnly({
-        to: target.mobile,
-        otp,
-        purpose: target.purpose,
-      });
+      const smsResult = await withTimeout(
+        sendSmsTextOnly({
+          to: target.mobile,
+          otp,
+          purpose: target.purpose,
+        }),
+        'SMS OTP',
+      );
 
       if (smsResult.ok) {
         result.smsDelivered = true;
