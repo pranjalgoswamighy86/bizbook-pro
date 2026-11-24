@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db-soft-delete'
-import { requireAuthAndTenant, requireAuthAndRole, requireAuth, writeAuditLog } from '@/lib/api-helpers'
+import { requireAuthAndRole } from '@/lib/api-helpers'
 
 /**
  * Data Backup & Export API
@@ -15,12 +15,17 @@ export async function POST(req: NextRequest) {
     const body = await req.json()
     const { action, tenantId } = body
 
-    if (!tenantId) {
+    if (typeof tenantId !== 'string' || !tenantId.trim()) {
       return NextResponse.json({ error: 'Company ID is required' }, { status: 400 })
     }
 
-    // Verify tenant exists and is not soft-deleted
-    const tenant = await db.tenant.findFirst({ where: { id: tenantId, isDeleted: false } })
+    // Authenticate and authorize before probing whether a tenant ID exists.
+    const access = await requireAuthAndRole(req, tenantId, ['MAIN_ADMIN'])
+    if (access instanceof NextResponse) return access
+    const authorizedTenantId = access.tenantId
+
+    // Use only the tenant ID resolved from the authenticated membership.
+    const tenant = await db.tenant.findFirst({ where: { id: authorizedTenantId, isDeleted: false } })
     if (!tenant) {
       return NextResponse.json({ error: 'Company not found' }, { status: 404 })
     }
@@ -29,24 +34,19 @@ export async function POST(req: NextRequest) {
     // JSON Backup — Full company data for BizBook Pro restore
     // ============================================================
     if (action === 'json') {
-      // ---- SECURITY PATCH v1: auth + tenant access ----
-      const access = await requireAuthAndRole(req, tenantId, ['MAIN_ADMIN'])
-      if (access instanceof NextResponse) return access
-      // --------------------------------------------------
-
       // Full backup includes ALL records (including soft-deleted) for complete data preservation
       const [sales, purchases, expenses, inventory, bankTransactions, staff, salaryPayments, payments, receipts, debtors, creditors] = await Promise.all([
-        db.sale.findMany({ where: { tenantId } }),
-        db.purchase.findMany({ where: { tenantId } }),
-        db.expense.findMany({ where: { tenantId } }),
-        db.inventoryItem.findMany({ where: { tenantId } }),
-        db.bankTransaction.findMany({ where: { tenantId } }),
-        db.staff.findMany({ where: { tenantId } }),
-        db.salaryPayment.findMany({ where: { tenantId } }),
-        db.payment.findMany({ where: { tenantId } }),
-        db.receipt.findMany({ where: { tenantId } }),
-        db.debtor.findMany({ where: { tenantId } }),
-        db.creditor.findMany({ where: { tenantId } }),
+        db.sale.findMany({ where: { tenantId: authorizedTenantId } }),
+        db.purchase.findMany({ where: { tenantId: authorizedTenantId } }),
+        db.expense.findMany({ where: { tenantId: authorizedTenantId } }),
+        db.inventoryItem.findMany({ where: { tenantId: authorizedTenantId } }),
+        db.bankTransaction.findMany({ where: { tenantId: authorizedTenantId } }),
+        db.staff.findMany({ where: { tenantId: authorizedTenantId } }),
+        db.salaryPayment.findMany({ where: { tenantId: authorizedTenantId } }),
+        db.payment.findMany({ where: { tenantId: authorizedTenantId } }),
+        db.receipt.findMany({ where: { tenantId: authorizedTenantId } }),
+        db.debtor.findMany({ where: { tenantId: authorizedTenantId } }),
+        db.creditor.findMany({ where: { tenantId: authorizedTenantId } }),
       ])
 
       const backup = {
@@ -87,11 +87,6 @@ export async function POST(req: NextRequest) {
     // Tally uses XML format (ENVELOPE > TALLYMESSAGE > VOUCHER)
     // ============================================================
     if (action === 'tally') {
-      // ---- SECURITY PATCH v1: auth + tenant access ----
-      const access = await requireAuthAndRole(req, tenantId, ['MAIN_ADMIN'])
-      if (access instanceof NextResponse) return access
-      // --------------------------------------------------
-
       // Tally export only includes non-deleted records
       const [sales, purchases, expenses, debtors, creditors, inventory] = await Promise.all([
         db.sale.findMany({ where: { tenantId, isDeleted: false } }),
