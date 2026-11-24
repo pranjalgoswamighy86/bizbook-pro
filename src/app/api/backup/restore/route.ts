@@ -1,32 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { rawDb, db } from '@/lib/db-soft-delete'
+import { rawDb } from '@/lib/db-soft-delete'
 import { verifyPassword } from '@/lib/auth'
+import { isSuperAdminEmail } from '@/lib/rbac/enforce-v2'
 
-/**
- * Database Restore API — v4.120
- *
- * POST /api/backup/restore
- * Body: { "email": "...", "password": "...", "backupData": {...} }
- *
- * v4.120 CHANGES:
- *   1. Authentication now accepts EITHER:
- *      - The password from the BACKUP file (original behavior), OR
- *      - The password from the CURRENT database (new — lets admin restore
- *        even when they don't remember the old password)
- *   2. Uses upsert instead of create — existing records are UPDATED, not skipped.
- *      This fixes the "duplicate key" error when admin@bizbook.pro already exists.
- *   3. Handles the seeded admin user: updates its password hash, role, and tenantId
- *      to match the backup, so the admin can log in with their original password
- *      after restore.
- *
- * The restore process:
- *   1. Verifies the user's credentials (backup OR current DB)
- *   2. Validates the backup structure
- *   3. Imports all tables in dependency order using upsert
- *   4. Returns a summary of what was restored
- */
-
-export const maxDuration = 600 // 10 minutes
+export const maxDuration = 600
 export const dynamic = 'force-dynamic'
 
 const TABLE_ORDER: Array<[string, string]> = [
@@ -60,227 +37,315 @@ const TABLE_ORDER: Array<[string, string]> = [
   ['UsageLog', 'usageLog'],
   ['AuditLog', 'auditLog'],
   ['HelpSupportTicket', 'helpSupportTicket'],
-  ['PasswordReset', 'passwordReset'],
 ]
+
+const OWNERSHIP_SELECT: Record<string, Record<string, boolean>> = {
+  tenant: { id: true },
+  user: { tenantId: true },
+  userTenant: { tenantId: true },
+  party: { tenantId: true },
+  product: { tenantId: true },
+  productIngredient: { productId: true, inventoryItemId: true },
+  inventoryItem: { tenantId: true },
+  sale: { tenantId: true },
+  purchase: { tenantId: true },
+  expense: { tenantId: true },
+  bankTransaction: { tenantId: true },
+  bankStatementUpload: { tenantId: true },
+  staff: { tenantId: true },
+  salaryPayment: { tenantId: true },
+  payment: { tenantId: true },
+  receipt: { tenantId: true },
+  debtor: { tenantId: true },
+  creditor: { tenantId: true },
+  account: { tenantId: true },
+  journalEntry: { tenantId: true },
+  journalEntryLine: { entryId: true, accountId: true },
+  batch: { tenantId: true },
+  priceList: { tenantId: true },
+  priceListItem: { priceListId: true, inventoryItemId: true },
+  subscription: { tenantId: true },
+  subscriptionQueue: { tenantId: true },
+  recharge: { subscriptionId: true },
+  usageLog: { subscriptionId: true },
+  auditLog: { tenantId: true },
+  helpSupportTicket: { userId: true },
+}
+
+const tenantOwnershipCache = new Map<string, Promise<boolean>>()
+
+async function parentBelongsToTenant(model: string, id: unknown, tenantId: string): Promise<boolean> {
+  if (typeof id !== 'string' || !id) return false
+  const key = `${model}:${id}:${tenantId}`
+  let pending = tenantOwnershipCache.get(key)
+  if (!pending) {
+    pending = (async () => {
+      const parent = await (rawDb as any)[model].findUnique({
+        where: { id },
+        select: { tenantId: true },
+      })
+      return parent?.tenantId === tenantId
+    })()
+    tenantOwnershipCache.set(key, pending)
+  }
+  return pending
+}
+
+async function recordBelongsToTenant(model: string, row: any, tenantId: string): Promise<boolean> {
+  if (!row || typeof row !== 'object') return false
+  if (model === 'tenant') return row.id === tenantId
+
+  const directTenantModels = new Set([
+    'user', 'userTenant', 'party', 'product', 'inventoryItem', 'sale', 'purchase',
+    'expense', 'bankTransaction', 'bankStatementUpload', 'staff', 'salaryPayment',
+    'payment', 'receipt', 'debtor', 'creditor', 'account', 'journalEntry', 'batch',
+    'priceList', 'subscription', 'subscriptionQueue', 'auditLog',
+  ])
+  if (directTenantModels.has(model)) return row.tenantId === tenantId
+
+  if (model === 'productIngredient') {
+    const [productOk, inventoryOk] = await Promise.all([
+      parentBelongsToTenant('product', row.productId, tenantId),
+      parentBelongsToTenant('inventoryItem', row.inventoryItemId, tenantId),
+    ])
+    return productOk && inventoryOk
+  }
+  if (model === 'priceListItem') {
+    const [priceListOk, inventoryOk] = await Promise.all([
+      parentBelongsToTenant('priceList', row.priceListId, tenantId),
+      parentBelongsToTenant('inventoryItem', row.inventoryItemId, tenantId),
+    ])
+    return priceListOk && inventoryOk
+  }
+  if (model === 'journalEntryLine') {
+    const [entryOk, accountOk] = await Promise.all([
+      parentBelongsToTenant('journalEntry', row.entryId, tenantId),
+      parentBelongsToTenant('account', row.accountId, tenantId),
+    ])
+    return entryOk && accountOk
+  }
+  if (model === 'recharge' || model === 'usageLog') {
+    return parentBelongsToTenant('subscription', row.subscriptionId, tenantId)
+  }
+  if (model === 'helpSupportTicket') {
+    return parentBelongsToTenant('user', row.userId, tenantId)
+  }
+  return false
+}
+
+function getBackupRows(data: Record<string, unknown>, label: string, model: string): any[] {
+  const rows = data[label] ?? data[model]
+  return Array.isArray(rows) ? rows : []
+}
+
+function cleanRecord(record: Record<string, any>) {
+  const cleaned = { ...record }
+  for (const relation of [
+    '_count', 'tenant', 'user', 'userTenants', 'sales', 'purchases', 'expenses',
+    'inventory', 'items', 'ingredients', 'subscription', 'subscriptions', 'entry',
+    'account', 'product', 'inventoryItem', 'priceList', 'payments', 'receipts',
+    'debtors', 'creditors', 'auditLogs', 'staff',
+  ]) {
+    delete cleaned[relation]
+  }
+  return cleaned
+}
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => null)
-    if (!body || !body.email || !body.password || !body.backupData) {
-      return NextResponse.json(
-        {
-          error: 'Email, password, and backupData are required.',
-          usage: 'POST /api/backup/restore with { email, password, backupData }',
-        },
-        { status: 400 }
-      )
+    if (!body || typeof body.email !== 'string' || typeof body.password !== 'string' || !body.email.trim() || !body.password || !body.backupData) {
+      return NextResponse.json({ error: 'Email, password, and backupData are required.' }, { status: 400 })
     }
 
-    const email = String(body.email).trim().toLowerCase()
-    const password = String(body.password)
+    const email = body.email.trim().toLowerCase()
+    const password = body.password
     const backupData = body.backupData
-
-    // Validate backup structure
-    if (!backupData._metadata || !backupData.data) {
-      return NextResponse.json(
-        { error: 'Invalid backup file. The backup must have _metadata and data fields.' },
-        { status: 400 }
-      )
+    if (!backupData || backupData._metadata?.software !== 'BizBook Pro' ||
+        !backupData.data || typeof backupData.data !== 'object' || Array.isArray(backupData.data)) {
+      return NextResponse.json({ error: 'Invalid BizBook Pro backup file.' }, { status: 400 })
     }
 
-    if (backupData._metadata.software !== 'BizBook Pro') {
-      return NextResponse.json(
-        { error: 'This backup file was not created by BizBook Pro.' },
-        { status: 400 }
-      )
+    // Authenticate only against the live destination database. Never accept
+    // password hashes, user roles or identities from an untrusted backup.
+    const currentUser = await rawDb.user.findFirst({
+      where: { email: { equals: email, mode: 'insensitive' } },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        password: true,
+        role: true,
+        tenantId: true,
+        isActive: true,
+        isDeleted: true,
+      },
+    })
+    const passwordValid = currentUser ? verifyPassword(password, currentUser.password) : false
+    if (!currentUser || !passwordValid || !currentUser.isActive || currentUser.isDeleted) {
+      return NextResponse.json({ error: 'Invalid email/password or inactive account.' }, { status: 401 })
     }
 
-    // v4.120: Authenticate against EITHER the backup OR the current database
-    const backupUsers = backupData.data.User || []
-    const backupUser = backupUsers.find(
-      (u: any) => u.email && u.email.toLowerCase() === email
-    )
+    const isPlatformAdmin = isSuperAdminEmail(currentUser.email)
+    if (isPlatformAdmin && password === 'admin123') {
+      return NextResponse.json({
+        error: 'Change the default seeded password before restoring a system-wide backup.',
+      }, { status: 403 })
+    }
 
-    let authenticated = false
-    let authMethod = ''
+    let tenantId: string | null = null
+    if (!isPlatformAdmin) {
+      tenantId = currentUser.tenantId
+      if (!tenantId) return NextResponse.json({ error: 'This account is not linked to a business.' }, { status: 403 })
+      const membership = await rawDb.userTenant.findFirst({
+        where: { userId: currentUser.id, tenantId },
+        select: { role: true, isOwner: true },
+      })
+      if (!membership || (membership.role !== 'MAIN_ADMIN' && !membership.isOwner)) {
+        return NextResponse.json({ error: 'Only the business administrator can restore business data.' }, { status: 403 })
+      }
 
-    // Try backup credentials first
-    if (backupUser) {
-      const backupPasswordValid = verifyPassword(password, backupUser.password)
-      if (backupPasswordValid) {
-        authenticated = true
-        authMethod = 'backup'
+      const tenantRows = getBackupRows(backupData.data, 'Tenant', 'tenant')
+      const backupTenantIds = tenantRows.map(row => row?.id).filter((id): id is string => typeof id === 'string')
+      if (!backupTenantIds.includes(tenantId) || backupTenantIds.some(id => id !== tenantId)) {
+        return NextResponse.json({
+          error: 'This backup does not contain only your current business. Cross-business restore requires a platform administrator.',
+        }, { status: 403 })
       }
     }
 
-    // If backup auth failed, try current database credentials
-    if (!authenticated) {
-      try {
-        const currentUser = await db.user.findFirst({
-          where: { email: { equals: email, mode: 'insensitive' } },
-          select: { id: true, email: true, password: true, role: true, tenantId: true },
-        })
-        if (currentUser) {
-          const currentPasswordValid = verifyPassword(password, currentUser.password)
-          if (currentPasswordValid) {
-            authenticated = true
-            authMethod = 'current-db'
-          }
-        }
-      } catch {
-        // Current DB lookup failed — continue
-      }
-    }
-
-    // v4.120: SPECIAL BYPASS — if the email is admin@bizbook.pro and the
-    // password is the default seeded password (admin123), allow restore.
-    // This is for emergency recovery when the database was just reset.
-    if (!authenticated && email === 'admin@bizbook.pro' && password === 'admin123') {
-      // Verify that admin@bizbook.pro exists in the current DB with the seeded password
-      try {
-        const seededAdmin = await db.user.findFirst({
-          where: { email: 'admin@bizbook.pro' },
-          select: { id: true, password: true },
-        })
-        if (seededAdmin && verifyPassword('admin123', seededAdmin.password)) {
-          authenticated = true
-          authMethod = 'seeded-admin-bypass'
-        }
-      } catch {
-        // Continue
-      }
-    }
-
-    if (!authenticated) {
-      const errorMsg = backupUser
-        ? `Invalid password. The password must match either:\n1. The user account in the backup file, OR\n2. The current database's admin password (try "admin123" if the database was just reset)`
-        : `Email "${email}" not found in the backup file or current database. The backup contains ${backupUsers.length} user(s).`
-      return NextResponse.json(
-        {
-          error: errorMsg,
-          backupUsers: backupUsers.map((u: any) => u.email),
-        },
-        { status: 401 }
-      )
-    }
-
-    console.log(`[RESTORE] Authenticated via ${authMethod}. Starting restore...`)
-
-    // Begin restore process
     const results: Array<{ table: string; imported: number; updated: number; skipped: number; error?: string }> = []
     let totalImported = 0
     let totalUpdated = 0
     let totalSkipped = 0
 
-    for (const [modelName, label] of TABLE_ORDER) {
-      const records = backupData.data[modelName] || []
-      if (records.length === 0) {
-        results.push({ table: modelName, imported: 0, updated: 0, skipped: 0 })
-        continue
+    for (const [label, model] of TABLE_ORDER) {
+      const sourceRows = getBackupRows(backupData.data, label, model)
+      let records = sourceRows
+      if (tenantId) {
+        if (model === 'tenant') {
+          records = sourceRows.filter(row => row?.id === tenantId)
+        } else if (model === 'productIngredient') {
+          const productIds = new Set(getBackupRows(backupData.data, 'Product', 'product')
+            .filter(row => row?.tenantId === tenantId).map(row => row.id))
+          const inventoryIds = new Set(getBackupRows(backupData.data, 'InventoryItem', 'inventoryItem')
+            .filter(row => row?.tenantId === tenantId).map(row => row.id))
+          records = sourceRows.filter(row => productIds.has(row?.productId) && inventoryIds.has(row?.inventoryItemId))
+        } else if (model === 'priceListItem') {
+          const priceListIds = new Set(getBackupRows(backupData.data, 'PriceList', 'priceList')
+            .filter(row => row?.tenantId === tenantId).map(row => row.id))
+          const inventoryIds = new Set(getBackupRows(backupData.data, 'InventoryItem', 'inventoryItem')
+            .filter(row => row?.tenantId === tenantId).map(row => row.id))
+          records = sourceRows.filter(row => priceListIds.has(row?.priceListId) && inventoryIds.has(row?.inventoryItemId))
+        } else if (model === 'journalEntryLine') {
+          const entryIds = new Set(getBackupRows(backupData.data, 'JournalEntry', 'journalEntry')
+            .filter(row => row?.tenantId === tenantId).map(row => row.id))
+          const accountIds = new Set(getBackupRows(backupData.data, 'Account', 'account')
+            .filter(row => row?.tenantId === tenantId).map(row => row.id))
+          records = sourceRows.filter(row => entryIds.has(row?.entryId) && accountIds.has(row?.accountId))
+        } else if (model === 'recharge' || model === 'usageLog') {
+          const subscriptionIds = new Set(getBackupRows(backupData.data, 'Subscription', 'subscription')
+            .filter(row => row?.tenantId === tenantId).map(row => row.id))
+          records = sourceRows.filter(row => subscriptionIds.has(row?.subscriptionId))
+        } else if (model === 'helpSupportTicket') {
+          const userIds = new Set(getBackupRows(backupData.data, 'User', 'user')
+            .filter(row => row?.tenantId === tenantId).map(row => row.id))
+          records = sourceRows.filter(row => userIds.has(row?.userId))
+        } else {
+          records = sourceRows.filter(row => row?.tenantId === tenantId)
+        }
       }
 
       let imported = 0
       let updated = 0
-      let skipped = 0
+      let skipped = Math.max(0, sourceRows.length - records.length)
       let errorMsg: string | undefined
 
       for (const record of records) {
         try {
-          // Clean the record — remove any relation fields that Prisma doesn't accept
-          const cleanRecord = { ...record }
-          delete cleanRecord._count
-          delete cleanRecord.tenant
-          delete cleanRecord.user
-          delete cleanRecord.userTenants
-          delete cleanRecord.sales
-          delete cleanRecord.purchases
-          delete cleanRecord.expenses
-          delete cleanRecord.inventory
-          delete cleanRecord.items
-          delete cleanRecord.ingredients
-          delete cleanRecord.subscription
-          delete cleanRecord.subscriptions
+          if (!record || typeof record !== 'object' || Array.isArray(record) || typeof record.id !== 'string' || !record.id) {
+            skipped++
+            continue
+          }
+          if (tenantId && !(await recordBelongsToTenant(model, record, tenantId))) {
+            skipped++
+            continue
+          }
 
-          // v4.120: Use upsert — creates if not exists, updates if exists
-          // This fixes the "duplicate key" error when admin@bizbook.pro already exists
-          await (rawDb as any)[label].upsert({
+          const delegate = (rawDb as any)[model]
+          const existing = await delegate.findUnique({
             where: { id: record.id },
-            create: cleanRecord,
-            update: cleanRecord,
+            select: { id: true, ...(OWNERSHIP_SELECT[model] || {}) },
           })
 
-          // Check if it was an update or create
-          const existedBefore = await (rawDb as any)[label].findUnique({
+          if (tenantId && existing && !(await recordBelongsToTenant(model, existing, tenantId))) {
+            // A crafted backup must not overwrite a record already owned by
+            // another business, even if its payload changes the tenant fields.
+            skipped++
+            continue
+          }
+
+          const nextRecord = cleanRecord(record)
+          if (tenantId && model === 'user') {
+            if (['SUPER_ADMIN', 'INFRASTRUCTURE_OWNER_ADMIN'].includes(String(nextRecord.role || '').toUpperCase())) {
+              nextRecord.role = existing?.role || 'DATA_ENTRY'
+            }
+          }
+          if (tenantId && model === 'userTenant') {
+            const allowedRoles = ['MAIN_ADMIN', 'JUNIOR_ADMIN', 'DATA_ENTRY', 'VIEW_ONLY']
+            if (!allowedRoles.includes(String(nextRecord.role || '').toUpperCase())) nextRecord.role = 'DATA_ENTRY'
+            // Tenant restore cannot create or transfer ownership.
+            nextRecord.isOwner = existing?.isOwner === true
+          }
+
+          await delegate.upsert({
             where: { id: record.id },
-            select: { id: true, createdAt: true },
+            create: nextRecord,
+            update: nextRecord,
           })
 
-          // If the record's createdAt matches the backup's createdAt, it was likely
-          // just created (imported). If different, it was updated.
-          if (existedBefore && record.createdAt &&
-              new Date(existedBefore.createdAt).getTime() === new Date(record.createdAt).getTime()) {
-            // Could be either — count as imported to be safe
-            imported++
-            totalImported++
-          } else {
+          if (existing) {
             updated++
             totalUpdated++
+          } else {
+            imported++
+            totalImported++
           }
-        } catch (err: any) {
+        } catch (error) {
           skipped++
           totalSkipped++
-          if (!errorMsg) {
-            errorMsg = err?.message?.slice(0, 200) || 'Unknown error'
-          }
+          if (!errorMsg) errorMsg = error instanceof Error ? error.message.slice(0, 200) : 'Unknown error'
         }
       }
 
-      results.push({
-        table: modelName,
-        imported,
-        updated,
-        skipped,
-        error: errorMsg,
-      })
+      totalSkipped += Math.max(0, sourceRows.length - records.length)
+      results.push({ table: label, imported, updated, skipped, error: errorMsg })
     }
 
-    // Write audit log (best-effort)
     try {
-      // Find the admin's tenant from the backup
-      const adminUser = backupUsers.find((u: any) =>
-        u.email && u.email.toLowerCase() === 'admin@bizbook.pro'
-      )
-      const userTenantId = backupUser?.tenantId || adminUser?.tenantId
-      if (userTenantId) {
-        const tenantExists = await rawDb.tenant.findUnique({
-          where: { id: userTenantId },
-          select: { id: true },
+      if (currentUser.tenantId) {
+        await rawDb.auditLog.create({
+          data: {
+            tenantId: currentUser.tenantId,
+            userId: currentUser.id,
+            userName: currentUser.name,
+            action: 'DATABASE_RESTORE',
+            entityType: 'Backup',
+            entityId: null,
+            entityName: `Restored ${totalImported + totalUpdated} ${tenantId ? 'business' : 'system'} records`,
+            changes: JSON.stringify({
+              exportDate: backupData._metadata.exportDate,
+              exportMethod: backupData._metadata.exportMethod,
+              imported: totalImported,
+              updated: totalUpdated,
+              skipped: totalSkipped,
+              scope: tenantId ? 'tenant' : 'global',
+            }),
+          },
         })
-        if (tenantExists) {
-          await rawDb.auditLog.create({
-            data: {
-              tenantId: userTenantId,
-              userId: backupUser?.id || adminUser?.id || 'restore',
-              userName: backupUser?.name || 'Admin',
-              action: 'DATABASE_RESTORE',
-              entityType: 'Backup',
-              entityId: null,
-              entityName: `Restored ${totalImported + totalUpdated} records via ${authMethod}`,
-              changes: JSON.stringify({
-                exportDate: backupData._metadata.exportDate,
-                exportMethod: backupData._metadata.exportMethod,
-                totalRecords: backupData._metadata.totalRecords,
-                imported: totalImported,
-                updated: totalUpdated,
-                skipped: totalSkipped,
-                authMethod,
-              }),
-            },
-          })
-        }
       }
     } catch {
-      // Audit log write failed — don't fail the restore
+      // Preserve the restore result if audit logging fails.
     }
 
     return NextResponse.json({
@@ -289,22 +354,15 @@ export async function POST(req: NextRequest) {
       summary: {
         backupDate: backupData._metadata.exportDate,
         backupMethod: backupData._metadata.exportMethod,
-        totalRecordsInBackup: backupData._metadata.totalRecords,
+        scope: tenantId ? 'tenant' : 'global',
         recordsImported: totalImported,
         recordsUpdated: totalUpdated,
         recordsSkipped: totalSkipped,
-        authMethod,
       },
-      details: results.filter(r => r.imported > 0 || r.updated > 0 || r.error),
+      details: results.filter(row => row.imported > 0 || row.updated > 0 || row.skipped > 0 || row.error),
     })
-  } catch (error: any) {
+  } catch (error) {
     console.error('[RESTORE] Error:', error)
-    return NextResponse.json(
-      {
-        error: 'Restore failed',
-        details: error?.message || 'Unknown error',
-      },
-      { status: 500 }
-    )
+    return NextResponse.json({ error: 'Restore failed. Validate the backup and your administrator permissions, then try again.' }, { status: 500 })
   }
 }
