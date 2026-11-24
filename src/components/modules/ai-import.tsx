@@ -862,7 +862,7 @@ export function AIImportPage() {
                       <AlertTriangle className="h-4 w-4 mt-0.5 text-amber-700 flex-shrink-0" />
                       <div>
                         <p className="text-sm font-semibold text-amber-800 dark:text-amber-200">Partial spreadsheet analysis — not a complete import</p>
-                        <p className="text-xs text-amber-800 dark:text-amber-200">Only the first 30 rows per sheet were sent to the AI. Rows beyond that are not in this preview. Split the original spreadsheet into smaller batches and analyze them separately for a complete migration.</p>
+                        <p className="text-xs text-amber-800 dark:text-amber-200">Some source content was not sent to the AI because of file-analysis limits. Read the warnings below for the exact limit. Spreadsheet analysis currently sends only the first 30 rows per sheet; scanned multi-page PDFs may include only page 1. Split large files into smaller batches before a complete migration.</p>
                       </div>
                     </div>
                     <label className="flex items-start gap-2 text-xs font-medium text-amber-900 dark:text-amber-100">
