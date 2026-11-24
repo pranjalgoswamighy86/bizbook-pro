@@ -625,7 +625,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'Invalid IRP cancellation reason. Use a reason code from 1 to 6.' }, { status: 400 })
       }
 
-      const cancelResult = await cancelIrn(sale.einvoiceIrn, reasonCode)
+      const cancelResult = await cancelIrn(sale.einvoiceIrn, reasonCode, await getEffectiveGspConfig(tenantId))
 
       if (cancelResult.success) {
         const updated = await db.sale.update({
