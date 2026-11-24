@@ -31,6 +31,7 @@ import { HelpChatTab } from '@/components/app/help-chat'
 import { useAppStore } from '@/store/app-store'
 import { HELP_FAQS, HELP_GUIDES } from '@/lib/help-knowledge'
 import { APP_VERSION } from '@/lib/version'
+import { authFetch } from '@/lib/auth-fetch'
 
 // v4.107: Lazy-load HelpSupportManagement for the Manage tab
 const HelpSupportManagementInline = lazy(() =>
@@ -58,9 +59,30 @@ export function HelpModal({ open, onClose, initialTab = 'faq' }: HelpModalProps)
   const [expandedFAQ, setExpandedFAQ] = useState<number | null>(0)
   const [activeTab, setActiveTab] = useState<'faq' | 'guides' | 'chat' | 'management'>(initialTab)
   const { user, tenant } = useAppStore()
-  // v4.107: Super Admin check for Management tab
-  const SUPER_ADMIN_EMAILS = ['admin@bizbook.pro', 'pranjalgoswamighy86@gmail.com']
-  const isSuperAdmin = user ? SUPER_ADMIN_EMAILS.includes(user.email.toLowerCase()) : false
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false)
+
+  // Ask the server whether this signed-in account is authorised for support management.
+  // Do not maintain a separate client-side email allowlist.
+  useEffect(() => {
+    if (!open || !user?.id) {
+      setIsSuperAdmin(false)
+      return
+    }
+    let active = true
+    authFetch('/api/help-tickets', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'access' }),
+    })
+      .then(async response => {
+        if (!response.ok) return false
+        const data = await response.json()
+        return data.allowed === true
+      })
+      .then(allowed => { if (active) setIsSuperAdmin(allowed) })
+      .catch(() => { if (active) setIsSuperAdmin(false) })
+    return () => { active = false }
+  }, [open, user?.id])
 
   // v6.17: When the modal opens, sync the active tab to `initialTab`.
   // This lets F1 / menu action re-open the modal on the Chat tab even if
