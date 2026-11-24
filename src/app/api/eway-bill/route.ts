@@ -323,7 +323,7 @@ export async function POST(req: NextRequest) {
 
     // ============================================================
     // Action: update-status — manually record an EWB number
-    // (after submitting on ewaybillgst.gov.in in MANUAL mode)
+    // (after manual submission through the business-selected E-Way Bill service)
     // ============================================================
     if (action === 'update-status') {
       const access = await requireAuthAndTenant(req, tenantId)
