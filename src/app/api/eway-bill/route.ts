@@ -20,7 +20,7 @@ import {
   TRANSPORT_MODE,
   TransporterDetails,
 } from '@/lib/ewb-integration'
-import { getEffectiveGspConfig, tenantHasGspCredentials } from '@/lib/gsp-credentials'
+import { getEffectiveGspConfig } from '@/lib/gsp-credentials'
 
 // ============================================================
 // GST E-Way Bill API
@@ -62,10 +62,12 @@ export async function POST(req: NextRequest) {
         where: { id: tenantId },
         select: { einvoiceAutoGenerate: true, ewbAutoGenerate: true },
       })
+      const gspConfig = await getEffectiveGspConfig(tenantId)
       return NextResponse.json({
-        configured: await tenantHasGspCredentials(tenantId),
-        mode: await tenantHasGspCredentials(tenantId) ? 'LIVE' : 'MANUAL',
-        env: (await getEffectiveGspConfig(tenantId))?.irpEnv || 'sandbox',
+        configured: !!gspConfig,
+        mode: gspConfig ? 'LIVE' : 'MANUAL',
+        env: gspConfig?.irpEnv || 'sandbox',
+        baseUrl: gspConfig ? (gspConfig.irpEnv === 'production' ? 'https://einvoice.gst.gov.in' : 'https://einvoice1.traces.gov.in') : null,
         einvoiceAutoGenerate: tenant?.einvoiceAutoGenerate || false,
         ewbAutoGenerate: tenant?.ewbAutoGenerate || false,
       })
