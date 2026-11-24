@@ -168,7 +168,7 @@ const SHEET_CONFIGS: SheetConfig[] = [
     name: 'ProductIngredients',
     header: ['id', 'productId', 'inventoryItemId', 'quantity', 'unit', 'notes', 'createdAt', 'updatedAt'],
     getData: (tid) => db.productIngredient.findMany({
-      where: { product: { tenantId: tid } },
+      where: { product: { tenantId: tid }, inventoryItem: { tenantId: tid } },
       include: { product: { select: { name: true } }, inventoryItem: { select: { name: true } } }
     }),
     mapRow: (r) => ({
@@ -338,7 +338,7 @@ const SHEET_CONFIGS: SheetConfig[] = [
     name: 'JournalEntryLines',
     header: ['id', 'entryId', 'accountId', 'accountCode', 'accountName', 'debit', 'credit', 'description', 'createdAt', 'updatedAt'],
     getData: (tid) => db.journalEntryLine.findMany({
-      where: { entry: { tenantId: tid } },
+      where: { entry: { tenantId: tid }, account: { tenantId: tid } },
       include: { account: { select: { accountCode: true, name: true } } }
     }),
     mapRow: (r) => ({
@@ -352,7 +352,7 @@ const SHEET_CONFIGS: SheetConfig[] = [
     name: 'Batches',
     header: ['id', 'inventoryItemId', 'itemNme', 'batchNumber', 'manufacturingDate', 'expiryDate', 'quantity', 'supplier', 'notes', 'isActive', 'createdAt', 'updatedAt'],
     getData: (tid) => db.batch.findMany({
-      where: { tenantId: tid },
+      where: { tenantId: tid, inventoryItem: { tenantId: tid } },
       include: { inventoryItem: { select: { name: true } } }
     }),
     mapRow: (r) => ({
@@ -378,7 +378,7 @@ const SHEET_CONFIGS: SheetConfig[] = [
     name: 'PriceListItems',
     header: ['id', 'priceListId', 'priceListName', 'inventoryItemId', 'itemName', 'price', 'createdAt', 'updatedAt'],
     getData: (tid) => db.priceListItem.findMany({
-      where: { priceList: { tenantId: tid } },
+      where: { priceList: { tenantId: tid }, inventoryItem: { tenantId: tid } },
       include: { priceList: { select: { name: true } }, inventoryItem: { select: { name: true } } }
     }),
     mapRow: (r) => ({
