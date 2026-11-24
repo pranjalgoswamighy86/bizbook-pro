@@ -55,7 +55,7 @@ export async function POST(req: NextRequest) {
       'admin@bizbook.pro',
       'pranjalgoswamighy86@gmail.com',
       process.env.ADMIN_EMAIL || '',
-      process.env.INFRASTRUCTURE_OWNER_EMAIL || '',
+      process.env.INFRA_OWNER_EMAIL || process.env.INFRASTRUCTURE_OWNER_EMAIL || '',
     ].map(value => value.toLowerCase().trim()).filter(Boolean))
 
     if (!systemAdminEmails.has(email)) {
@@ -223,7 +223,7 @@ export async function POST(req: NextRequest) {
           'To restore this backup:\n' +
           '1. Set up a new PostgreSQL database (e.g., on Railway, Render, or locally)\n' +
           '2. Deploy BizBook Pro and set DATABASE_URL to your new database\n' +
-          '3. Configure ADMIN_EMAIL or INFRASTRUCTURE_OWNER_EMAIL, register that verified address, and sign in\n' +
+          '3. Configure ADMIN_EMAIL or INFRA_OWNER_EMAIL (INFRASTRUCTURE_OWNER_EMAIL is also supported), register that verified address, and sign in\n' +
           '4. From the signed-in browser, POST this backup to /api/backup/restore with the current admin password and active session cookie\n' +
           '5. Keep the backup private: it contains every tenant and user record',
         schemaNote:
