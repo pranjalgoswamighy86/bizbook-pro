@@ -339,6 +339,7 @@ async function handleFileUpload(req: NextRequest) {
   // AI Analysis
   // ============================================================
   let analysis: any = null
+  let spreadsheetTruncationWarnings: string[] = []
 
   // v6.19: Build category hint for the AI prompt
   // When the user selects a category (not 'auto'), tell the AI to extract data for that specific category
@@ -386,7 +387,7 @@ ${categoryInstruction}
 
 ${sheetSummary}
 
-CRITICAL: You must return a JSON object with the following structure. The "importData" field is the MOST IMPORTANT — it contains the actual extracted records that will be imported. Extract ALL rows from the file, not just the sample.
+CRITICAL: You must return a JSON object with the following structure. The "importData" field contains the extracted records that will be imported. Extract ONLY the rows explicitly supplied above. Never claim to have analyzed rows that were not supplied.
 
 Return EXACTLY this JSON structure (no markdown, no code fences, just pure JSON):
 {
@@ -444,7 +445,7 @@ Return EXACTLY this JSON structure (no markdown, no code fences, just pure JSON)
 }
 
 RULES:
-- Extract ALL rows from the file into the appropriate importData array(s), not just the sample.
+- Extract every row supplied in this prompt into the appropriate importData array(s). Do not invent or infer records from rows that were not supplied.
 - Only populate arrays that match the data you found. Leave empty arrays for modules with no data.
 - Use 0 for missing numeric values, null for missing optional string values.
 - Confidence is a number between 0 and 1 (e.g., 0.85 for 85% confident).
@@ -501,7 +502,13 @@ Provide a structured analysis with:
     }
 
     // Call AI
-    const { provider, result } = await analyzeWithAI(prompt, undefined, imageBase64)
+    const structuredImport = dataType === 'excel' || dataType === 'csv' || dataType === 'image' || (dataType === 'pdf' && !!imageBase64)
+    const { provider, result } = await analyzeWithAI(
+      prompt,
+      undefined,
+      imageBase64,
+      structuredImport ? { jsonMode: true, maxTokens: 8192, temperature: 0.1 } : { temperature: 0.2 }
+    )
 
     // v6.19.1: Clean the AI response — strip markdown code fences if present
     let cleanedResult = result.trim()
@@ -516,7 +523,7 @@ Provide a structured analysis with:
       analysis._provider = provider
       analysis._rawResponse = result
       // v6.19.1: Ensure importData exists with all module arrays
-      if (!analysis.importData) analysis.importData = {}
+      if (!analysis.importData || typeof analysis.importData !== 'object' || Array.isArray(analysis.importData)) analysis.importData = {}
       const requiredModules = ['sales', 'purchases', 'expenses', 'products', 'parties', 'staff', 'bankTransactions']
       for (const mod of requiredModules) {
         if (!Array.isArray(analysis.importData[mod])) analysis.importData[mod] = []
@@ -528,8 +535,16 @@ Provide a structured analysis with:
       } else if (typeof analysis.confidence === 'number' && analysis.confidence > 1) {
         // If confidence is 0-100, convert to 0-1
         analysis.confidence = analysis.confidence / 100
-      } else if (typeof analysis.confidence !== 'number') {
+      } else if (typeof analysis.confidence !== 'number' || !Number.isFinite(analysis.confidence)) {
         analysis.confidence = 0.5
+      }
+      analysis.confidence = Math.max(0, Math.min(1, analysis.confidence))
+      analysis.warnings = Array.isArray(analysis.warnings) ? analysis.warnings.filter((item: unknown) => typeof item === 'string') : []
+      analysis.suggestions = Array.isArray(analysis.suggestions) ? analysis.suggestions.filter((item: unknown) => typeof item === 'string') : []
+      if (spreadsheetTruncationWarnings.length > 0) {
+        analysis.warnings.unshift(...spreadsheetTruncationWarnings)
+        analysis.partialExtraction = true
+        analysis.rowsAnalyzedPerSheet = 30
       }
       console.log(`[AI-Import] AI analysis complete. Provider: ${provider}. Records: sales=${analysis.importData.sales.length}, purchases=${analysis.importData.purchases.length}, expenses=${analysis.importData.expenses.length}, products=${analysis.importData.products.length}`)
     } catch {
@@ -540,7 +555,7 @@ Provide a structured analysis with:
         _provider: provider,
         _rawResponse: result,
         importData: { sales: [], purchases: [], expenses: [], products: [], parties: [], staff: [], bankTransactions: [] },
-        warnings: ['AI response could not be parsed as JSON. Showing raw summary.'],
+        warnings: ['AI response could not be parsed as JSON. Showing raw summary.', ...spreadsheetTruncationWarnings],
         suggestions: [],
       }
     }
@@ -557,7 +572,7 @@ Provide a structured analysis with:
       confidence: 0,
       summary: `File parsed (${dataType}) but AI analysis failed: ${aiError.message}. You can review the raw data below and try again.`,
       importData: { sales: [], purchases: [], expenses: [], products: [], parties: [], staff: [], bankTransactions: [] },
-      warnings: [`AI analysis failed: ${aiError.message}`],
+      warnings: [`AI analysis failed: ${aiError.message}`, ...spreadsheetTruncationWarnings],
       suggestions: ['Try uploading a clearer file, or convert to Excel/CSV for better results.'],
       _aiError: aiError.message,
       _parsedData: true,
