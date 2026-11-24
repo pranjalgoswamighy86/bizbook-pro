@@ -93,7 +93,7 @@ export function HelpChatTab({ tenantId }: { tenantId?: string }) {
     } catch (err: any) {
       const errorMessage: ChatMessage = {
         role: 'ai',
-        content: 'I\\'m unable to send your message right now. Please check your connection and try again. Your message has not been confirmed as delivered.',
+        content: 'I\'m unable to send your message right now. Please check your connection and try again. Your message has not been confirmed as delivered.',
         timestamp: new Date().toISOString(),
       }
       setMessages(prev => [...prev, errorMessage])
