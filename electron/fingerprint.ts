@@ -42,6 +42,9 @@
 import { ipcMain, BrowserWindow } from 'electron'
 import * as path from 'path'
 import * as fs from 'fs'
+import { createRequire } from 'node:module'
+
+const require = createRequire(__filename)
 
 let nativeAddon: any = null
 let sdkType: 'secugen' | 'digitalpersona' | 'webhid' | 'none' = 'none'
