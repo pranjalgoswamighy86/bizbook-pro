@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthAndRole, writeAuditLog } from '@/lib/api-helpers'
-import { getEffectiveGspConfig, saveTenantGspConfig, clearTenantGspConfig, tenantHasGspCredentials } from '@/lib/gsp-credentials'
+import { getEffectiveGspConfig, saveTenantGspConfig, clearTenantGspConfig, tenantHasGspCredentials, isEncryptionActive } from '@/lib/gsp-credentials'
+import { db } from '@/lib/db-soft-delete'
 
 const ADMIN_ROLES = ['MAIN_ADMIN']
 
@@ -8,17 +9,19 @@ export async function GET(req: NextRequest) {
   const tenantId = req.nextUrl.searchParams.get('tenantId') || ''
   const access = await requireAuthAndRole(req, tenantId, ADMIN_ROLES)
   if (access instanceof NextResponse) return access
-  try {
-    const config = await getEffectiveGspConfig(access.tenantId)
-    return NextResponse.json({
-      configured: !!config,
-      gspCode: config?.gspCode || '',
-      irpEnv: config?.irpEnv || 'sandbox',
-      encryptionActive: true,
-    })
-  } catch {
-    return NextResponse.json({ error: 'Stored GSP credentials cannot be decrypted. Verify the encryption key and re-save the credentials.' }, { status: 503 })
-  }
+  const [tenant, configured] = await Promise.all([
+    db.tenant.findFirst({
+      where: { id: access.tenantId },
+      select: { gspCode: true, irpEnv: true },
+    }),
+    tenantHasGspCredentials(access.tenantId),
+  ])
+  return NextResponse.json({
+    configured,
+    gspCode: tenant?.gspCode || '',
+    irpEnv: tenant?.irpEnv || 'sandbox',
+    encryptionActive: isEncryptionActive(),
+  })
 }
 
 export async function POST(req: NextRequest) {
