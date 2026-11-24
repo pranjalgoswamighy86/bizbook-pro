@@ -151,12 +151,12 @@
   <div class="container">
     <div class="header">
       <h1>⚠️ Emergency Database Backup</h1>
-      <p>Download a complete copy of your entire BizBook Pro database. Works even if you can't log in normally.</p>
+      <p>Download a complete database backup. This global export is restricted to configured system administrators; ordinary businesses should use the company backup in Settings.</p>
     </div>
 
     <div class="body">
       <div class="warning">
-        <strong>When to use this:</strong> If you can't log in to the app, or if the regular backup option in Settings isn't working, this page will still let you download all your data using just your email and password.
+        <strong>When to use this:</strong> This recovery tool is for the designated system administrator only. It verifies the current administrator password directly, so it can still download the database when normal sign-in is unavailable. It exports every tenant and must be kept private.
       </div>
 
       <form id="backupForm">
@@ -220,7 +220,7 @@
           🔄 Restore from Backup
         </h3>
         <p style="font-size: 0.8rem; color: #6b7280; margin-bottom: 1rem; line-height: 1.5;">
-          If your database was reset, first register and sign in using the verified system-administrator email configured for this deployment. Whole-database restore requires that active administrator session and the current password. Then select a trusted backup JSON file.
+          Restore requires an active signed-in system-administrator session in this browser. If the database was reset, first register and verify the configured system-administrator email, then sign in. Enter the current database password and select a trusted backup JSON file.
         </p>
         <form id="restoreForm" style="display: flex; flex-direction: column; gap: 0.75rem;">
           <div>
