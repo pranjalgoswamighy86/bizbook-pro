@@ -48,6 +48,8 @@ jobs:
 
       - name: Build application
         run: npm run build
+        env:
+          DATABASE_URL: postgresql://placeholder:placeholder@localhost:5432/placeholder
 
       - name: TypeScript type check
         run: npx tsc --noEmit -p tsconfig.ci.json
@@ -65,7 +67,18 @@ jobs:
             src/app/api/backup/restore/route.ts \
             src/app/api/db-admin/route.ts \
             src/app/api/debug-env/route.ts \
+            src/app/api/ai-import/route.ts \
+            src/app/api/einvoice/route.ts \
+            src/app/api/eway-bill/route.ts \
+            src/app/api/help-chat/route.ts \
             src/app/api/help-tickets/route.ts \
+            src/components/app/help-modal.tsx \
+            src/components/app/sidebar.tsx \
+            src/components/modules/ai-import.tsx \
+            src/lib/help-knowledge.ts \
+            src/lib/multi-ai.ts \
+            src/lib/version.ts \
+            next.config.ts \
             src/app/api/payment-proof/review/route.ts \
             src/app/api/payment-proof/route.ts \
             src/app/api/subscription/route.ts \

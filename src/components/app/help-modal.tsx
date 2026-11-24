@@ -29,6 +29,9 @@ import {
 } from 'lucide-react'
 import { HelpChatTab } from '@/components/app/help-chat'
 import { useAppStore } from '@/store/app-store'
+import { HELP_FAQS, HELP_GUIDES } from '@/lib/help-knowledge'
+import { APP_VERSION } from '@/lib/version'
+import { authFetch } from '@/lib/auth-fetch'
 
 // v4.107: Lazy-load HelpSupportManagement for the Manage tab
 const HelpSupportManagementInline = lazy(() =>
@@ -43,117 +46,43 @@ interface HelpModalProps {
   initialTab?: 'faq' | 'guides' | 'chat' | 'management'
 }
 
-interface FAQItem {
-  q: string
-  a: string
+const GUIDE_ICONS: Record<string, typeof UserPlus> = {
+  'user-plus': UserPlus,
+  key: KeyRound,
+  'credit-card': CreditCard,
+  'file-text': FileText,
+  lightbulb: Lightbulb,
+  shield: ShieldCheck,
 }
-
-const FAQS: FAQItem[] = [
-  {
-    q: 'How do I register my business?',
-    a: 'Go to the login page → click "Register". Enter your business name, address, phone, GST (optional), email, and password. Click "Send OTP" — you will receive a 6-digit OTP via email (Brevo). Enter the OTP to complete registration. You will be logged in automatically.',
-  },
-  {
-    q: 'I am not receiving the OTP email. What should I do?',
-    a: 'Check your spam/junk folder first. OTP emails are sent via Brevo email service. If still not received after 2 minutes, click "Resend OTP". If still not received, use the AI Support Chat tab to contact our support team.',
-  },
-  {
-    q: 'How do I reset my password?',
-    a: 'On the login page, click "Forgot Password". Enter your registered email → click "Send OTP". You will receive a 6-digit OTP via email. Enter the OTP + your new password → click "Reset Password". You can now login with the new password.',
-  },
-  {
-    q: 'How do I change my password?',
-    a: 'Login → Sidebar → Settings → Change Password. Enter your current (old) password + new password. No OTP required. Click "Change Password" to save.',
-  },
-  {
-    q: 'How do I buy a subscription plan?',
-    a: 'Sidebar → Subscription → click "Buy" on any plan (50/100/200/500/1000 Hrs). A Razorpay secure checkout modal opens. Pay via UPI, cards, wallets, or net banking. Payment is auto-verified instantly — your plan activates within seconds.',
-  },
-  {
-    q: 'How is my payment verified?',
-    a: 'Razorpay auto-verifies all payments instantly using HMAC-SHA256 signature verification. No manual approval needed — your plan activates within seconds of successful payment.',
-  },
-  {
-    q: 'I paid but my plan is not activated. What do I do?',
-    a: 'Razorpay payments auto-verify instantly. If your plan is still not active after 30 seconds: 1) Check if payment was successful in your UPI/bank app. 2) Refresh the Subscription page. 3) If still not active, contact support via the AI Help Chat (F1) with your payment ID.',
-  },
-  {
-    q: 'Why was I logged out automatically?',
-    a: 'For security, BizBook Pro auto-logs out after 5 minutes of inactivity (no mouse/keyboard/touch activity). This protects your account if you step away. Just login again to continue. NOTE: If a modal/dialog is open (e.g., payment), the timer is extended.',
-  },
-  {
-    q: 'How do I install BizBook Pro as a desktop app?',
-    a: 'On desktop Chrome/Edge: Click the install icon (⊕) in the address bar → "Install". On Firefox: Menu → "Install this site as an app". On iPhone Safari: Share → "Add to Home Screen". The app then opens in its own window without browser chrome.',
-  },
-  {
-    q: 'Can I use BizBook Pro on mobile?',
-    a: 'Yes! The app is fully responsive. On mobile, the sidebar becomes a drawer — tap the hamburger menu (top-left) to open it. The "Download Desktop" button is hidden on mobile (it only works on desktop browsers).',
-  },
-  {
-    q: 'How do I add staff/users to my tenant?',
-    a: 'Login as MAIN_ADMIN → Settings → Users → "Add User". Enter their name, email, role (DATA_ENTRY/JUNIOR_ADMIN/MAIN_ADMIN). They will receive an email to set their password. Roles control what they can see/edit.',
-  },
-  {
-    q: 'What is the "Smart AI Company Valuation" feature?',
-    a: 'Sidebar → Smart AI Company Valuation. Enter your financial data (revenue, profit, assets, liabilities). The AI analyzes it and gives you an estimated business valuation range. Useful for selling/investing/pitching.',
-  },
-]
-
-const GUIDES = [
-  {
-    icon: UserPlus,
-    title: 'Register your business',
-    steps: [
-      'Go to login page → click "Register"',
-      'Enter business name, address, phone, email, password',
-      'Click "Send OTP" — check email for 6-digit code',
-      'Enter OTP → click "Verify & Register"',
-      'You are now logged in to your new tenant',
-    ],
-  },
-  {
-    icon: KeyRound,
-    title: 'Forgot password',
-    steps: [
-      'Login page → click "Forgot Password"',
-      'Enter your registered email',
-      'Click "Send OTP" — check email for 6-digit code',
-      'Enter OTP + new password',
-      'Click "Reset Password" → login with new password',
-    ],
-  },
-  {
-    icon: CreditCard,
-    title: 'Buy a subscription',
-    steps: [
-      'Sidebar → Subscription',
-      'Click "Buy" on your preferred plan (50/100/200/500/1000 Hrs)',
-      'Razorpay secure checkout modal opens',
-      'Pay via UPI, cards, wallets, or net banking',
-      'Payment auto-verified instantly via HMAC-SHA256 signature',
-      'Plan activates within seconds — no manual approval needed',
-    ],
-  },
-  {
-    icon: FileText,
-    title: 'Create your first invoice/sale',
-    steps: [
-      'Sidebar → Inventory → "Add Item" (add products first)',
-      'Sidebar → Sale Register → "New Sale"',
-      'Select party (or add new) → select items → set qty',
-      'Verify total → click "Save Sale"',
-      'Invoice is generated → download/print/email as needed',
-    ],
-  },
-]
 
 export function HelpModal({ open, onClose, initialTab = 'faq' }: HelpModalProps) {
   const [expandedFAQ, setExpandedFAQ] = useState<number | null>(0)
   const [activeTab, setActiveTab] = useState<'faq' | 'guides' | 'chat' | 'management'>(initialTab)
   const { user, tenant } = useAppStore()
-  // v4.107: Super Admin check for Management tab
-  const SUPER_ADMIN_EMAILS = ['admin@bizbook.pro', 'pranjalgoswamighy86@gmail.com']
-  const isSuperAdmin = user ? SUPER_ADMIN_EMAILS.includes(user.email.toLowerCase()) : false
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false)
+
+  // Ask the server whether this signed-in account is authorised for support management.
+  // Do not maintain a separate client-side email allowlist.
+  useEffect(() => {
+    if (!open || !user?.id) {
+      setIsSuperAdmin(false)
+      return
+    }
+    let active = true
+    authFetch('/api/help-tickets', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'access' }),
+    })
+      .then(async response => {
+        if (!response.ok) return false
+        const data = await response.json()
+        return data.allowed === true
+      })
+      .then(allowed => { if (active) setIsSuperAdmin(allowed) })
+      .catch(() => { if (active) setIsSuperAdmin(false) })
+    return () => { active = false }
+  }, [open, user?.id])
 
   // v6.17: When the modal opens, sync the active tab to `initialTab`.
   // This lets F1 / menu action re-open the modal on the Chat tab even if
@@ -256,7 +185,7 @@ export function HelpModal({ open, onClose, initialTab = 'faq' }: HelpModalProps)
         {/* FAQ Tab */}
         {activeTab === 'faq' && (
           <div className="space-y-2">
-            {FAQS.map((faq, idx) => (
+            {HELP_FAQS.map((faq, idx) => (
               <div key={idx} className="border rounded-lg overflow-hidden">
                 <button
                   onClick={() => setExpandedFAQ(expandedFAQ === idx ? null : idx)}
@@ -286,11 +215,13 @@ export function HelpModal({ open, onClose, initialTab = 'faq' }: HelpModalProps)
         {/* Guides Tab */}
         {activeTab === 'guides' && (
           <div className="space-y-3 sm:space-y-4">
-            {GUIDES.map((guide, idx) => (
+            {HELP_GUIDES.map((guide, idx) => {
+              const GuideIcon = GUIDE_ICONS[guide.icon] || BookOpen
+              return (
               <div key={idx} className="border rounded-lg p-3 sm:p-4">
                 <div className="flex items-center gap-2 mb-3">
                   <div className="h-8 w-8 rounded-lg bg-emerald-100 flex items-center justify-center flex-shrink-0">
-                    <guide.icon className="h-4 w-4 text-emerald-600" />
+                    <GuideIcon className="h-4 w-4 text-emerald-600" />
                   </div>
                   <h3 className="font-semibold text-sm sm:text-base text-slate-800">{guide.title}</h3>
                 </div>
@@ -305,7 +236,8 @@ export function HelpModal({ open, onClose, initialTab = 'faq' }: HelpModalProps)
                   ))}
                 </ol>
               </div>
-            ))}
+              )
+            })}
           </div>
         )}
 
@@ -339,8 +271,8 @@ export function HelpModal({ open, onClose, initialTab = 'faq' }: HelpModalProps)
         )}
 
         <div className="border-t pt-3 mt-3 sm:mt-4 flex items-center justify-between text-xs text-slate-500 gap-2">
-          <span className="hidden sm:inline">BizBook Pro v4.119 — A Product by Tahigo International</span>
-          <span className="sm:hidden text-[11px]">v4.119 — Tahigo International</span>
+          <span className="hidden sm:inline">BizBook Pro {APP_VERSION} — A Product by Tahigo International</span>
+          <span className="sm:hidden text-[11px]">{APP_VERSION} — Tahigo International</span>
           <Button variant="outline" size="sm" onClick={onClose} className="min-h-9">Close</Button>
         </div>
       </DialogContent>

@@ -111,7 +111,6 @@ export function SuperAdminSubscriptionPanel() {
 
   useEffect(() => {
     fetchAllSubscriptions()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tenant?.id, user?.email])
 
   const handleEdit = (sub: TenantSubscription) => {
