@@ -108,12 +108,20 @@ export async function requirePermission(
   resource: string,
   action: Action
 ): Promise<PermissionResult> {
-  // 1. Auth check (use your existing auth helper)
+  // 1. Authenticate from the current application session.
   let user: any;
   try {
-    const { requireAuth } = await import('@/lib/auth');
-    user = await requireAuth(req);
-  } catch (err) {
+    const { requireAuth } = await import('@/lib/api-helpers');
+    const auth = await requireAuth(req);
+    if (auth instanceof NextResponse) {
+      return { ok: false, response: auth };
+    }
+    user = {
+      ...auth.user,
+      email: auth.email,
+      activeTenantId: auth.user.tenantId,
+    };
+  } catch {
     return {
       ok: false,
       response: NextResponse.json(
@@ -185,8 +193,8 @@ export async function requirePermission(
   }
 
   // Load UserTenant to get role
-  const { prisma } = await import('@/lib/db');
-  const userTenant = await prisma.userTenant.findUnique({
+  const { db } = await import('@/lib/db');
+  const userTenant = await db.userTenant.findUnique({
     where: { userId_tenantId: { userId: user.id, tenantId } },
     select: { role: true, isOwner: true },
   });
