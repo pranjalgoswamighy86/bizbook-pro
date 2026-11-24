@@ -373,9 +373,14 @@ async function handleFileUpload(req: NextRequest) {
       const sheetSummary = Object.entries(sheets).map(([name, rows]) => {
         const headers = rows.length > 0 ? Object.keys(rows[0]) : []
         const sampleRows = rows.slice(0, MAX_ROWS_PER_SHEET)
-        const truncatedNote = rows.length > MAX_ROWS_PER_SHEET ? `\n(Showing first ${MAX_ROWS_PER_SHEET} of ${rows.length} rows — data truncated for AI analysis)` : ''
+        if (rows.length > MAX_ROWS_PER_SHEET) {
+          spreadsheetTruncationWarnings.push(`Sheet "${name}": only the first ${MAX_ROWS_PER_SHEET} of ${rows.length} rows were analyzed; ${rows.length - MAX_ROWS_PER_SHEET} rows were not sent to the AI and are NOT included in the import preview.`)
+        }
+        const truncatedNote = rows.length > MAX_ROWS_PER_SHEET
+          ? `\nIMPORTANT: ONLY the first ${MAX_ROWS_PER_SHEET} rows are included below. The remaining ${rows.length - MAX_ROWS_PER_SHEET} rows were not analyzed.`
+          : ''
         return `Sheet "${name}": ${rows.length} rows, columns: ${headers.join(', ')}${truncatedNote}
-Sample data (first ${sampleRows.length} rows):
+Rows supplied to the model (${sampleRows.length}):
 ${JSON.stringify(sampleRows, null, 2)}`
       }).join('\n\n').substring(0, MAX_TOTAL_CHARS)
 
