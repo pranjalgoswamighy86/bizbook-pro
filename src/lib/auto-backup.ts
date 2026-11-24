@@ -174,17 +174,34 @@ export async function listBackupFiles(tenantId: string): Promise<Array<{
 }
 
 /**
+ * Resolve a backup filename strictly inside its tenant folder.
+ * Reject separators before resolving so encoded ../ paths can never escape
+ * into another tenant's backup directory.
+ */
+function resolveTenantBackupFile(tenantId: string, filename: string): { tenantDir: string; filePath: string } | null {
+  if (!/^[A-Za-z0-9_-]{1,128}$/.test(tenantId)) return null
+  if (
+    typeof filename !== 'string' ||
+    filename !== path.basename(filename) ||
+    !/^[A-Za-z0-9][A-Za-z0-9._-]{0,150}\.xlsx$/.test(filename)
+  ) {
+    return null
+  }
+
+  const tenantDir = path.resolve(BACKUP_DIR, tenantId)
+  const filePath = path.resolve(tenantDir, filename)
+  if (!filePath.startsWith(tenantDir + path.sep)) return null
+
+  return { tenantDir, filePath }
+}
+
+/**
  * Get the full path of a backup file for download.
  */
 export function getBackupFilePath(tenantId: string, filename: string): string | null {
-  // Security: prevent path traversal
-  const sanitized = filename.replace(/[^a-zA-Z0-9._-]/g, '')
-  if (!sanitized.endsWith('.xlsx')) return null
-
-  const filePath = path.join(BACKUP_DIR, tenantId, sanitized)
-  if (!existsSync(filePath)) return null
-
-  return filePath
+  const resolved = resolveTenantBackupFile(tenantId, filename)
+  if (!resolved || !existsSync(resolved.filePath)) return null
+  return resolved.filePath
 }
 
 /**
@@ -192,16 +209,15 @@ export function getBackupFilePath(tenantId: string, filename: string): string | 
  */
 export async function deleteBackupFile(tenantId: string, filename: string): Promise<boolean> {
   try {
-    const sanitized = filename.replace(/[^a-zA-Z0-9._-]/g, '')
-    const filePath = path.join(BACKUP_DIR, tenantId, sanitized)
+    const resolved = resolveTenantBackupFile(tenantId, filename)
+    if (!resolved || !existsSync(resolved.filePath)) return false
 
-    if (!existsSync(filePath)) return false
+    await unlink(resolved.filePath)
 
-    await unlink(filePath)
-
-    // Also delete corresponding info file
-    const infoFile = sanitized.replace('.xlsx', '.json')
-    const infoPath = path.join(BACKUP_DIR, tenantId, infoFile)
+    // Also delete corresponding metadata, constrained to the same tenant folder.
+    const infoFile = filename.replace(/\.xlsx$/, '.json')
+    const infoPath = path.resolve(resolved.tenantDir, infoFile)
+    if (!infoPath.startsWith(resolved.tenantDir + path.sep)) return false
     if (existsSync(infoPath)) {
       await unlink(infoPath).catch(() => {})
     }
