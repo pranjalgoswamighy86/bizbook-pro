@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { triggerAutoBackup, forceGenerateBackup, getLatestBackupInfo, listBackupFiles, getBackupFilePath, deleteBackupFile } from '@/lib/auto-backup'
 import { parseExcelBackup, restoreFromExcelData, generateExcelBackup } from '@/lib/excel-backup'
 import { readFile } from 'fs/promises'
-import { requireAuthAndTenant, requireAuthAndRole, writeAuditLog } from '@/lib/api-helpers'
+import { requireAuthAndTenant, requireAuthAndRole } from '@/lib/api-helpers'
 
 /**
  * Auto-Backup API
