@@ -54,12 +54,12 @@ export function AuditLog() {
   useEffect(() => {
     if (!tenant) return
     loadFilterOptions()
-  }, [tenant]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [tenant])
 
   useEffect(() => {
     if (!tenant) return
     loadLogs()
-  }, [tenant, page, filterUser, filterAction, filterEntity]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [tenant, page, filterUser, filterAction, filterEntity])
 
   const loadFilterOptions = async () => {
     if (!tenant) return
