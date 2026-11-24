@@ -312,4 +312,3 @@ export async function getIrnDetails(irn: string): Promise<IrpSubmitResult & { da
   }
 }
 
-export { isIrpConfigured, getIrpBaseUrl }
