@@ -34,6 +34,50 @@ import { roundTo2 } from '@/lib/gst-utils'
 const MAX_FILE_SIZE_BYTES = 1 * 1024 * 1024 // 1 MB
 const MAX_ROWS_PER_MODULE = 5000
 
+/**
+ * Parse CSV/TSV records without splitting delimiters or line breaks inside
+ * quoted fields. Supports escaped double quotes (""), CRLF/LF, and BOM.
+ */
+function parseDelimitedText(input: string, delimiter: string): string[][] {
+  const text = input.replace(/^\\uFEFF/, '')
+  const records: string[][] = []
+  let record: string[] = []
+  let field = ''
+  let inQuotes = false
+
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i]
+    if (char === '"') {
+      if (inQuotes && text[i + 1] === '"') {
+        field += '"'
+        i++
+      } else {
+        inQuotes = !inQuotes
+      }
+      continue
+    }
+    if (!inQuotes && char === delimiter) {
+      record.push(field)
+      field = ''
+      continue
+    }
+    if (!inQuotes && (char === '\\n' || char === '\\r')) {
+      record.push(field)
+      field = ''
+      if (record.some(value => value.trim() !== '')) records.push(record)
+      record = []
+      if (char === '\\r' && text[i + 1] === '\\n') i++
+      continue
+    }
+    field += char
+  }
+
+  if (inQuotes) throw new Error('Invalid CSV/TSV: quoted field was not closed')
+  record.push(field)
+  if (record.some(value => value.trim() !== '')) records.push(record)
+  return records
+}
+
 export async function POST(req: NextRequest) {
   try {
     const contentType = req.headers.get('content-type') || ''
@@ -163,13 +207,18 @@ async function handleFileUpload(req: NextRequest) {
     } else if (['csv', 'tsv'].includes(ext)) {
       // CSV/TSV file — parse as text
       const text = buffer.toString('utf-8')
-      const delimiter = ext === 'tsv' ? '\t' : ','
-      const lines = text.split('\n').filter(l => l.trim())
-      const headers = lines[0].split(delimiter).map(h => h.trim().replace(/"/g, ''))
-      const rows = lines.slice(1).map(line => {
-        const values = line.split(delimiter).map(v => v.trim().replace(/"/g, ''))
+      const delimiter = ext === 'tsv' ? '\\t' : ','
+      const records = parseDelimitedText(text, delimiter)
+      if (records.length === 0) {
+        return NextResponse.json({ error: 'CSV/TSV file is empty or has no header row' }, { status: 400 })
+      }
+      const headers = records[0].map(h => h.trim())
+      if (headers.every(header => !header)) {
+        return NextResponse.json({ error: 'CSV/TSV header row is empty' }, { status: 400 })
+      }
+      const rows = records.slice(1).map(values => {
         const row: Record<string, string> = {}
-        headers.forEach((h, i) => { row[h] = values[i] || '' })
+        headers.forEach((h, i) => { if (h) row[h] = (values[i] || '').trim() })
         return row
       })
 
