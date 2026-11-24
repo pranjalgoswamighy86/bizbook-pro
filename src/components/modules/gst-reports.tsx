@@ -134,7 +134,7 @@ export function GstReports() {
   useEffect(() => {
     if (!tenant || !selectedPeriod) return
     loadGstData()
-  }, [tenant, selectedPeriod]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [tenant, selectedPeriod])
 
   const loadGstData = async () => {
     if (!tenant || !selectedPeriod) return
