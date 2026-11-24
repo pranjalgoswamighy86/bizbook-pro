@@ -20,7 +20,8 @@ import {
   TRANSPORT_MODE,
   TransporterDetails,
 } from '@/lib/ewb-integration'
-import { isIrpConfigured, getIrpBaseUrl } from '@/lib/irp-integration'
+import { getIrpBaseUrl } from '@/lib/irp-integration'
+import { getEffectiveGspConfig, tenantHasGspCredentials } from '@/lib/gsp-credentials'
 
 // ============================================================
 // GST E-Way Bill API
@@ -63,10 +64,9 @@ export async function POST(req: NextRequest) {
         select: { einvoiceAutoGenerate: true, ewbAutoGenerate: true },
       })
       return NextResponse.json({
-        configured: isIrpConfigured(),
-        mode: isIrpConfigured() ? 'LIVE' : 'MANUAL',
-        env: process.env.IRP_ENV || 'sandbox',
-        baseUrl: getIrpBaseUrl(),
+        configured: await tenantHasGspCredentials(tenantId),
+        mode: await tenantHasGspCredentials(tenantId) ? 'LIVE' : 'MANUAL',
+        env: 'sandbox',
         einvoiceAutoGenerate: tenant?.einvoiceAutoGenerate || false,
         ewbAutoGenerate: tenant?.ewbAutoGenerate || false,
       })
@@ -127,7 +127,7 @@ export async function POST(req: NextRequest) {
 
       // If the sale has an IRN, generate Part-B-only payload (by IRN)
       if (sale.einvoiceIrn && sale.einvoiceStatus === 'GENERATED') {
-        const result = await generateEwbByIrn(sale.einvoiceIrn, transporter)
+        const result = await generateEwbByIrn(sale.einvoiceIrn, transporter, await getEffectiveGspConfig(tenantId))
         if (result.mode === 'MANUAL') {
           await db.sale.update({
             where: { id: saleId },
@@ -242,7 +242,7 @@ export async function POST(req: NextRequest) {
         items: itemDetails,
       }
 
-      const result = await generateEwbDirect(saleData, transporter)
+      const result = await generateEwbDirect(saleData, transporter, await getEffectiveGspConfig(tenantId))
 
       if (result.mode === 'MANUAL') {
         await db.sale.update({
@@ -417,7 +417,7 @@ export async function POST(req: NextRequest) {
         }, { status: 400 })
       }
 
-      const result = await cancelEwb(sale.ewayBillNo, reasonCode, String(cancelRemark || 'Cancelled via BizBook Pro'))
+      const result = await cancelEwb(sale.ewayBillNo, reasonCode, String(cancelRemark || 'Cancelled via BizBook Pro'), await getEffectiveGspConfig(tenantId))
 
       if (!result.success) {
         return NextResponse.json({
@@ -498,7 +498,7 @@ export async function POST(req: NextRequest) {
         fromState,
       }
 
-      const result = await extendEwb(sale.ewayBillNo, transporter)
+      const result = await extendEwb(sale.ewayBillNo, transporter, await getEffectiveGspConfig(tenantId))
 
       if (!result.success) {
         return NextResponse.json({
