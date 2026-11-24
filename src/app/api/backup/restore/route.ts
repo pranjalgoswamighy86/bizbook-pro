@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { rawDb, db } from '@/lib/db-soft-delete'
+import { rawDb } from '@/lib/db-soft-delete'
 import { verifyPassword } from '@/lib/auth'
+import { requireAuth } from '@/lib/api-helpers'
 
 /**
  * Database Restore API — v4.120
@@ -65,6 +66,12 @@ const TABLE_ORDER: Array<[string, string]> = [
 
 export async function POST(req: NextRequest) {
   try {
+    // A whole-database restore can overwrite records across every tenant.
+    // Authenticate against the live application session and current DB password.
+    // Never trust a password hash embedded in the uploaded backup: that file is untrusted input.
+    const auth = await requireAuth(req)
+    if (auth instanceof NextResponse) return auth
+
     const body = await req.json().catch(() => null)
     if (!body || !body.email || !body.password || !body.backupData) {
       return NextResponse.json(
@@ -79,92 +86,48 @@ export async function POST(req: NextRequest) {
     const email = String(body.email).trim().toLowerCase()
     const password = String(body.password)
     const backupData = body.backupData
+    const sessionEmail = auth.email.toLowerCase().trim()
 
-    // Validate backup structure
-    if (!backupData._metadata || !backupData.data) {
-      return NextResponse.json(
-        { error: 'Invalid backup file. The backup must have _metadata and data fields.' },
-        { status: 400 }
-      )
+    if (email !== sessionEmail) {
+      return NextResponse.json({ error: 'The restore email must match the signed-in administrator.' }, { status: 403 })
     }
 
-    if (backupData._metadata.software !== 'BizBook Pro') {
-      return NextResponse.json(
-        { error: 'This backup file was not created by BizBook Pro.' },
-        { status: 400 }
-      )
+    // This route restores all tenants, not one tenant. Only the system
+    // administrator identities used by the platform RBAC may run it.
+    const systemAdminEmails = new Set([
+      'admin@bizbook.pro',
+      'pranjalgoswamighy86@gmail.com',
+      process.env.ADMIN_EMAIL || '',
+      process.env.INFRASTRUCTURE_OWNER_EMAIL || '',
+    ].map(value => value.toLowerCase().trim()).filter(Boolean))
+
+    if (!systemAdminEmails.has(sessionEmail)) {
+      return NextResponse.json({ error: 'A system administrator account is required for whole-database restore.' }, { status: 403 })
     }
 
-    // v4.120: Authenticate against EITHER the backup OR the current database
-    const backupUsers = backupData.data.User || []
+    const currentUser = await rawDb.user.findUnique({
+      where: { id: auth.userId },
+      select: { password: true },
+    })
+    if (!currentUser || !verifyPassword(password, currentUser.password)) {
+      return NextResponse.json({ error: 'Invalid administrator password.' }, { status: 401 })
+    }
+
+    // The backup must contain the same administrator identity. Its password
+    // hash is not used for authentication; only the current DB password is trusted.
+    if (!backupData._metadata || !backupData.data || backupData._metadata.software !== 'BizBook Pro') {
+      return NextResponse.json({ error: 'Invalid BizBook Pro backup file.' }, { status: 400 })
+    }
+
+    const backupUsers = Array.isArray(backupData.data.User) ? backupData.data.User : []
     const backupUser = backupUsers.find(
-      (u: any) => u.email && u.email.toLowerCase() === email
+      (u: any) => typeof u?.email === 'string' && u.email.toLowerCase() === sessionEmail
     )
-
-    let authenticated = false
-    let authMethod = ''
-
-    // Try backup credentials first
-    if (backupUser) {
-      const backupPasswordValid = verifyPassword(password, backupUser.password)
-      if (backupPasswordValid) {
-        authenticated = true
-        authMethod = 'backup'
-      }
+    if (!backupUser) {
+      return NextResponse.json({ error: 'The backup does not contain the signed-in administrator account.' }, { status: 400 })
     }
 
-    // If backup auth failed, try current database credentials
-    if (!authenticated) {
-      try {
-        const currentUser = await db.user.findFirst({
-          where: { email: { equals: email, mode: 'insensitive' } },
-          select: { id: true, email: true, password: true, role: true, tenantId: true },
-        })
-        if (currentUser) {
-          const currentPasswordValid = verifyPassword(password, currentUser.password)
-          if (currentPasswordValid) {
-            authenticated = true
-            authMethod = 'current-db'
-          }
-        }
-      } catch {
-        // Current DB lookup failed — continue
-      }
-    }
-
-    // v4.120: SPECIAL BYPASS — if the email is admin@bizbook.pro and the
-    // password is the default seeded password (admin123), allow restore.
-    // This is for emergency recovery when the database was just reset.
-    if (!authenticated && email === 'admin@bizbook.pro' && password === 'admin123') {
-      // Verify that admin@bizbook.pro exists in the current DB with the seeded password
-      try {
-        const seededAdmin = await db.user.findFirst({
-          where: { email: 'admin@bizbook.pro' },
-          select: { id: true, password: true },
-        })
-        if (seededAdmin && verifyPassword('admin123', seededAdmin.password)) {
-          authenticated = true
-          authMethod = 'seeded-admin-bypass'
-        }
-      } catch {
-        // Continue
-      }
-    }
-
-    if (!authenticated) {
-      const errorMsg = backupUser
-        ? `Invalid password. The password must match either:\n1. The user account in the backup file, OR\n2. The current database's admin password (try "admin123" if the database was just reset)`
-        : `Email "${email}" not found in the backup file or current database. The backup contains ${backupUsers.length} user(s).`
-      return NextResponse.json(
-        {
-          error: errorMsg,
-          backupUsers: backupUsers.map((u: any) => u.email),
-        },
-        { status: 401 }
-      )
-    }
-
-    console.log(`[RESTORE] Authenticated via ${authMethod}. Starting restore...`)
+    console.log(`[RESTORE] Authenticated system administrator session for ${sessionEmail}. Starting restore...`)
 
     // Begin restore process
     const results: Array<{ table: string; imported: number; updated: number; skipped: number; error?: string }> = []
