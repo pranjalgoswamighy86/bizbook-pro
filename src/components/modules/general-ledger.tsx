@@ -180,7 +180,7 @@ export function GeneralLedger({ initialTab }: { initialTab?: 'ledger' | 'journal
   useEffect(() => {
     if (activeTab === 'journal' && journalEntries.length === 0) fetchJournalEntries()
     if (activeTab === 'trial' && !trialBalance) fetchTrialBalance()
-  }, [activeTab]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [activeTab])
 
   const handleSaveJournalEntry = async () => {
     if (!tenant) return
