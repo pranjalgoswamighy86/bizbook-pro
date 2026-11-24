@@ -34,5 +34,19 @@
 // e-invoice workflow on the purchase side (the supplier generates the IRN;
 // the buyer records it). Green FileCheck icon appears next to the invoice
 // number once IRN is recorded.
-export const APP_VERSION = 'v6.30.12'
+// v6.31.0: E-Way Bill (EWB) implementation — new src/lib/ewb-integration.ts
+// and /api/eway-bill route with 6 actions: generate-payload (builds EWB JSON
+// by IRN or direct), update-status (manual record), cancel, extend, status,
+// ewb-status. Supports both LIVE (GSP) and MANUAL (portal submission) modes,
+// matching the e-invoice pattern. Sale model gains 12 EWB fields:
+// ewayBillNo (12-digit), ewayBillDate, ewayBillValidUpto, ewayBillStatus,
+// transporterId, transporterName, vehicleNo, modeOfTransport, distanceKm,
+// ewayBillCanceledAt, ewayBillCancelReason. Tenant model gains
+// einvoiceAutoGenerate + ewbAutoGenerate toggles for future auto-mode.
+// EWB validity auto-calculated as 1 day per 200 km (min 1, max 30 days).
+// Cancellation enforced within validity window only. Extension requires new
+// vehicle number before expiry. Sale register gains "Generate EWB" and
+// "Record EWB" buttons (truck icon) alongside the existing "Record IRN"
+// button. Blue truck badge appears next to invoice number once EWB is recorded.
+export const APP_VERSION = 'v6.31.0'
 export const APP_BUILD_DATE = '2026-11-24'
