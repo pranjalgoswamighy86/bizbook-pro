@@ -7,6 +7,27 @@ import { requireAuthAndTenant, requireAuthAndRole, requireAuth, writeAuditLog } 
 
 const BACKUP_DIR = path.join(process.cwd(), 'db', 'backups')
 
+const SYSTEM_ADMIN_EMAILS = new Set([
+  'admin@bizbook.pro',
+  'pranjalgoswamighy86@gmail.com',
+  process.env.ADMIN_EMAIL || '',
+  process.env.INFRASTRUCTURE_OWNER_EMAIL || '',
+].map(value => value.toLowerCase().trim()).filter(Boolean))
+
+async function requireSystemAdmin(req: NextRequest) {
+  const auth = await requireAuth(req)
+  if (auth instanceof NextResponse) return auth
+
+  if (!SYSTEM_ADMIN_EMAILS.has(auth.email.toLowerCase().trim())) {
+    return NextResponse.json(
+      { error: 'System administrator access is required for server-wide database backups.' },
+      { status: 403 }
+    )
+  }
+
+  return auth
+}
+
 /**
  * Database Administration API
  *
@@ -35,16 +56,16 @@ export async function POST(req: NextRequest) {
     }
 
     if (action === 'backup') {
-      // ---- SECURITY PATCH v1: auth + tenant access ----
-      const access = await requireAuthAndRole(req, tenantId, ['MAIN_ADMIN'])
-      if (access instanceof NextResponse) return access
-      // --------------------------------------------------
+      const auth = await requireSystemAdmin(req)
+      if (auth instanceof NextResponse) return auth
 
       const result = backupDatabase('manual')
       return NextResponse.json(result)
     }
 
     if (action === 'list-backups') {
+      const auth = await requireSystemAdmin(req)
+      if (auth instanceof NextResponse) return auth
       if (!fs.existsSync(BACKUP_DIR)) {
         return NextResponse.json({ backups: [], autoConfig: { enabled: true, frequency: 'startup', lastRun: null } })
       }
@@ -77,15 +98,18 @@ export async function POST(req: NextRequest) {
     }
 
     if (action === 'delete-backup') {
+      const auth = await requireSystemAdmin(req)
+      if (auth instanceof NextResponse) return auth
+
       const { filename } = body
-      if (!filename) {
-        return NextResponse.json({ error: 'Filename is required' }, { status: 400 })
-      }
-      // Security: only allow deleting backup files
-      if (!filename.startsWith('bizbook_backup_') || !filename.endsWith('.db')) {
+      if (typeof filename !== 'string' || !/^bizbook_backup_[A-Za-z0-9_-]+\.db$/.test(filename)) {
         return NextResponse.json({ error: 'Invalid backup filename' }, { status: 400 })
       }
-      const filePath = path.join(BACKUP_DIR, filename)
+      const backupRoot = path.resolve(BACKUP_DIR)
+      const filePath = path.resolve(backupRoot, filename)
+      if (!filePath.startsWith(backupRoot + path.sep)) {
+        return NextResponse.json({ error: 'Invalid backup filename' }, { status: 400 })
+      }
       if (!fs.existsSync(filePath)) {
         return NextResponse.json({ error: 'Backup file not found' }, { status: 404 })
       }
