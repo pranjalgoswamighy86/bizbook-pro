@@ -499,6 +499,9 @@ ${categoryInstruction}`
       imageBase64 = parsedData.base64
     } else {
       const rawContent = typeof parsedData === 'string' ? parsedData : JSON.stringify(parsedData)
+      if ((rawContent || '').length > 10000 && !sourceTruncationWarnings.some(warning => warning.includes('10,000-character AI context limit'))) {
+        sourceTruncationWarnings.push('Extracted text exceeds the 10,000-character AI context limit; later content is not included in the preview.')
+      }
       const content = (rawContent || '').substring(0, 10000)
       prompt = `Analyze this business data file and extract importable records for BizBook Pro.
 
