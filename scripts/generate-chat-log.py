@@ -413,7 +413,7 @@ DEPLOYMENT URL
 
 https://carefree-success-production-7766.up.railway.app/
 
-Admin Login: admin@bizbook.pro / admin123
+Admin Login: [REDACTED — use the configured verified administrator account]
 
 =================================================================
 END OF CHAT LOG
