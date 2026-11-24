@@ -356,7 +356,7 @@ src = src.replace(
                   )}
 
                   {/* Net Payable */}
-                  <div className={`${summary.netGstPayable >= 0 ? 'bg-red-50 dark:bg-red-950' : 'bg-emerald-50 dark:bg-emerald-950'} p-4 rounded-lg`">`
+                  <div className={\`\${summary.netGstPayable >= 0 ? 'bg-red-50 dark:bg-red-950' : 'bg-emerald-50 dark:bg-emerald-950'} p-4 rounded-lg\`}>``
 )
 
 console.log('PATCH 6: Added HSN-wise summary section in GSTR-3B')
