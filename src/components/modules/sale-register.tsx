@@ -760,7 +760,7 @@ export function SaleRegister() {
     if (!tenant) return
     const ewbNo = window.prompt('Enter the 12-digit E-Way Bill number returned by the GST portal:')
     if (!ewbNo) return
-    if (!/^\\d{12}$/.test(ewbNo.trim())) {
+    if (!/^\d{12}$/.test(ewbNo.trim())) {
       toast({ title: 'Invalid EWB number', description: 'The E-Way Bill number must contain exactly 12 digits.', variant: 'destructive' })
       return
     }
