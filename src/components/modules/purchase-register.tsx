@@ -16,7 +16,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { formatCurrency, formatDate, getDateFilterRange } from '@/lib/formulas'
 import { isInterStateSupply } from '@/lib/gst-utils'
-import { Plus, Pencil, Trash2, X, ChevronDown, Eye, Loader2, Sparkles } from 'lucide-react'
+import { Plus, Pencil, Trash2, X, ChevronDown, Eye, Loader2, Sparkles, FileCheck } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import { PartySuggest } from '@/components/app/party-suggest'
 import { ItemSuggest } from '@/components/app/item-suggest'
@@ -340,6 +340,54 @@ export function PurchaseRegister() {
     if (res.ok) { toast({ title: 'Archived', description: 'Purchase archived. Inventory stock reversed.' }); fetchPurchases() }
   }
 
+  // v6.30.12: Record a supplier-issued IRN for a B2B purchase. The buyer never
+  // generates an IRN for a purchase invoice; the supplier does. This opens
+  // sequential prompts for the vendor IRN (64-hex), AckNo, and AckDate, then
+  // persists them via /api/einvoice action=update-purchase-status.
+  const handleRecordPurchaseIrn = async (purchase: Purchase) => {
+    if (!tenant) return
+    const irn = window.prompt('Enter the 64-character IRN issued by the supplier:')
+    if (!irn) return // user cancelled
+    if (!/^[A-Fa-f0-9]{64}$/.test(irn.trim())) {
+      toast({ title: 'Invalid IRN', description: 'IRN must be exactly 64 hexadecimal characters (0-9, A-F).', variant: 'destructive' })
+      return
+    }
+    const ackNo = window.prompt('Enter the IRP acknowledgement number:')
+    if (!ackNo || !ackNo.trim()) {
+      toast({ title: 'Cancelled', description: 'Acknowledgement number is required.' })
+      return
+    }
+    const ackDate = window.prompt('Enter the acknowledgement date (YYYY-MM-DD):')
+    if (!ackDate || Number.isNaN(new Date(ackDate).getTime())) {
+      toast({ title: 'Invalid date', description: 'Enter a valid date in YYYY-MM-DD format.', variant: 'destructive' })
+      return
+    }
+    try {
+      const res = await authFetch('/api/einvoice', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'update-purchase-status',
+          tenantId: tenant.id,
+          purchaseId: purchase.id,
+          irn: irn.trim(),
+          ackNo: ackNo.trim(),
+          ackDate,
+          status: 'GENERATED',
+        }),
+      })
+      if (res.ok) {
+        toast({ title: 'IRN Recorded', description: `Supplier IRN saved for ${purchase.invoiceNumber}.` })
+        fetchPurchases()
+      } else {
+        const err = await res.json().catch(() => ({}))
+        toast({ title: 'Error recording IRN', description: err.error || `Server error (${res.status}).`, variant: 'destructive' })
+      }
+    } catch {
+      toast({ title: 'Network Error', description: 'Could not connect to server. Please try again.', variant: 'destructive' })
+    }
+  }
+
   const statusBadge = (status: string) => {
     const styles: Record<string, string> = {
       PAID: 'bg-emerald-100 text-emerald-700',
@@ -387,7 +435,14 @@ export function PurchaseRegister() {
                     <TableRow><TableCell colSpan={8} className="text-center text-muted-foreground py-8">No purchases found</TableCell></TableRow>
                   ) : purchases.map((p) => (
                     <TableRow key={p.id}>
-                      <TableCell className="font-medium">{p.invoiceNumber}</TableCell>
+                      <TableCell className="font-medium">
+                        {p.einvoiceIrn && (
+                          <span title={`IRN: ${p.einvoiceIrn.slice(0, 16)}...`} className="text-emerald-600 mr-1">
+                            <FileCheck className="h-3.5 w-3.5 inline" />
+                          </span>
+                        )}
+                        {p.invoiceNumber}
+                      </TableCell>
                       <TableCell>{formatDate(p.date)}</TableCell>
                       <TableCell>{p.partyName}</TableCell>
                       <TableCell className="text-right">{formatCurrency(p.totalAmount, tenant?.currency)}</TableCell>
@@ -397,6 +452,11 @@ export function PurchaseRegister() {
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-1">
                           <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setViewItem(p)}><Eye className="h-4 w-4" /></Button>
+                          {p.partyGst && !p.einvoiceIrn && (
+                            <Button variant="ghost" size="sm" className="h-8 px-2 text-xs" title="Record supplier-issued IRN and acknowledgement details" onClick={() => handleRecordPurchaseIrn(p)}>
+                              <FileCheck className="h-3.5 w-3.5 mr-1" />Record IRN
+                            </Button>
+                          )}
                           {canCorrect(user?.role || 'VIEW_ONLY') && <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleEdit(p)}><Pencil className="h-4 w-4" /></Button>}
                           {canCorrect(user?.role || 'VIEW_ONLY') && <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => handleDelete(p.id)}><Trash2 className="h-4 w-4" /></Button>}
                         </div>
