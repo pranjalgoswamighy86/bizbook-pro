@@ -342,8 +342,8 @@ export function Inventory() {
                         <TableRow key={i.id}>
                           <TableCell className="font-medium">{i.name}</TableCell>
                           <TableCell>
-                            <Badge variant="secondary" className={i.itemType === 'FINISHED_PRODUCT' ? 'bg-blue-100 text-blue-700 text-xs' : 'bg-gray-100 text-gray-700 text-xs'}>
-                              {i.itemType === 'FINISHED_PRODUCT' ? 'Finished' : 'Raw Material'}
+                            <Badge variant="secondary" className={i.itemType === 'FINISHED_PRODUCT' ? 'bg-blue-100 text-blue-700 text-xs' : i.itemType === 'SERVICE' ? 'bg-purple-100 text-purple-700 text-xs' : 'bg-gray-100 text-gray-700 text-xs'}>
+                              {i.itemType === 'FINISHED_PRODUCT' ? 'Finished' : i.itemType === 'SERVICE' ? 'Service' : 'Raw Material'}
                             </Badge>
                           </TableCell>
                           <TableCell>{i.sku || '-'}</TableCell>
@@ -557,6 +557,7 @@ export function Inventory() {
                     <SelectContent>
                       <SelectItem value="RAW_MATERIAL">Raw Material</SelectItem>
                       <SelectItem value="FINISHED_PRODUCT">Finished Product</SelectItem>
+                      <SelectItem value="SERVICE">Service</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
