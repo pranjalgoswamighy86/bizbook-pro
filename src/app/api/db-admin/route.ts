@@ -3,7 +3,7 @@ import { db } from '@/lib/db-soft-delete'
 import { backupDatabase, getDatabaseStats } from '@/lib/db-protection'
 import fs from 'fs'
 import path from 'path'
-import { requireAuthAndTenant, requireAuthAndRole, requireAuth, writeAuditLog } from '@/lib/api-helpers'
+import { requireAuthAndRole, requireAuth } from '@/lib/api-helpers'
 
 const BACKUP_DIR = path.join(process.cwd(), 'db', 'backups')
 
