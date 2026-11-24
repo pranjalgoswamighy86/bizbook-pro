@@ -16,7 +16,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { formatCurrency, formatDate, getDateFilterRange } from '@/lib/formulas'
 import { isInterStateSupply } from '@/lib/gst-utils'
-import { Plus, Pencil, Trash2, X, ChevronDown, Eye, Loader2, Sparkles } from 'lucide-react'
+import { Plus, Pencil, Trash2, X, ChevronDown, Eye, Loader2, Sparkles, FileCheck } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import { PartySuggest } from '@/components/app/party-suggest'
 import { ItemSuggest } from '@/components/app/item-suggest'
@@ -340,6 +340,44 @@ export function PurchaseRegister() {
     if (res.ok) { toast({ title: 'Archived', description: 'Purchase archived. Inventory stock reversed.' }); fetchPurchases() }
   }
 
+  // v6.30.11: Record supplier-issued IRN for a purchase invoice.
+  // As a buyer, you never generate an IRN — the supplier does. You only
+  // record the supplier's IRN + acknowledgement details for your records
+  // and GSTR-2 reconciliation.
+  const handleRecordPurchaseIrn = async (purchase: Purchase) => {
+    const irn = window.prompt('Paste the 64-character IRN supplied by the vendor (from their IRP portal):')
+    if (!irn) return
+    const ackNo = window.prompt("Enter the vendor's IRP acknowledgement number:")
+    if (!ackNo) return
+    const ackDate = window.prompt("Enter the vendor's IRP acknowledgement date/time exactly as shown (for example: 2026-11-24 14:30:00):")
+    if (!ackDate) return
+
+    try {
+      const res = await authFetch('/api/einvoice', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'update-purchase-status',
+          tenantId: tenant?.id,
+          purchaseId: purchase.id,
+          irn: irn.trim(),
+          ackNo: ackNo.trim(),
+          ackDate: ackDate.trim(),
+          status: 'GENERATED',
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        toast({ title: 'Could not save supplier IRN', description: data.error || 'Please verify the IRN and acknowledgement details.', variant: 'destructive' })
+        return
+      }
+      await fetchPurchases()
+      toast({ title: 'Supplier e-invoice details saved', description: `IRN recorded for purchase ${purchase.invoiceNumber}.` })
+    } catch {
+      toast({ title: 'Network error', description: 'Could not save the supplier IRP details. Please try again.', variant: 'destructive' })
+    }
+  }
+
   const statusBadge = (status: string) => {
     const styles: Record<string, string> = {
       PAID: 'bg-emerald-100 text-emerald-700',
@@ -387,7 +425,7 @@ export function PurchaseRegister() {
                     <TableRow><TableCell colSpan={8} className="text-center text-muted-foreground py-8">No purchases found</TableCell></TableRow>
                   ) : purchases.map((p) => (
                     <TableRow key={p.id}>
-                      <TableCell className="font-medium">{p.invoiceNumber}</TableCell>
+                      <TableCell className="font-medium">{p.invoiceNumber}{p.einvoiceStatus === 'GENERATED' && <span title="Supplier e-Invoice Recorded" className="ml-1 text-emerald-600">✓</span>}</TableCell>
                       <TableCell>{formatDate(p.date)}</TableCell>
                       <TableCell>{p.partyName}</TableCell>
                       <TableCell className="text-right">{formatCurrency(p.totalAmount, tenant?.currency)}</TableCell>
@@ -396,6 +434,11 @@ export function PurchaseRegister() {
                       <TableCell>{statusBadge(p.paymentStatus)}</TableCell>
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-1">
+                          {p.partyGst && p.einvoiceStatus !== 'GENERATED' && (
+                            <Button variant="ghost" size="sm" className="h-8 px-2 text-xs" title="Record supplier-issued IRN and acknowledgement" onClick={() => handleRecordPurchaseIrn(p)}>
+                              Record IRN
+                            </Button>
+                          )}
                           <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setViewItem(p)}><Eye className="h-4 w-4" /></Button>
                           {canCorrect(user?.role || 'VIEW_ONLY') && <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleEdit(p)}><Pencil className="h-4 w-4" /></Button>}
                           {canCorrect(user?.role || 'VIEW_ONLY') && <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => handleDelete(p.id)}><Trash2 className="h-4 w-4" /></Button>}
