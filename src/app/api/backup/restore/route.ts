@@ -43,6 +43,7 @@ const TABLE_ORDER: Array<[string, string]> = [
   ['BankStatementUpload', 'bankStatementUpload'],
   ['Staff', 'staff'],
   ['SalaryPayment', 'salaryPayment'],
+  ['StaffAttendance', 'staffAttendance'],
   ['Payment', 'payment'],
   ['Receipt', 'receipt'],
   ['Debtor', 'debtor'],
@@ -76,6 +77,7 @@ const OWNERSHIP_SELECT: Record<string, Record<string, boolean>> = {
   bankStatementUpload: { tenantId: true },
   staff: { tenantId: true },
   salaryPayment: { tenantId: true },
+  staffAttendance: { tenantId: true, staffId: true },
   payment: { tenantId: true },
   receipt: { tenantId: true },
   debtor: { tenantId: true },
@@ -120,7 +122,7 @@ async function recordBelongsToTenant(model: string, row: any, tenantId: string):
   const directTenantModels = new Set([
     'user', 'userTenant', 'party', 'product', 'inventoryItem', 'sale', 'purchase',
     'expense', 'bankTransaction', 'bankStatementUpload', 'staff', 'salaryPayment',
-    'payment', 'receipt', 'debtor', 'creditor', 'account', 'journalEntry', 'batch',
+    'staffAttendance', 'payment', 'receipt', 'debtor', 'creditor', 'account', 'journalEntry', 'batch',
     'priceList', 'subscription', 'subscriptionQueue', 'auditLog',
   ])
   if (directTenantModels.has(model)) return row.tenantId === tenantId
@@ -267,7 +269,7 @@ export async function POST(req: NextRequest) {
         results.push({ table: label, imported: 0, updated: 0, skipped })
         continue
       }
-      if (tenantId && (model === 'user' || model === 'userTenant')) {
+      if (tenantId && ['user', 'userTenant', 'subscription', 'subscriptionQueue', 'recharge', 'usageLog', 'auditLog', 'helpSupportTicket'].includes(model)) {
         // Older tenant backups may contain password hashes and memberships.
         // They are intentionally not imported by business administrators.
         const skipped = sourceRows.length
