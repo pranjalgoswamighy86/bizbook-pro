@@ -39,6 +39,7 @@ jobs:
           node --check scripts/find-tenant-and-import.js
           node --check scripts/final-import-v2.js
           node --check scripts/final-import-v3.js
+          node --check scripts/build-gstr-enhancements.js
           python3 -m py_compile scripts/stress-test.py scripts/generate-chat-log.py
 
       - name: Generate Prisma client
@@ -56,6 +57,9 @@ jobs:
         env:
           DATABASE_URL: postgresql://placeholder:placeholder@localhost:5432/placeholder
           NODE_ENV: production
+
+      - name: Run unit tests
+        run: npm test
 
       - name: Lint changed application files
         run: |
@@ -93,6 +97,5 @@ jobs:
             src/lib/otp/dispatcher.ts \
             src/lib/rbac/enforce-v2.ts
 
-      - name: Repository lint baseline (informational)
+      - name: Full repository lint (required)
         run: npm run lint
-        continue-on-error: true
