@@ -104,7 +104,8 @@ try {
   execSync('npx prisma generate', { stdio: 'inherit', env: process.env, cwd: '/app' });
   console.log('✓ Prisma client regenerated');
 } catch (e) {
-  console.log('⚠️ Prisma generate failed:', e.message);
+  console.error('[FATAL] Prisma client generation failed; refusing to start with a stale generated client:', e.message);
+  process.exit(1);
 }
 
 // Step 2: Push Prisma schema to PostgreSQL (creates tables if missing)
@@ -118,8 +119,8 @@ try {
   });
   console.log('✓ Database schema synced');
 } catch (e) {
-  console.log('⚠️ Prisma db push failed:', e.message);
-  console.log('⚠️ App will start anyway — queries may fail until schema is synced');
+  console.error('[FATAL] Safe Prisma schema sync failed; refusing to start against a potentially incompatible database:', e.message);
+  process.exit(1);
 }
 
 // Step 3: Seed admin user (idempotent — only creates if empty)
