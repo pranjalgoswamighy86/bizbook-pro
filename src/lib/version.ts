@@ -48,5 +48,16 @@
 // vehicle number before expiry. Sale register gains "Generate EWB" and
 // "Record EWB" buttons (truck icon) alongside the existing "Record IRN"
 // button. Blue truck badge appears next to invoice number once EWB is recorded.
-export const APP_VERSION = 'v6.31.0'
-export const APP_BUILD_DATE = '2026-11-24'
+// v6.32.0: Per-tenant GSP credentials + GST compliance metadata — replaces
+// shared global IRP_GSP_* env vars with per-customer encrypted credential
+// storage (AES-256-GCM). New src/lib/gsp-credentials.ts handles encrypt/
+// decrypt/load/save. Each customer uses their OWN authorised GST identity.
+// Tenant model gains: gspCode, gspClientIdEnc, gspClientSecretEnc,
+// gspUsernameEnc, gspPasswordEnc, irpEnv, aato, businessType, stateCode,
+// einvoicingApplicable, einvoiceReportingDays, einvoicingNotifiedFrom,
+// ewbApplicable. EWB threshold changed from blocking to advisory — voluntary
+// generation below Rs.50,000 is now allowed. getEffectiveGspConfig() falls
+// back to env vars for backward compat. Set GSP_CREDENTIALS_ENCRYPTION_KEY
+// env var to enable encryption at rest.
+export const APP_VERSION = 'v6.32.0'
+export const APP_BUILD_DATE = '2026-11-25'
