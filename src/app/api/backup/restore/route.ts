@@ -259,6 +259,14 @@ export async function POST(req: NextRequest) {
 
     for (const [label, model] of TABLE_ORDER) {
       const sourceRows = getBackupRows(backupData.data, label, model)
+      if (tenantId && (model === 'user' || model === 'userTenant')) {
+        // Older tenant backups may contain password hashes and memberships.
+        // They are intentionally not imported by business administrators.
+        const skipped = sourceRows.length
+        totalSkipped += skipped
+        results.push({ table: label, imported: 0, updated: 0, skipped })
+        continue
+      }
       let records = sourceRows
       if (tenantId) {
         if (model === 'tenant') {
