@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { rawDb } from '@/lib/db-soft-delete'
 import { verifyPassword } from '@/lib/auth'
 import { requireAuth } from '@/lib/api-helpers'
+import { checkLoginRateLimit, clearLoginAttempts, getClientIP, recordLoginAttempt } from '@/lib/rate-limit-db'
 
 /**
  * Database Restore API — v4.120
@@ -9,22 +10,14 @@ import { requireAuth } from '@/lib/api-helpers'
  * POST /api/backup/restore
  * Body: { "email": "...", "password": "...", "backupData": {...} }
  *
- * v4.120 CHANGES:
- *   1. Authentication now accepts EITHER:
- *      - The password from the BACKUP file (original behavior), OR
- *      - The password from the CURRENT database (new — lets admin restore
- *        even when they don't remember the old password)
- *   2. Uses upsert instead of create — existing records are UPDATED, not skipped.
- *      This fixes the "duplicate key" error when admin@bizbook.pro already exists.
- *   3. Handles the seeded admin user: updates its password hash, role, and tenantId
- *      to match the backup, so the admin can log in with their original password
- *      after restore.
+ * Security requirements:
+ *   - A live BizBook Pro session is required.
+ *   - The session email must be a configured system administrator.
+ *   - The password is verified against that account in the current database.
+ *   - The backup must contain the same administrator identity.
  *
- * The restore process:
- *   1. Verifies the user's credentials (backup OR current DB)
- *   2. Validates the backup structure
- *   3. Imports all tables in dependency order using upsert
- *   4. Returns a summary of what was restored
+ * Restore upserts all supported tables by ID and can overwrite records
+ * across every tenant. Only use a trusted backup after taking a fresh copy.
  */
 
 export const maxDuration = 600 // 10 minutes
@@ -88,6 +81,15 @@ export async function POST(req: NextRequest) {
     const backupData = body.backupData
     const sessionEmail = auth.email.toLowerCase().trim()
 
+    const clientIP = getClientIP(req)
+    const rateLimit = await checkLoginRateLimit(sessionEmail, clientIP)
+    if (!rateLimit.allowed) {
+      return NextResponse.json(
+        { error: 'Too many restore authentication attempts. Please try again later.' },
+        { status: 429, headers: { 'Retry-After': String(rateLimit.retryAfterSeconds) } }
+      )
+    }
+
     if (email !== sessionEmail) {
       return NextResponse.json({ error: 'The restore email must match the signed-in administrator.' }, { status: 403 })
     }
@@ -110,8 +112,11 @@ export async function POST(req: NextRequest) {
       select: { password: true },
     })
     if (!currentUser || !verifyPassword(password, currentUser.password)) {
+      await recordLoginAttempt(sessionEmail, clientIP, false)
       return NextResponse.json({ error: 'Invalid administrator password.' }, { status: 401 })
     }
+
+    await clearLoginAttempts(sessionEmail)
 
     // The backup must contain the same administrator identity. Its password
     // hash is not used for authentication; only the current DB password is trusted.
