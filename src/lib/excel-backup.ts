@@ -87,6 +87,35 @@ async function safeTenantUpsert(
   } else if (model === 'staffAttendance') {
     const staffOk = await parentRecordBelongsToTenant('staff', candidate.staffId, tenantId)
     if (!staffOk) throw new Error('Attendance record references staff from another business.')
+  } else if (model === 'salaryPayment') {
+    const [staffOk, creditorOk, accrualOk, disbursementOk] = await Promise.all([
+      parentRecordBelongsToTenant('staff', candidate.staffId, tenantId),
+      candidate.creditorId ? parentRecordBelongsToTenant('creditor', candidate.creditorId, tenantId) : Promise.resolve(true),
+      candidate.accrualJEId ? parentRecordBelongsToTenant('journalEntry', candidate.accrualJEId, tenantId) : Promise.resolve(true),
+      candidate.disbursementJEId ? parentRecordBelongsToTenant('journalEntry', candidate.disbursementJEId, tenantId) : Promise.resolve(true),
+    ])
+    if (!staffOk || !creditorOk || !accrualOk || !disbursementOk) {
+      throw new Error('Salary payment references records from another business.')
+    }
+  } else if (model === 'bankTransaction') {
+    const [saleOk, purchaseOk] = await Promise.all([
+      candidate.matchedSaleId ? parentRecordBelongsToTenant('sale', candidate.matchedSaleId, tenantId) : Promise.resolve(true),
+      candidate.matchedPurchaseId ? parentRecordBelongsToTenant('purchase', candidate.matchedPurchaseId, tenantId) : Promise.resolve(true),
+    ])
+    if (!saleOk || !purchaseOk) throw new Error('Bank transaction matches a record from another business.')
+  } else if (model === 'journalEntry' && candidate.sourceId) {
+    const sourceModelByType: Record<string, string> = {
+      SALE: 'sale',
+      PURCHASE: 'purchase',
+      EXPENSE: 'expense',
+      PAYMENT: 'payment',
+      RECEIPT: 'receipt',
+    }
+    const sourceModel = sourceModelByType[String(candidate.sourceType || '').toUpperCase()]
+    const sourceOk = sourceModel
+      ? await parentRecordBelongsToTenant(sourceModel, candidate.sourceId, tenantId)
+      : String(candidate.sourceType || '').toUpperCase() === 'MANUAL'
+    if (!sourceOk) throw new Error('Journal entry source belongs to another business.')
   } else if (model === 'account' && candidate.parentId) {
     const parentAccountOk = await parentRecordBelongsToTenant('account', candidate.parentId, tenantId)
     if (!parentAccountOk) throw new Error('Account references a parent account from another business.')
