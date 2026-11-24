@@ -138,7 +138,8 @@ const basePrisma = new PrismaClient({
 // Log hard-delete operations (from v1's db.ts)
 ;(basePrisma as any).$on('query', (e: { query: string; duration: number }) => {
   const q = e.query.toLowerCase().trim()
-  if (q.startsWith('delete') || q.includes('delete from')) {
+  // LoginAttempt is ephemeral rate-limit/security telemetry; retention cleanup is expected.
+  if ((q.startsWith('delete') || q.includes('delete from')) && !/\bloginattempt\b/i.test(q)) {
     console.warn(`[DB-PROTECTION] HARD DELETE detected! Should use soft-delete: ${e.query.slice(0, 300)}...`)
   }
 })
