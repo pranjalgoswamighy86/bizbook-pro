@@ -572,11 +572,11 @@ export function SaleRegister() {
 
   const handlePrepareEinvoice = async () => {
     if (!tenant || !einvoiceSale) return
-    if (sellerPinCode && !/^[1-9]\\d{5}$/.test(sellerPinCode.trim())) {
+    if (sellerPinCode && !/^[1-9]\d{5}$/.test(sellerPinCode.trim())) {
       toast({ title: 'Invalid seller PIN code', description: 'Enter a valid six-digit Indian PIN code.', variant: 'destructive' })
       return
     }
-    if (buyerPinCode && !/^[1-9]\\d{5}$/.test(buyerPinCode.trim())) {
+    if (buyerPinCode && !/^[1-9]\d{5}$/.test(buyerPinCode.trim())) {
       toast({ title: 'Invalid buyer PIN code', description: 'Enter a valid six-digit Indian PIN code.', variant: 'destructive' })
       return
     }
@@ -1680,11 +1680,11 @@ export function SaleRegister() {
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="space-y-1">
                   <Label htmlFor="einvoice-seller-pin">Seller registered-address PIN (if missing above)</Label>
-                  <Input id="einvoice-seller-pin" inputMode="numeric" maxLength={6} value={sellerPinCode} onChange={e => setSellerPinCode(e.target.value.replace(/\\D/g, '').slice(0, 6))} placeholder="6-digit PIN" />
+                  <Input id="einvoice-seller-pin" inputMode="numeric" maxLength={6} value={sellerPinCode} onChange={e => setSellerPinCode(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="6-digit PIN" />
                 </div>
                 <div className="space-y-1">
                   <Label htmlFor="einvoice-buyer-pin">Buyer billing-address PIN (if missing above)</Label>
-                  <Input id="einvoice-buyer-pin" inputMode="numeric" maxLength={6} value={buyerPinCode} onChange={e => setBuyerPinCode(e.target.value.replace(/\\D/g, '').slice(0, 6))} placeholder="6-digit PIN" />
+                  <Input id="einvoice-buyer-pin" inputMode="numeric" maxLength={6} value={buyerPinCode} onChange={e => setBuyerPinCode(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="6-digit PIN" />
                 </div>
               </div>
               <Button onClick={handlePrepareEinvoice} disabled={einvoiceBusy} className="w-full">
