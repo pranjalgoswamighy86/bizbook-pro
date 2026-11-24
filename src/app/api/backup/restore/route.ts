@@ -12,8 +12,8 @@ const TABLE_ORDER: Array<[string, string]> = [
   ['UserTenant', 'userTenant'],
   ['Party', 'party'],
   ['Product', 'product'],
-  ['ProductIngredient', 'productIngredient'],
   ['InventoryItem', 'inventoryItem'],
+  ['ProductIngredient', 'productIngredient'],
   ['Sale', 'sale'],
   ['Purchase', 'purchase'],
   ['Expense', 'expense'],
@@ -41,8 +41,8 @@ const TABLE_ORDER: Array<[string, string]> = [
 
 const OWNERSHIP_SELECT: Record<string, Record<string, boolean>> = {
   tenant: { id: true },
-  user: { tenantId: true },
-  userTenant: { tenantId: true },
+  user: { tenantId: true, role: true },
+  userTenant: { tenantId: true, isOwner: true },
   party: { tenantId: true },
   product: { tenantId: true },
   productIngredient: { productId: true, inventoryItemId: true },
@@ -259,16 +259,19 @@ export async function POST(req: NextRequest) {
       let imported = 0
       let updated = 0
       let skipped = Math.max(0, sourceRows.length - records.length)
+      totalSkipped += skipped
       let errorMsg: string | undefined
 
       for (const record of records) {
         try {
           if (!record || typeof record !== 'object' || Array.isArray(record) || typeof record.id !== 'string' || !record.id) {
             skipped++
+            totalSkipped++
             continue
           }
           if (tenantId && !(await recordBelongsToTenant(model, record, tenantId))) {
             skipped++
+            totalSkipped++
             continue
           }
 
@@ -318,7 +321,6 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      totalSkipped += Math.max(0, sourceRows.length - records.length)
       results.push({ table: label, imported, updated, skipped, error: errorMsg })
     }
 
