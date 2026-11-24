@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthAndRole, writeAuditLog } from '@/lib/api-helpers'
 import { db } from '@/lib/db-soft-delete'
+import sharp from 'sharp'
 
 // =====================================================================
 // POST /api/upload-logo — uploads a company logo, compresses to ~25KB,
@@ -71,7 +72,6 @@ export async function POST(req: NextRequest) {
     let compressedBuffer = buffer
 
     try {
-      const sharp = require('sharp')
       for (let attempt = 0; attempt < 10; attempt++) {
         compressedBuffer = await sharp(buffer)
           .resize(width, null, { withoutEnlargement: true })
