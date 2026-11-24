@@ -61,6 +61,7 @@ model Tenant {
   journalEntries  JournalEntry[]
   subscriptionQueue SubscriptionQueue[]
   staffAttendance StaffAttendance[]
+  autocompleteIndexes AutocompleteIndex[]
 }
 
 model User {
@@ -832,4 +833,23 @@ model LoginAttempt {
 
   @@index([email, attemptedAt]) // fast lookup by email
   @@index([ip, attemptedAt])    // fast lookup by IP
+}
+
+
+// Persistent, tenant-scoped autocomplete suggestions used by Smart Import.
+model AutocompleteIndex {
+  id         String   @id @default(cuid())
+  tenantId   String
+  fieldType  String
+  value      String
+  useCount   Int      @default(1)
+  source     String   @default("manual")
+  lastUsedAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, fieldType, value])
+  @@index([tenantId, fieldType, lastUsedAt])
 }
