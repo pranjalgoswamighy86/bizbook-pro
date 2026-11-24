@@ -23,11 +23,10 @@ import { requireAuth } from '@/lib/api-helpers'
 
 // Hardcoded super admin emails (must match rbac/enforce-v2.ts)
 const SUPER_ADMIN_EMAILS = [
-  'admin@bizbook.pro',
-  'pranjalgoswamighy86@gmail.com',
-  (process.env.ADMIN_EMAIL || '').toLowerCase(),
-  (process.env.INFRASTRUCTURE_OWNER_EMAIL || '').toLowerCase(),
-].filter(Boolean).map(e => e.toLowerCase())
+  process.env.ADMIN_EMAIL || '',
+  process.env.INFRA_OWNER_EMAIL || '',
+  process.env.INFRASTRUCTURE_OWNER_EMAIL || '',
+].map(value => value.toLowerCase().trim()).filter(Boolean).map(e => e.toLowerCase())
 
 function isSuperAdmin(email: string | undefined | null): boolean {
   if (!email) return false
