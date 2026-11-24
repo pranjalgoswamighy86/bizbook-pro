@@ -548,6 +548,9 @@ export function SaleRegister() {
   // ===== PRINT INVOICE =====
   const handleGenerateEinvoice = async (sale: Sale) => {
     if (!tenant) return
+    // Open a tab immediately from the user's click so mobile/desktop popup
+    // blockers do not prevent the manual IRP hand-off after the API responds.
+    const irpWindow = window.open('about:blank', '_blank')
     try {
       // v6.28.0: CRITICAL FIX — call the REAL IRP integration (submit-to-irp)
       // instead of the fake-hash generate-payload flow. Previously this handler
@@ -570,6 +573,7 @@ export function SaleRegister() {
       const data = await res.json()
 
       if (res.ok && data.success && data.mode === 'LIVE') {
+        if (irpWindow && !irpWindow.closed) irpWindow.close()
         // Real IRN generated — refresh the sales list to show the green checkmark
         fetchSales()
         toast({
@@ -580,43 +584,82 @@ export function SaleRegister() {
       }
 
       if (res.ok && data.mode === 'MANUAL' && data.inv01Payload) {
-        // IRP not configured — show the payload for manual submission to GSP portal
-        const einvoiceWindow = window.open('', '_blank', 'width=900,height=700')
-        if (einvoiceWindow) {
-          einvoiceWindow.document.write(`<!DOCTYPE html><html><head><title>E-Invoice - ${sale.invoiceNumber}</title>
-          <style>body{font-family:monospace;padding:20px;font-size:12px;}pre{background:#f5f5f5;padding:15px;border-radius:8px;overflow-x:auto;white-space:pre-wrap;word-break:break-all;}h2{color:#10b981;margin-bottom:10px;}.info{margin-bottom:15px;padding:10px;background:#f0fdf4;border-radius:6px;border:1px solid #10b981;}.step{margin:10px 0;padding:10px;background:#fef3c7;border-radius:6px;border-left:4px solid #f59e0b;}.warn{margin:10px 0;padding:10px;background:#fef2f2;border-radius:6px;border-left:4px solid #ef4444;}</style></head><body>
-          <h2>GST E-Invoice Payload (INV-01 Schema) — MANUAL MODE</h2>
-          <div class="warn"><strong>IRP credentials not configured.</strong> The system could not submit directly to NIC. You must submit this payload manually via your GSP/IRP portal.</div>
-          <div class="info"><strong>Invoice:</strong> ${sale.invoiceNumber} | <strong>Generated:</strong> ${new Date().toLocaleString()}</div>
-          <div class="step"><strong>Next steps:</strong>
-            <ol style="margin:8px 0 0 20px;padding:0;">
-              <li>Copy the JSON below</li>
-              <li>Log in to your IRP/GSP portal (e.g., NIC, Clear, Master India)</li>
-              <li>Submit the JSON to generate the official IRN</li>
-              <li>Copy the IRN, Ack No, and Ack Date from the IRP response</li>
-              <li>Return to BizBook Pro → open the sale → click "Update E-Invoice Status" and paste those values</li>
-            </ol>
-          </div>
-          <pre>${JSON.stringify(data.inv01Payload, null, 2)}</pre>
-          <div style="margin-top:15px;"><button onclick="navigator.clipboard.writeText(document.querySelector('pre').textContent);this.textContent='Copied!';setTimeout(()=>this.textContent='Copy JSON',2000)" style="padding:8px 20px;background:#10b981;color:white;border:none;border-radius:6px;cursor:pointer;font-size:14px;">Copy JSON</button></div>
-          </body></html>`)
-          einvoiceWindow.document.close()
+        // No paid GSP subscription is required for this user-driven workflow.
+        // Download the prepared payload and send the user to the IRIS IRP portal.
+        const irpUrl = 'https://einvoice6.gst.gov.in/'
+        if (irpWindow) {
+          irpWindow.location.href = irpUrl
+        } else {
+          toast({
+            title: 'IRP portal pop-up blocked',
+            description: 'Allow pop-ups for BizBook Pro, then choose E-Invoice again to open the IRIS IRP portal.',
+            variant: 'destructive',
+          })
         }
+
+        const payloadBlob = new Blob([JSON.stringify(data.inv01Payload, null, 2)], { type: 'application/json' })
+        const payloadUrl = URL.createObjectURL(payloadBlob)
+        const download = document.createElement('a')
+        const safeInvoiceNumber = String(sale.invoiceNumber || 'invoice').replace(/[^a-zA-Z0-9-_]/g, '_')
+        download.href = payloadUrl
+        download.download = `BizBook-Pro-EInvoice-${safeInvoiceNumber}.json`
+        document.body.appendChild(download)
+        download.click()
+        download.remove()
+        window.setTimeout(() => URL.revokeObjectURL(payloadUrl), 1000)
+
         toast({
-          title: 'E-Invoice Payload Generated (MANUAL)',
-          description: 'IRP not configured. Submit the JSON to your GSP portal manually.',
+          title: 'IRIS IRP opened — manual e-invoice',
+          description: 'Your invoice JSON has been downloaded. Sign in with this business GSTIN, generate the IRN on IRIS, then return to BizBook Pro and save the IRN and acknowledgement details.',
+          duration: 9000,
         })
         return
       }
 
       // Live error or unexpected response
+      if (irpWindow && !irpWindow.closed) irpWindow.close()
       toast({
         title: 'E-Invoice Error',
         description: data.error || 'Failed to generate e-invoice. Check IRP credentials and try again.',
         variant: 'destructive',
       })
     } catch {
+      if (irpWindow && !irpWindow.closed) irpWindow.close()
       toast({ title: 'Error', description: 'Failed to generate e-invoice', variant: 'destructive' })
+    }
+  }
+
+  const handleRecordManualEinvoice = async (sale: Sale) => {
+    const irn = window.prompt('Paste the 64-character IRN generated by the IRP portal:')
+    if (!irn) return
+    const ackNo = window.prompt('Enter the IRP acknowledgement number:')
+    if (!ackNo) return
+    const ackDate = window.prompt('Enter the IRP acknowledgement date/time exactly as shown (for example: 2026-11-24 14:30:00):')
+    if (!ackDate) return
+
+    try {
+      const res = await authFetch('/api/einvoice', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'update-status',
+          tenantId: tenant?.id,
+          saleId: sale.id,
+          irn: irn.trim(),
+          ackNo: ackNo.trim(),
+          ackDate: ackDate.trim(),
+          status: 'GENERATED',
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        toast({ title: 'Could not save IRP details', description: data.error || 'Please verify the IRN and acknowledgement details.', variant: 'destructive' })
+        return
+      }
+      await fetchSales()
+      toast({ title: 'E-Invoice details saved', description: `IRN recorded for invoice ${sale.invoiceNumber}.` })
+    } catch {
+      toast({ title: 'Network error', description: 'Could not save the IRP details. Please try again.', variant: 'destructive' })
     }
   }
 
@@ -837,7 +880,16 @@ export function SaleRegister() {
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-1">
                           <Button variant="ghost" size="icon" className="h-8 w-8" title="Print Invoice" onClick={() => handlePrintInvoice(s)}><Printer className="h-4 w-4" /></Button>
-                          {s.partyGst && <Button variant="ghost" size="icon" className="h-8 w-8" title="Generate E-Invoice" onClick={() => handleGenerateEinvoice(s)}><FileCheck className="h-4 w-4" /></Button>}
+                          {s.partyGst && s.invoiceStatus !== 'QUOTATION' && (
+                            <Button variant="outline" size="sm" className="h-8 gap-1 px-2" title="Prepare e-invoice and open IRIS IRP" onClick={() => handleGenerateEinvoice(s)}>
+                              <FileCheck className="h-4 w-4" /><span className="text-xs">E-Invoice</span>
+                            </Button>
+                          )}
+                          {s.partyGst && s.invoiceStatus !== 'QUOTATION' && s.einvoiceStatus !== 'GENERATED' && (
+                            <Button variant="ghost" size="sm" className="h-8 px-2 text-xs" title="Record IRN and acknowledgement details from IRIS IRP" onClick={() => handleRecordManualEinvoice(s)}>
+                              Record IRN
+                            </Button>
+                          )}
                           <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setViewItem(s)}><Eye className="h-4 w-4" /></Button>
                           {/* v4.106: Show Confirm button for Quotation sales */}
                           {s.invoiceStatus === 'QUOTATION' && canEdit(user?.role || 'VIEW_ONLY') && (
