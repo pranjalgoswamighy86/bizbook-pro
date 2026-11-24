@@ -18,9 +18,16 @@ import { writeFile, mkdir, readFile, unlink, readdir, stat } from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
 
-const BACKUP_DIR = path.join(process.cwd(), 'db', 'excel-backups')
+// Railway's mounted volume survives container replacement and redeploys.
+const VOLUME_MOUNT_PATH = process.env.RAILWAY_VOLUME_MOUNT_PATH?.trim()
+const CONFIGURED_BACKUP_PATH = process.env.BIZBOOK_BACKUP_DIR?.trim()
+const BACKUP_DIR = path.resolve(
+  CONFIGURED_BACKUP_PATH ||
+    (VOLUME_MOUNT_PATH
+      ? path.join(VOLUME_MOUNT_PATH, 'excel-backups')
+      : path.join(process.cwd(), 'db', 'excel-backups'))
+)
 const DEBOUNCE_MS = 30_000 // 30 seconds between auto-backups per tenant
-const MAX_BACKUPS_PER_TENANT = 10 // Keep last 10 Excel backups per tenant
 
 // Track last backup time per tenant (in-memory debounce)
 const lastBackupTime = new Map<string, number>()
@@ -245,42 +252,9 @@ async function generateAndSaveBackup(tenantId: string, trigger: string): Promise
   await writeFile(latestPath, JSON.stringify(info, null, 2))
 
   // v4.157: No cleanup needed — single file overwrites itself
-  // (was: cleanupOldBackups(tenantId) which kept last 10)
 
   console.log(`[AUTO-BACKUP] Updated: ${filename} (${meta.totalRecords} records, ${(buffer.length / 1024).toFixed(1)}KB, trigger: ${trigger})`)
 
   return info
 }
 
-async function cleanupOldBackups(tenantId: string): Promise<void> {
-  const tenantDir = path.join(BACKUP_DIR, tenantId)
-  if (!existsSync(tenantDir)) return
-
-  try {
-    const files = await readdir(tenantDir)
-    const xlsxFiles = files
-      .filter(f => f.startsWith('backup_') && f.endsWith('.xlsx'))
-      .map(f => ({
-        name: f,
-        time: f.replace('backup_', '').replace('.xlsx', ''),
-      }))
-      .sort((a, b) => b.time.localeCompare(a.time)) // newest first
-
-    // Delete old backups beyond the limit
-    if (xlsxFiles.length > MAX_BACKUPS_PER_TENANT) {
-      const toDelete = xlsxFiles.slice(MAX_BACKUPS_PER_TENANT)
-      for (const file of toDelete) {
-        const filePath = path.join(tenantDir, file.name)
-        await unlink(filePath).catch(() => {})
-
-        // Also delete corresponding info file
-        const infoFile = file.name.replace('.xlsx', '.json')
-        const infoPath = path.join(tenantDir, infoFile)
-        await unlink(infoPath).catch(() => {})
-      }
-      console.log(`[AUTO-BACKUP] Cleaned up ${toDelete.length} old backups for tenant ${tenantId}`)
-    }
-  } catch (err) {
-    console.error(`[AUTO-BACKUP] Cleanup failed for tenant ${tenantId}:`, err)
-  }
-}
