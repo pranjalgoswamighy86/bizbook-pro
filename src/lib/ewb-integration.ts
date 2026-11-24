@@ -345,7 +345,8 @@ export async function cancelEwb(
  */
 export async function extendEwb(
   ewbNo: string,
-  transporter: TransporterDetails
+  transporter: TransporterDetails,
+  config: TenantGspConfig | null
 ): Promise<EwbResult> {
   if (!config || !isIrpConfigured(config)) {
     return {
