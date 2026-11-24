@@ -81,7 +81,15 @@ export function verifyTOTP(secret: string, token: string): boolean {
     // Remove any spaces or dashes the user might have typed
     const cleanToken = token.replace(/[\s-]/g, '')
 
-    const result = verifySync({ token: cleanToken, secret, digits: TOTP_CONFIG.digits, period: TOTP_CONFIG.step, window: TOTP_CONFIG.window, algorithm: 'sha1' })
+    const result = verifySync({
+      token: cleanToken,
+      secret,
+      digits: TOTP_CONFIG.digits,
+      period: TOTP_CONFIG.step,
+      // otplib v13 expresses the former step-based window as seconds.
+      epochTolerance: TOTP_CONFIG.window * TOTP_CONFIG.step,
+      algorithm: 'sha1',
+    })
     return result.valid === true
   } catch {
     return false
