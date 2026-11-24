@@ -948,11 +948,27 @@ async function handleApplyImport(req: NextRequest, formData: FormData, tenantId:
     return NextResponse.json({ error: 'No importData provided' }, { status: 400 })
   }
 
+  if (importDataRaw.length > 5 * 1024 * 1024) {
+    return NextResponse.json({ error: 'Import payload exceeds the 5 MB limit. Split the source into smaller batches.' }, { status: 413 })
+  }
+
   let importData: any
   try {
     importData = JSON.parse(importDataRaw)
   } catch {
     return NextResponse.json({ error: 'importData is not valid JSON' }, { status: 400 })
+  }
+  if (!importData || typeof importData !== 'object' || Array.isArray(importData)) {
+    return NextResponse.json({ error: 'importData must be a JSON object containing module arrays.' }, { status: 400 })
+  }
+  const importModules = ['sales', 'purchases', 'expenses', 'products', 'parties', 'staff', 'bankTransactions'] as const
+  for (const module of importModules) {
+    if (importData[module] !== undefined && !Array.isArray(importData[module])) {
+      return NextResponse.json({ error: `Import module "${module}" must be an array.` }, { status: 400 })
+    }
+    if (Array.isArray(importData[module]) && importData[module].length > MAX_ROWS_PER_MODULE) {
+      return NextResponse.json({ error: `Import module "${module}" exceeds the ${MAX_ROWS_PER_MODULE}-record limit. Split the import into smaller batches.` }, { status: 413 })
+    }
   }
 
   const tid = auth.tenantId
@@ -1192,11 +1208,18 @@ async function handleApplyImport(req: NextRequest, formData: FormData, tenantId:
       model: any,
       records: any[],
       buildRow: (r: any) => any,
+      findDuplicate?: (row: any) => Promise<any>,
     ) => {
       initResult(module, records.length)
       for (const rec of records) {
         try {
-          await model.create({ data: { ...buildRow(rec), tenantId: tid } })
+          const row = buildRow(rec)
+          if (findDuplicate && await findDuplicate(row)) {
+            results[module].skipped++
+            results[module].errors.push(`${module} record "${row.name || row.description || 'record'}": skipped as duplicate`)
+            continue
+          }
+          await model.create({ data: { ...row, tenantId: tid } })
           results[module].created++
         } catch (err: any) {
           results[module].failed++
@@ -1218,7 +1241,7 @@ async function handleApplyImport(req: NextRequest, formData: FormData, tenantId:
         gstRate: requireImportNumber(p.gstRate ?? 0, 'Product GST rate'),
         value: roundTo2(requireImportNumber(p.currentStock ?? 0, 'Product current stock') * requireImportNumber(p.purchasePrice ?? 0, 'Product purchase price')),
         createdBy: uid,
-      }))
+      }), (row: any) => db.inventoryItem.findFirst({ where: { tenantId: tid, name: row.name, isDeleted: false }, select: { id: true } }))
     }
 
     if (Array.isArray(importData.parties) && importData.parties.length > 0) {
@@ -1232,7 +1255,14 @@ async function handleApplyImport(req: NextRequest, formData: FormData, tenantId:
         address: p.address || null,
         phone: p.phone || null,
         gstNumber: p.gstNumber || null,
-        currentBalance: Number(p.currentBalance || 0),
+        currentBalance: requireImportNumber(p.currentBalance ?? 0, 'Party current balance', -Number.MAX_SAFE_INTEGER),
+      }), (row: any) => db.party.findFirst({
+        where: {
+          tenantId: tid,
+          isDeleted: false,
+          OR: row.gstNumber ? [{ gstNumber: row.gstNumber }, { name: row.name }] : [{ name: row.name }],
+        },
+        select: { id: true },
       }))
     }
 
@@ -1242,18 +1272,41 @@ async function handleApplyImport(req: NextRequest, formData: FormData, tenantId:
         role: s.role || 'Staff',
         salary: requireImportNumber(s.salary ?? 0, 'Staff salary'),
         phone: s.phone || null,
+      }), (row: any) => db.staff.findFirst({
+        where: {
+          tenantId: tid,
+          isDeleted: false,
+          OR: row.phone ? [{ phone: row.phone }, { name: row.name }] : [{ name: row.name }],
+        },
+        select: { id: true },
       }))
     }
 
     if (Array.isArray(importData.bankTransactions) && importData.bankTransactions.length > 0) {
-      await bulkCreateSimple('bankTransactions', db.bankTransaction, importData.bankTransactions, (b: any) => ({
-        date: requireImportDate(b.date, 'Bank transaction date'),
-        description: requireImportText(b.description, 'Bank transaction description'),
-        deposit: requireImportNumber(b.deposit ?? 0, 'Bank deposit'),
-        withdrawal: requireImportNumber(b.withdrawal ?? 0, 'Bank withdrawal'),
-        balance: requireImportNumber(b.balance ?? 0, 'Bank balance', -Number.MAX_SAFE_INTEGER),
-        category: b.category || null,
-        bankName: b.bankName || null,
+      await bulkCreateSimple('bankTransactions', db.bankTransaction, importData.bankTransactions, (b: any) => {
+        const deposit = requireImportNumber(b.deposit ?? 0, 'Bank deposit')
+        const withdrawal = requireImportNumber(b.withdrawal ?? 0, 'Bank withdrawal')
+        if (deposit === 0 && withdrawal === 0) throw new Error('Bank transaction must have a deposit or withdrawal amount.')
+        return {
+          date: requireImportDate(b.date, 'Bank transaction date'),
+          description: requireImportText(b.description, 'Bank transaction description'),
+          deposit,
+          withdrawal,
+          balance: requireImportNumber(b.balance ?? 0, 'Bank balance', -Number.MAX_SAFE_INTEGER),
+          category: b.category || null,
+          bankName: b.bankName || null,
+        }
+      }, (row: any) => db.bankTransaction.findFirst({
+        where: {
+          tenantId: tid,
+          isDeleted: false,
+          date: row.date,
+          description: row.description,
+          deposit: row.deposit,
+          withdrawal: row.withdrawal,
+          balance: row.balance,
+        },
+        select: { id: true },
       }))
     }
 
