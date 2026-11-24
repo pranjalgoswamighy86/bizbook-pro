@@ -170,7 +170,7 @@ export function AttendanceRegister() {
 
     window.addEventListener('keydown', handleKeydown)
     return () => window.removeEventListener('keydown', handleKeydown)
-  }, [fingerprintMode, staffList]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [fingerprintMode, staffList])
 
   // Play a beep sound for scan feedback
   const playBeep = (success: boolean) => {
