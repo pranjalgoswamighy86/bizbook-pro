@@ -279,7 +279,7 @@ export async function POST(req: NextRequest) {
         }, { status: 409 })
       }
 
-      // v4.124: Master mobile bypass for register-verify
+      // Apply the same explicitly configured shared-phone uniqueness exception.
       if (!isMasterMobile(businessPhone)) {
         const existingPhoneTenant = await findTenantByPhone(businessPhone)
         if (existingPhoneTenant) {
