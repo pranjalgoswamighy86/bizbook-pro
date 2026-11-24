@@ -99,6 +99,21 @@ async function performAutoDownload(
     const res = await fetch(`/api/auto-backup?action=download-all&tenantId=${tenantId}&companyName=${safeName}&fixedFilename=${encodeURIComponent(fixedFilename)}`)
 
     if (!res.ok) {
+      // Full business exports are restricted to MAIN_ADMIN. For another
+      // authenticated tenant member, keep the automatic backup workflow
+      // alive on the server without returning the entire workbook to them.
+      if (res.status === 403) {
+        const triggerResponse = await fetch('/api/auto-backup', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'trigger', tenantId, trigger }),
+        })
+        if (triggerResponse.ok) {
+          console.info('[AUTO-BACKUP-CLIENT] Server-side tenant backup triggered (local export is admin-only).')
+          return
+        }
+      }
       console.error(`[AUTO-BACKUP-CLIENT] Download request failed: ${res.status}`)
       return
     }
