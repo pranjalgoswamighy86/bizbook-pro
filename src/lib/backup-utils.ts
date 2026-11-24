@@ -29,6 +29,7 @@ const BACKUP_TABLES: BackupTable[] = [
   { model: 'bankStatementUpload', label: 'BankStatementUpload', tenantWhere: (tenantId) => ({ tenantId }) },
   { model: 'staff', label: 'Staff', tenantWhere: (tenantId) => ({ tenantId }) },
   { model: 'salaryPayment', label: 'SalaryPayment', tenantWhere: (tenantId) => ({ tenantId }) },
+  { model: 'staffAttendance', label: 'StaffAttendance', tenantWhere: (tenantId) => ({ tenantId, staff: { is: { tenantId } } }) },
   { model: 'payment', label: 'Payment', tenantWhere: (tenantId) => ({ tenantId }) },
   { model: 'receipt', label: 'Receipt', tenantWhere: (tenantId) => ({ tenantId }) },
   { model: 'debtor', label: 'Debtor', tenantWhere: (tenantId) => ({ tenantId }) },
@@ -87,7 +88,7 @@ export async function buildBackupRecords(tenantId: string | null, take = 100000)
 
   for (const table of BACKUP_TABLES) {
     // Business exports never include login credentials or role/ownership memberships.
-    if (tenantId && (table.model === 'user' || table.model === 'userTenant')) {
+    if (tenantId && ['user', 'userTenant', 'subscription', 'subscriptionQueue', 'recharge', 'usageLog', 'auditLog', 'helpSupportTicket'].includes(table.model)) {
       data[table.label] = []
       continue
     }
