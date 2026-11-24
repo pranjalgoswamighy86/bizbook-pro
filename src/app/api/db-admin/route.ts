@@ -3,7 +3,7 @@ import { db } from '@/lib/db-soft-delete'
 import { backupDatabase, getDatabaseStats } from '@/lib/db-protection'
 import fs from 'fs'
 import path from 'path'
-import { requireAuthAndRole, requireAuth } from '@/lib/api-helpers'
+import { requireAuth } from '@/lib/api-helpers'
 
 const BACKUP_DIR = path.join(process.cwd(), 'db', 'backups')
 
@@ -42,7 +42,7 @@ async function requireSystemAdmin(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
-    const { action, tenantId } = body // v4.50: Fix — tenantId was not destructured (caused ReferenceError)
+    const { action } = body
 
     if (action === 'stats') {
       // This reports database-wide counts, not just the requested tenant.
