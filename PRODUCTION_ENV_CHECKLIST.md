@@ -10,7 +10,7 @@ These env vars are required for the marketing claims on tahigo.in to be TRUE.
 ### 1. Session Security (AFK auto-logout claim)
 
 ```
-SESSION_SECRET=<32+ char random string>
+SESSION_SECRET=<SET_IN_RAILWAY_SECRET_MANAGER>
 NODE_ENV=production
 ```
 
@@ -34,7 +34,7 @@ The OTP bypass that returns OTP in plaintext JSON is now DISABLED in production 
 2. Get API key from https://app.brevo.com/settings/keys/api
 3. Set on Railway:
 ```
-BREVO_API_KEY=xkeysib-...
+BREVO_API_KEY=<SET_IN_RAILWAY_SECRET_MANAGER>
 ```
 
 **Option B — Resend (only delivers to account owner on free tier):**
@@ -42,7 +42,7 @@ BREVO_API_KEY=xkeysib-...
 2. Get API key
 3. Set on Railway:
 ```
-RESEND_API_KEY=re_...
+RESEND_API_KEY=<SET_IN_RAILWAY_SECRET_MANAGER>
 RESEND_FROM=BizBook Pro <onboarding@resend.dev>
 ```
 
@@ -52,7 +52,7 @@ SMTP_HOST=smtp.gmail.com
 SMTP_PORT=465
 SMTP_SECURE=true
 SMTP_USER=your-email@gmail.com
-SMTP_PASS=your-app-password
+SMTP_PASS=<SET_IN_RAILWAY_SECRET_MANAGER>
 SMTP_FROM=BizBook Pro <your-email@gmail.com>
 ```
 
@@ -73,7 +73,7 @@ OTP_BYPASS_ALLOWED=true
 3. Register a DLT-approved template (required by TRAI)
 4. Set on Railway:
 ```
-TWOFACTOR_API_KEY=...
+TWOFACTOR_API_KEY=<SET_IN_RAILWAY_SECRET_MANAGER>
 TWOFACTOR_SENDER_ID=BIZBOK
 TWOFACTOR_TEMPLATE_NAME=BizBook Pro OTP
 ```
@@ -84,7 +84,7 @@ TWOFACTOR_TEMPLATE_NAME=BizBook Pro OTP
 
 ```
 RAZORPAY_KEY_ID=<SET_IN_RAILWAY_SECRET_MANAGER>
-RAZORPAY_KEY_SECRET=xxxxxxxxxxxxxxxxxxxxxxxxxx
+RAZORPAY_KEY_SECRET=<SET_IN_RAILWAY_SECRET_MANAGER>
 NEXT_PUBLIC_RAZORPAY_KEY_ID=<SET_IN_RAILWAY>
 ```
 
@@ -93,7 +93,7 @@ NEXT_PUBLIC_RAZORPAY_KEY_ID=<SET_IN_RAILWAY>
 ### 5. Database (already configured ✅)
 
 ```
-DATABASE_URL=postgresql://...@...railway.app:5432/railway
+DATABASE_URL=<SET_IN_RAILWAY_SECRET_MANAGER>
 ```
 
 ---
@@ -111,7 +111,7 @@ Set on Railway:
 ```
 IRP_GSP_CODE=clear
 IRP_GSP_USERNAME=...
-IRP_GSP_PASSWORD=...
+IRP_GSP_PASSWORD=<SET_IN_RAILWAY_SECRET_MANAGER>
 IRP_GSP_CLIENT_ID=...
 IRP_GSP_CLIENT_SECRET=...
 IRP_ENV=sandbox  # or 'production' when going live
@@ -122,8 +122,8 @@ Without these, e-invoice works in MANUAL mode (user copies INV-01 JSON, submits 
 ### AI Provider Keys (for fallback when ZAI is rate-limited)
 
 ```
-OPENAI_API_KEY=sk-...
-GEMINI_API_KEY=...
+OPENAI_API_KEY=<SET_IN_RAILWAY_SECRET_MANAGER>
+GEMINI_API_KEY=<SET_IN_RAILWAY_SECRET_MANAGER>
 ANTHROPIC_API_KEY=sk-ant-...
 ```
 
