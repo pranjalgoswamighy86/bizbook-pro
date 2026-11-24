@@ -20,7 +20,7 @@ const prisma = new PrismaClient();
 async function main() {
   const count = await prisma.user.count();
   if (count === 0) {
-    console.warn('[SECURITY] No users found. No default administrator is created. Register using a verified email configured as ADMIN_EMAIL or INFRASTRUCTURE_OWNER_EMAIL.');
+    console.warn('[SECURITY] No users found. No default administrator is created. Register using a verified email configured as ADMIN_EMAIL or INFRA_OWNER_EMAIL.');
   } else {
     console.log('✓ Existing users found (' + count + ')');
   }
