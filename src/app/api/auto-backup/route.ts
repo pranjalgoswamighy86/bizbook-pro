@@ -281,6 +281,12 @@ async function handleFileUpload(req: NextRequest): Promise<NextResponse> {
 
   try {
     const buffer = Buffer.from(await file.arrayBuffer())
+    // XLSX files are ZIP containers. Reject misleading extensions before
+    // handing the bytes to the workbook parser.
+    if (buffer.length < 4 || buffer[0] !== 0x50 || buffer[1] !== 0x4b ||
+        !([0x03, 0x05, 0x07].includes(buffer[2]) && [0x04, 0x06, 0x08].includes(buffer[3]))) {
+      return NextResponse.json({ error: 'The uploaded file is not a valid XLSX workbook.' }, { status: 415 })
+    }
     const parseResult = await parseExcelBackup(buffer)
     if (!parseResult.success) {
       return NextResponse.json({
