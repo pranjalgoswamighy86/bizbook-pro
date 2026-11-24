@@ -48,6 +48,8 @@ jobs:
 
       - name: Build application
         run: npm run build
+        env:
+          DATABASE_URL: postgresql://placeholder:placeholder@localhost:5432/placeholder
 
       - name: TypeScript type check
         run: npx tsc --noEmit -p tsconfig.ci.json

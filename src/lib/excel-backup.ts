@@ -34,9 +34,7 @@ interface BackupMeta {
 interface SheetConfig {
   name: string
   header: string[]
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   getData: (tenantId: string) => Promise<any[]>
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   mapRow: (row: any) => Record<string, unknown>
 }
 

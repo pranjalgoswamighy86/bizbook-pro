@@ -81,7 +81,7 @@ function buildOptimizedQuery(message: string): string {
 
 function buildHelpKnowledgeContext(message: string): string {
   const query = message.toLowerCase()
-  const words = query.split(/[^a-z0-9]+/).filter(word => word.length >= 4)
+  const words = query.split(/[^\p{L}\p{N}]+/u).filter(word => word.length >= 2)
   const relevantFaqs = HELP_FAQS.map(faq => ({
     faq,
     score: faq.keywords.reduce((score, keyword) => score + (query.includes(keyword) ? 3 : words.some(word => keyword.includes(word) || word.includes(keyword)) ? 1 : 0), 0),
@@ -91,12 +91,19 @@ function buildHelpKnowledgeContext(message: string): string {
     return { guide, score: words.reduce((score, word) => score + (text.includes(word) ? 1 : 0), 0) }
   }).filter(item => item.score > 0).sort((a, b) => b.score - a.score).slice(0, 2)
 
+  const faqsToInclude = relevantFaqs.length > 0
+    ? relevantFaqs
+    : HELP_FAQS.map(faq => ({ faq, score: 0 }))
+  const guidesToInclude = relevantGuides.length > 0
+    ? relevantGuides
+    : HELP_GUIDES.map(guide => ({ guide, score: 0 }))
+
   return [
     'Relevant in-app FAQs:',
-    ...relevantFaqs.map(({ faq }) => `Q: ${faq.q}\nA: ${faq.a}`),
+    ...faqsToInclude.map(({ faq }) => `Q: ${faq.q}\\nA: ${faq.a}`),
     'Relevant step-by-step guides:',
-    ...relevantGuides.map(({ guide }) => `${guide.title}: ${guide.steps.map((step, index) => `${index + 1}. ${step}`).join(' ')}`),
-  ].join('\n\n')
+    ...guidesToInclude.map(({ guide }) => `${guide.title}: ${guide.steps.map((step, index) => `${index + 1}. ${step}`).join(' ')}`),
+  ].join('\\n\\n')
 }
 
 const HUMAN_REVIEW_KEYWORDS = [

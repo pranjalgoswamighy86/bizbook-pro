@@ -63,7 +63,7 @@ export function BackupPage() {
     if (!tenant) return
     loadExcelBackups()
     loadCacheStats()    // v4.156
-  }, [tenant]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [tenant])
 
   // v4.156: Track online/offline status
   useEffect(() => {

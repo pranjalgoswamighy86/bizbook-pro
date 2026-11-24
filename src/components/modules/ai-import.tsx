@@ -13,7 +13,7 @@ import {
   Sparkles, Upload, Loader2, FileText, AlertTriangle, CheckCircle2,
   ShoppingCart, Package, Receipt, Users, Building2, CreditCard,
   Banknote, ChevronDown, ChevronUp, Trash2, FileUp, Brain, Zap,
-  FileSpreadsheet, Image, File, RefreshCw, X, Plus, CheckCircle,
+  FileSpreadsheet, Image as ImageIcon, File, RefreshCw, X, Plus, CheckCircle,
   CircleDot, FileDigit, Download
 } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
@@ -206,7 +206,7 @@ function getFileIcon(fileName: string) {
   if (['xlsx', 'xls', 'csv', 'tsv'].includes(ext)) return <FileSpreadsheet className="h-5 w-5 text-emerald-600" />
   if (['docx', 'doc'].includes(ext)) return <FileText className="h-5 w-5 text-blue-600" />
   if (['pdf'].includes(ext)) return <FileText className="h-5 w-5 text-red-600" />
-  if (['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp'].includes(ext)) return <Image className="h-5 w-5 text-purple-600" />
+  if (['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp'].includes(ext)) return <ImageIcon className="h-5 w-5 text-purple-600" />
   if (['json', 'xml'].includes(ext)) return <FileDigit className="h-5 w-5 text-amber-600" />
   return <File className="h-5 w-5 text-muted-foreground" />
 }

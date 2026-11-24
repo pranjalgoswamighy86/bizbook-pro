@@ -125,7 +125,7 @@ export function AppSidebar() {
     checkMobile()
     window.addEventListener('resize', checkMobile)
     return () => window.removeEventListener('resize', checkMobile)
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [])
 
   const filteredItems = navItems.filter((item) => {
     if (!item.minRole) return true

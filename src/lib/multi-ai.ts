@@ -45,7 +45,7 @@ class DeepSeekProvider implements AIProvider {
     ];
     try {
       const res = await axios.post(url, {
-        model: process.env.DEEPSEEK_MODEL || 'deepseek-chat',
+        model: process.env.DEEPSEEK_MODEL || 'deepseek-flash',
         messages,
         temperature: options.temperature ?? 0.3,
         max_tokens: options.maxTokens ?? 2000,
@@ -133,17 +133,17 @@ class GeminiProvider implements AIProvider {
   async analyze(prompt: string, context?: string, options: AIRequestOptions = {}): Promise<string> {
     if (!this.apiKey) throw new Error('Gemini API key missing');
     const model = process.env.GEMINI_MODEL || 'gemini-3.5-flash'
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${this.apiKey}`;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
     const res = await axios.post(url, {
       contents: [{
-        parts: [{ text: context ? `Context: ${context}\\n\\n${prompt}` : prompt }]
+        parts: [{ text: context ? `Context: ${context}\n\n${prompt}` : prompt }]
       }],
       generationConfig: {
         temperature: options.temperature ?? 0.3,
         maxOutputTokens: options.maxTokens ?? 2000,
         ...(options.jsonMode ? { responseMimeType: 'application/json' } : {}),
       },
-    }, { timeout: 30000 });
+    }, { headers: { 'x-goog-api-key': this.apiKey }, timeout: 30000 });
     return res.data.candidates[0].content.parts[0].text;
   }
 
@@ -154,7 +154,7 @@ class GeminiProvider implements AIProvider {
     // which Gemini rejected.
     const { mimeType, rawBase64 } = parseImageDataUrl(imageBase64)
     const model = process.env.GEMINI_MODEL || 'gemini-3.5-flash'
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${this.apiKey}`;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
     const res = await axios.post(url, {
       contents: [{
         parts: [
@@ -167,7 +167,7 @@ class GeminiProvider implements AIProvider {
         maxOutputTokens: options.maxTokens ?? 2000,
         ...(options.jsonMode ? { responseMimeType: 'application/json' } : {}),
       },
-    }, { timeout: 45000 });
+    }, { headers: { 'x-goog-api-key': this.apiKey }, timeout: 45000 });
     return res.data.candidates[0].content.parts[0].text;
   }
 }
@@ -185,7 +185,7 @@ class ClaudeProvider implements AIProvider {
     if (!this.apiKey) throw new Error('Claude API key missing');
     const url = 'https://api.anthropic.com/v1/messages';
     const res = await axios.post(url, {
-      model: process.env.ANTHROPIC_MODEL || 'claude-3-5-haiku-20241022',
+      model: process.env.ANTHROPIC_MODEL || 'claude-haiku-4-5-20251001',
       max_tokens: options.maxTokens ?? 2000,
       messages: [{ role: 'user', content: context ? `Context: ${context}\n\n${prompt}` : prompt }]
     }, {
