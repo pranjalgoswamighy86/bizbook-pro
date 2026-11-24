@@ -15,7 +15,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { formatCurrency, formatDate, getDateFilterRange } from '@/lib/formulas'
-import { isInterStateSupply, roundTo2 } from '@/lib/gst-utils'
+import { isInterStateSupply, roundTo2, validateGSTIN } from '@/lib/gst-utils'
 import { generateInvoiceHtml } from '@/lib/invoice-templates'
 import { Plus, Pencil, Trash2, Eye, ChevronDown, X, Loader2, CheckCircle2, Printer, Package, FileCheck, Sparkles, Truck } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
@@ -101,6 +101,19 @@ export function SaleRegister() {
   const [einvoiceAckDate, setEinvoiceAckDate] = useState('')
   const [sellerPinCode, setSellerPinCode] = useState('')
   const [buyerPinCode, setBuyerPinCode] = useState('')
+  const [ewbSale, setEwbSale] = useState<Sale | null>(null)
+  const [ewbPayload, setEwbPayload] = useState<Record<string, unknown> | null>(null)
+  const [ewbBusy, setEwbBusy] = useState(false)
+  const [ewbVehicleNo, setEwbVehicleNo] = useState('')
+  const [ewbDistanceKm, setEwbDistanceKm] = useState('')
+  const [ewbTransporterId, setEwbTransporterId] = useState('')
+  const [ewbTransporterName, setEwbTransporterName] = useState('')
+  const [ewbModeOfTransport, setEwbModeOfTransport] = useState('2')
+  const [ewbTransDocNo, setEwbTransDocNo] = useState('')
+  const [ewbTransDocDate, setEwbTransDocDate] = useState('')
+  const [manualEwbNo, setManualEwbNo] = useState('')
+  const [manualEwbDate, setManualEwbDate] = useState('')
+  const [manualEwbValidUpto, setManualEwbValidUpto] = useState('')
   // Note: Invoice file upload has been moved to AI Smart Import module
   const [savedInvoiceFileRef, setSavedInvoiceFileRef] = useState<string | null>(null)
 
@@ -693,89 +706,156 @@ export function SaleRegister() {
     }
   }
 
-  const handleGenerateEwb = async (sale: Sale) => {
-    if (!tenant) return
-    const vehicleNo = window.prompt('Enter vehicle number (for example WB12AB1234):')
-    if (!vehicleNo) return
-    const distanceInput = window.prompt('Enter approximate transport distance in kilometres:')
-    if (!distanceInput) return
-    const distanceKm = Number(distanceInput)
+  // ===== E-WAY BILL WORKFLOW =====
+  const openEwbDialog = (sale: Sale) => {
+    setEwbSale(sale)
+    setEwbPayload(null)
+    setEwbVehicleNo('')
+    setEwbDistanceKm('')
+    setEwbTransporterId('')
+    setEwbTransporterName('')
+    setEwbModeOfTransport('2')
+    setEwbTransDocNo('')
+    setEwbTransDocDate('')
+    setManualEwbNo('')
+    setManualEwbDate('')
+    setManualEwbValidUpto('')
+  }
+
+  const handlePrepareEwb = async () => {
+    if (!tenant || !ewbSale) return
+    const distanceKm = Number(ewbDistanceKm)
     if (!Number.isInteger(distanceKm) || distanceKm <= 0) {
-      toast({ title: 'Invalid distance', description: 'Enter a positive whole-number distance in kilometres.', variant: 'destructive' })
+      toast({ title: 'Invalid transport distance', description: 'Enter a positive whole-number distance in kilometres.', variant: 'destructive' })
       return
     }
-    const transporterId = window.prompt('Transporter GSTIN (optional; leave blank if not applicable):') || ''
-    const ewbWindow = window.open('about:blank', '_blank')
+    const vehicleNo = ewbVehicleNo.replace(/\\s+/g, '').toUpperCase()
+    if (!vehicleNo && !ewbTransporterId.trim()) {
+      toast({ title: 'Transport details required', description: 'Enter a vehicle number or the registered transporter GSTIN.', variant: 'destructive' })
+      return
+    }
+    if (vehicleNo && !/^[A-Z]{2}\\d{1,2}[A-Z]{1,2}\\d{3,4}$/.test(vehicleNo)) {
+      toast({ title: 'Invalid vehicle number', description: 'Use the Indian vehicle number format, for example WB12AB1234.', variant: 'destructive' })
+      return
+    }
+    if (ewbTransporterId.trim() && !validateGSTIN(ewbTransporterId.trim()).valid) {
+      toast({ title: 'Invalid transporter GSTIN', description: 'Enter a valid 15-character transporter GSTIN or leave it blank.', variant: 'destructive' })
+      return
+    }
+    if (ewbModeOfTransport !== '2' && (!!ewbTransDocNo.trim() !== !!ewbTransDocDate)) {
+      toast({ title: 'Transport document details incomplete', description: 'Enter both the transport document number and date, or leave both blank.', variant: 'destructive' })
+      return
+    }
+
+    setEwbBusy(true)
     try {
       const res = await authFetch('/api/eway-bill', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          action: 'generate-payload', tenantId: tenant.id, saleId: sale.id,
-          vehicleNo: vehicleNo.trim().toUpperCase(), distanceKm, transporterId: transporterId.trim(),
-          modeOfTransport: '2',
+          action: 'generate-payload',
+          tenantId: tenant.id,
+          saleId: ewbSale.id,
+          vehicleNo,
+          distanceKm,
+          transporterId: ewbTransporterId.trim(),
+          transporterName: ewbTransporterName.trim(),
+          modeOfTransport: ewbModeOfTransport,
+          transDocNo: ewbTransDocNo.trim(),
+          transDocDate: ewbTransDocDate || undefined,
         }),
       })
       const data = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        if (ewbWindow && !ewbWindow.closed) ewbWindow.close()
-        toast({ title: 'E-Way Bill Error', description: data.error || 'Could not prepare the E-Way Bill.', variant: 'destructive' })
-        return
-      }
-      if (data.mode === 'LIVE' && data.success) {
-        if (ewbWindow && !ewbWindow.closed) ewbWindow.close()
+
+      if (res.ok && data.mode === 'LIVE' && data.success) {
+        const invoiceNumber = ewbSale.invoiceNumber
+        setEwbSale(null)
         await fetchSales()
-        toast({ title: 'E-Way Bill generated', description: `EWB No: ${data.ewbNo || 'Generated'}` })
+        toast({ title: 'E-Way Bill generated successfully', description: `EWB No: ${data.ewbNo || 'Generated'} | Invoice: ${invoiceNumber}` })
         return
       }
-      if (data.mode === 'MANUAL' && data.payload) {
-        if (ewbWindow) ewbWindow.location.href = 'https://ewaybillgst.gov.in/'
-        const blob = new Blob([JSON.stringify(data.payload, null, 2)], { type: 'application/json' })
-        const url = URL.createObjectURL(blob)
-        const link = document.createElement('a')
-        const invoice = String(sale.invoiceNumber || 'invoice').replace(/[^a-zA-Z0-9-_]/g, '_')
-        link.href = url
-        link.download = `BizBook-Pro-EWayBill-${invoice}.json`
-        document.body.appendChild(link)
-        link.click()
-        link.remove()
-        window.setTimeout(() => URL.revokeObjectURL(url), 1000)
-        toast({ title: 'E-Way Bill payload downloaded', description: 'Submit the JSON on the GST E-Way Bill portal, then use Record EWB to save the 12-digit number.', duration: 9000 })
+
+      if (res.ok && data.mode === 'MANUAL' && data.payload) {
+        setEwbPayload(data.payload)
+        toast({
+          title: 'E-Way Bill JSON is ready',
+          description: 'Download the payload and submit it through the E-Way Bill service selected by this business. BizBook Pro does not select a portal or provider.',
+          duration: 9000,
+        })
         return
       }
-      if (ewbWindow && !ewbWindow.closed) ewbWindow.close()
-      toast({ title: 'E-Way Bill Error', description: data.error || 'Unexpected response from the E-Way Bill service.', variant: 'destructive' })
+
+      toast({
+        title: 'E-Way Bill generation failed',
+        description: data.error || 'The configured GSP API did not generate an E-Way Bill. No manual fallback was attempted.',
+        variant: 'destructive',
+      })
     } catch {
-      if (ewbWindow && !ewbWindow.closed) ewbWindow.close()
-      toast({ title: 'Network error', description: 'Could not connect to the E-Way Bill service.', variant: 'destructive' })
+      toast({ title: 'Network error', description: 'Could not connect to the E-Way Bill service. Please try again.', variant: 'destructive' })
+    } finally {
+      setEwbBusy(false)
     }
   }
 
-  const handleRecordManualEwb = async (sale: Sale) => {
-    if (!tenant) return
-    const ewbNo = window.prompt('Enter the 12-digit E-Way Bill number returned by the GST portal:')
-    if (!ewbNo) return
-    if (!/^\d{12}$/.test(ewbNo.trim())) {
+  const downloadEwbJson = () => {
+    if (!ewbPayload || !ewbSale) return
+    const blob = new Blob([JSON.stringify(ewbPayload, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    const invoice = String(ewbSale.invoiceNumber || 'invoice').replace(/[^a-zA-Z0-9-_]/g, '_')
+    link.href = url
+    link.download = `BizBook-Pro-EWayBill-${invoice}.json`
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+  }
+
+  const handleSaveManualEwb = async () => {
+    if (!tenant || !ewbSale) return
+    if (!/^\\d{12}$/.test(manualEwbNo.trim())) {
       toast({ title: 'Invalid EWB number', description: 'The E-Way Bill number must contain exactly 12 digits.', variant: 'destructive' })
       return
     }
-    const ewbDate = window.prompt('Enter EWB generation date (YYYY-MM-DD):', new Date().toISOString().slice(0, 10))
-    if (!ewbDate) return
+    const issuedAt = new Date(manualEwbDate)
+    const validUpto = new Date(manualEwbValidUpto)
+    if (!manualEwbDate || Number.isNaN(issuedAt.getTime()) || !manualEwbValidUpto || Number.isNaN(validUpto.getTime()) || validUpto <= issuedAt) {
+      toast({ title: 'EWB dates are required', description: 'Enter the generation date/time and a later validity date/time exactly as displayed by the E-Way Bill service.', variant: 'destructive' })
+      return
+    }
+
+    setEwbBusy(true)
     try {
       const res = await authFetch('/api/eway-bill', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'update-status', tenantId: tenant.id, saleId: sale.id, ewbNo: ewbNo.trim(), ewbDate, distanceKm: null }),
+        body: JSON.stringify({
+          action: 'update-status',
+          tenantId: tenant.id,
+          saleId: ewbSale.id,
+          ewbNo: manualEwbNo.trim(),
+          ewbDate: issuedAt.toISOString(),
+          ewbValidUpto: validUpto.toISOString(),
+          transporterId: ewbTransporterId.trim(),
+          transporterName: ewbTransporterName.trim(),
+          vehicleNo: ewbVehicleNo.replace(/\\s+/g, '').toUpperCase(),
+          modeOfTransport: ewbModeOfTransport,
+          distanceKm: Number(ewbDistanceKm),
+        }),
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
-        toast({ title: 'Could not save EWB details', description: data.error || 'Verify the EWB number and date.', variant: 'destructive' })
+        toast({ title: 'Could not save E-Way Bill details', description: data.error || 'Verify the EWB number and dates.', variant: 'destructive' })
         return
       }
+      const invoiceNumber = ewbSale.invoiceNumber
+      setEwbSale(null)
       await fetchSales()
-      toast({ title: 'E-Way Bill recorded', description: `EWB ${ewbNo.trim()} saved for invoice ${sale.invoiceNumber}.` })
+      toast({ title: 'E-Way Bill recorded', description: `EWB ${manualEwbNo.trim()} saved for invoice ${invoiceNumber}.` })
     } catch {
-      toast({ title: 'Network error', description: 'Could not save the E-Way Bill details.', variant: 'destructive' })
+      toast({ title: 'Network error', description: 'Could not save the E-Way Bill details. Please try again.', variant: 'destructive' })
+    } finally {
+      setEwbBusy(false)
     }
   }
 
@@ -1002,13 +1082,8 @@ export function SaleRegister() {
                             </Button>
                           )}
                           {s.invoiceStatus !== 'QUOTATION' && s.totalAmount >= 50000 && !s.ewayBillNo && (
-                            <Button variant="outline" size="sm" className="h-8 gap-1 px-2" title="Prepare E-Way Bill JSON for GST portal" onClick={() => handleGenerateEwb(s)}>
+                            <Button variant="outline" size="sm" className="h-8 gap-1 px-2" title="Generate E-Way Bill or prepare JSON" onClick={() => openEwbDialog(s)}>
                               <Truck className="h-4 w-4" /><span className="text-xs">EWB</span>
-                            </Button>
-                          )}
-                          {s.invoiceStatus !== 'QUOTATION' && s.totalAmount >= 50000 && !s.ewayBillNo && (
-                            <Button variant="ghost" size="sm" className="h-8 px-2 text-xs" title="Record the 12-digit E-Way Bill number from the GST portal" onClick={() => handleRecordManualEwb(s)}>
-                              Record EWB
                             </Button>
                           )}
                           {s.ewayBillNo && <Badge variant="outline" className="h-8 gap-1 border-blue-300 text-blue-700"><Truck className="h-3 w-3" /> EWB</Badge>}
@@ -1666,6 +1741,96 @@ export function SaleRegister() {
         </Dialog>
 
         {/* ===== PRINT INVOICE DIALOG (after saving) ===== */}
+        <Dialog open={!!ewbSale} onOpenChange={(open) => { if (!open && !ewbBusy) setEwbSale(null) }}>
+          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Truck className="h-5 w-5" /> E-Way Bill — {ewbSale?.invoiceNumber}
+              </DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4 text-sm">
+              <p className="text-muted-foreground">
+                BizBook Pro can generate the E-Way Bill through this tenant&apos;s configured GSP credentials, or prepare JSON for the E-Way Bill service selected by the business. No provider or portal is forced.
+              </p>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-1">
+                  <Label htmlFor="ewb-vehicle-no">Vehicle number</Label>
+                  <Input id="ewb-vehicle-no" value={ewbVehicleNo} onChange={e => setEwbVehicleNo(e.target.value.toUpperCase().slice(0, 15))} placeholder="WB12AB1234" />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="ewb-distance">Transport distance (km)</Label>
+                  <Input id="ewb-distance" type="number" min="1" step="1" value={ewbDistanceKm} onChange={e => setEwbDistanceKm(e.target.value)} placeholder="e.g. 250" />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="ewb-transporter-gstin">Transporter GSTIN (optional)</Label>
+                  <Input id="ewb-transporter-gstin" value={ewbTransporterId} onChange={e => setEwbTransporterId(e.target.value.toUpperCase().slice(0, 15))} maxLength={15} placeholder="15-character GSTIN" />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="ewb-transporter-name">Transporter name (optional)</Label>
+                  <Input id="ewb-transporter-name" value={ewbTransporterName} onChange={e => setEwbTransporterName(e.target.value)} placeholder="Transporter name" />
+                </div>
+                <div className="space-y-1">
+                  <Label>Mode of transport</Label>
+                  <Select value={ewbModeOfTransport} onValueChange={setEwbModeOfTransport}>
+                    <SelectTrigger><SelectValue placeholder="Select transport mode" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="2">Road</SelectItem>
+                      <SelectItem value="1">Air</SelectItem>
+                      <SelectItem value="R">Rail</SelectItem>
+                      <SelectItem value="S">Ship</SelectItem>
+                      <SelectItem value="I">In transit</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="ewb-doc-no">Transport document number (optional)</Label>
+                  <Input id="ewb-doc-no" value={ewbTransDocNo} onChange={e => setEwbTransDocNo(e.target.value)} placeholder="LR / RR / AWB / Bill of Lading" />
+                </div>
+                <div className="space-y-1 sm:col-span-2">
+                  <Label htmlFor="ewb-doc-date">Transport document date (optional)</Label>
+                  <Input id="ewb-doc-date" type="date" value={ewbTransDocDate} onChange={e => setEwbTransDocDate(e.target.value)} />
+                </div>
+              </div>
+              <Button onClick={handlePrepareEwb} disabled={ewbBusy} className="w-full">
+                {ewbBusy ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Truck className="h-4 w-4 mr-2" />}
+                Generate E-Way Bill / Prepare JSON
+              </Button>
+              {ewbPayload && (
+                <div className="space-y-3 rounded-lg border p-3">
+                  <div className="font-medium text-emerald-700">E-Way Bill JSON prepared</div>
+                  <p className="text-muted-foreground">
+                    Download the payload and submit it through the E-Way Bill service used by this business. Copy the EWB number, generation date/time and validity shown by that service into the fields below.
+                  </p>
+                  <Button type="button" variant="outline" onClick={downloadEwbJson} className="w-full">
+                    <Truck className="h-4 w-4 mr-2" /> Download E-Way Bill JSON
+                  </Button>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="space-y-1">
+                      <Label htmlFor="manual-ewb-no">EWB number (12 digits)</Label>
+                      <Input id="manual-ewb-no" inputMode="numeric" maxLength={12} value={manualEwbNo} onChange={e => setManualEwbNo(e.target.value.replace(/\\D/g, '').slice(0, 12))} placeholder="12-digit EWB number" />
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="manual-ewb-date">EWB generation date/time</Label>
+                      <Input id="manual-ewb-date" type="datetime-local" value={manualEwbDate} onChange={e => setManualEwbDate(e.target.value)} />
+                    </div>
+                    <div className="space-y-1 sm:col-span-2">
+                      <Label htmlFor="manual-ewb-validity">EWB valid until</Label>
+                      <Input id="manual-ewb-validity" type="datetime-local" value={manualEwbValidUpto} onChange={e => setManualEwbValidUpto(e.target.value)} />
+                    </div>
+                  </div>
+                  <Button onClick={handleSaveManualEwb} disabled={ewbBusy} className="w-full bg-emerald-600 hover:bg-emerald-700">
+                    {ewbBusy ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <CheckCircle2 className="h-4 w-4 mr-2" />}
+                    Save EWB details
+                  </Button>
+                </div>
+              )}
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setEwbSale(null)} disabled={ewbBusy}>Close</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
         <Dialog open={!!einvoiceSale} onOpenChange={(open) => { if (!open && !einvoiceBusy) setEinvoiceSale(null) }}>
           <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
