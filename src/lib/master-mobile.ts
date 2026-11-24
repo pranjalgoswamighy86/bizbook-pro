@@ -4,6 +4,9 @@
  * MASTER_MOBILE_NUMBER must be configured explicitly. This setting only permits
  * the configured phone to be reused as a business contact number; it never
  * bypasses email OTP verification or grants administrator permissions.
+ *
+ * Platform administrator identities are deployment-configured; no public
+ * email address is treated as an administrator by default.
  */
 
 export function getMasterMobileNumber(): string {
@@ -38,10 +41,15 @@ export function getMasterMobileForSms(): string {
 }
 
 export function getAdminEmail(): string {
-  return (process.env.ADMIN_EMAIL || 'admin@bizbook.pro').toLowerCase().trim()
+  return (process.env.ADMIN_EMAIL || '').toLowerCase().trim()
 }
 
 export function isAdminEmail(email: string): boolean {
   if (!email) return false
-  return email.toLowerCase().trim() === getAdminEmail()
+  const configuredAdmins = [
+    process.env.ADMIN_EMAIL || '',
+    process.env.INFRA_OWNER_EMAIL || '',
+    process.env.INFRASTRUCTURE_OWNER_EMAIL || '',
+  ].map(value => value.toLowerCase().trim()).filter(Boolean)
+  return configuredAdmins.includes(email.toLowerCase().trim())
 }
