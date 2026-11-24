@@ -23,7 +23,7 @@
  * the selected E-Way Bill portal, then pastes back the 12-digit EWB number.
  *
  * References:
- *   - EWB portal: https://the selected E-Way Bill portal
+ *   - EWB portal: use the portal or service selected by the tenant
  *   - EWB API: https://ewayapi.nic.in/api/v1/ewaybill/
  *   - Validity: 1 day per 200 km (min 1 day, max 30 days)
  *   - Cancellation: within validity period (not extendable after expiry)
