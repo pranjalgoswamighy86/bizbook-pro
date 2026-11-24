@@ -610,13 +610,12 @@ export async function POST(req: NextRequest) {
 
       // Restrict to admin@bizbook.pro or pranjalgoswamighy86@gmail.com (per Spec Part 9)
       const ADMIN_BYPASS_EMAILS = [
-        'admin@bizbook.pro',
-        (process.env.ADMIN_EMAIL || '').toLowerCase(),
-        'pranjalgoswamighy86@gmail.com',
-        (process.env.INFRASTRUCTURE_OWNER_EMAIL || '').toLowerCase(),
-      ].filter(Boolean)
+  process.env.ADMIN_EMAIL || '',
+  process.env.INFRA_OWNER_EMAIL || '',
+  process.env.INFRASTRUCTURE_OWNER_EMAIL || '',
+].map(value => value.toLowerCase().trim()).filter(Boolean)
 
-      if (!access.user?.email || !ADMIN_BYPASS_EMAILS.includes(access.user.email.toLowerCase())) {
+      if (!access.user?.email || !ADMIN_BYPASS_EMAILS.includes(access.user.email.toLowerCase().trim())) {
         return NextResponse.json({ error: 'FORBIDDEN — Super Admin only' }, { status: 403 })
       }
 
