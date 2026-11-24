@@ -1,11 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db-soft-delete'
-import { backupDatabase, getDatabaseStats } from '@/lib/db-protection'
-import fs from 'fs'
-import path from 'path'
+import { getDatabaseStats } from '@/lib/db-protection'
 import { requireAuth } from '@/lib/api-helpers'
-
-const BACKUP_DIR = path.join(process.cwd(), 'db', 'backups')
 
 const SYSTEM_ADMIN_EMAILS = new Set([
   process.env.ADMIN_EMAIL || '',
@@ -58,41 +54,25 @@ export async function POST(req: NextRequest) {
       const auth = await requireSystemAdmin(req)
       if (auth instanceof NextResponse) return auth
 
-      const result = backupDatabase('manual')
-      return NextResponse.json(result)
+      // PostgreSQL backups are managed by Railway. This legacy action does
+      // not create a snapshot and must not report a false successful backup.
+      return NextResponse.json(
+        {
+          success: false,
+          managedBy: 'Railway',
+          error: 'This endpoint cannot create a manual PostgreSQL snapshot. Use Railway database backups or the tenant-scoped Company Backup export.',
+        },
+        { status: 409 }
+      )
     }
 
     if (action === 'list-backups') {
       const auth = await requireSystemAdmin(req)
       if (auth instanceof NextResponse) return auth
-      if (!fs.existsSync(BACKUP_DIR)) {
-        return NextResponse.json({ backups: [], autoConfig: { enabled: true, frequency: 'startup', lastRun: null } })
-      }
-
-      const files = fs.readdirSync(BACKUP_DIR)
-        .filter(f => f.startsWith('bizbook_backup_') && f.endsWith('.db'))
-        .map(f => {
-          const filePath = path.join(BACKUP_DIR, f)
-          const stat = fs.statSync(filePath)
-          // Parse reason from filename: bizbook_backup_2024-01-01_12-00-00_reason.db
-          const parts = f.replace('bizbook_backup_', '').replace('.db', '').split('_')
-          const reason = parts.length >= 3 ? parts.slice(2).join('_') : 'unknown'
-          return {
-            name: f,
-            size: stat.size,
-            created: stat.mtime.toISOString(),
-            reason,
-          }
-        })
-        .sort((a, b) => new Date(b.created).getTime() - new Date(a.created).getTime())
-
       return NextResponse.json({
-        backups: files,
-        autoConfig: {
-          enabled: true,
-          frequency: 'startup',
-          lastRun: files.length > 0 ? files[0].created : null,
-        },
+        backups: [],
+        managedBy: 'Railway',
+        message: 'PostgreSQL backup retention is managed by Railway. This endpoint does not maintain local SQLite backup files.',
       })
     }
 
@@ -100,20 +80,10 @@ export async function POST(req: NextRequest) {
       const auth = await requireSystemAdmin(req)
       if (auth instanceof NextResponse) return auth
 
-      const { filename } = body
-      if (typeof filename !== 'string' || !/^bizbook_backup_[A-Za-z0-9_-]+\.db$/.test(filename)) {
-        return NextResponse.json({ error: 'Invalid backup filename' }, { status: 400 })
-      }
-      const backupRoot = path.resolve(BACKUP_DIR)
-      const filePath = path.resolve(backupRoot, filename)
-      if (!filePath.startsWith(backupRoot + path.sep)) {
-        return NextResponse.json({ error: 'Invalid backup filename' }, { status: 400 })
-      }
-      if (!fs.existsSync(filePath)) {
-        return NextResponse.json({ error: 'Backup file not found' }, { status: 404 })
-      }
-      fs.unlinkSync(filePath)
-      return NextResponse.json({ success: true })
+      return NextResponse.json(
+        { error: 'Local SQLite backup files are not used by this PostgreSQL deployment. Manage database backups through Railway.' },
+        { status: 409 }
+      )
     }
 
     return NextResponse.json({ error: 'Invalid action. Use: stats, backup, list-backups, delete-backup' }, { status: 400 })
