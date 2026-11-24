@@ -150,13 +150,13 @@
 <body>
   <div class="container">
     <div class="header">
-      <h1>⚠️ Emergency Database Backup</h1>
-      <p>Download a complete copy of your entire BizBook Pro database. Works even if you can't log in normally.</p>
+      <h1>⚠️ Emergency Business Backup</h1>
+      <p>Download an authenticated backup when your normal BizBook Pro session is unavailable.</p>
     </div>
 
     <div class="body">
       <div class="warning">
-        <strong>When to use this:</strong> If you can't log in to the app, or if the regular backup option in Settings isn't working, this page will still let you download all your data using just your email and password.
+        <strong>When to use this:</strong> Use this when your normal app session is unavailable or the regular backup option is not working. Business administrators can export only their own business; platform administrators can export the system backup.
       </div>
 
       <form id="backupForm">
@@ -169,7 +169,7 @@
           <input type="password" id="password" name="password" required autocomplete="current-password" placeholder="Your account password" />
         </div>
         <button type="submit" id="submitBtn">
-          <span id="btnText">⬇️ Download Complete Backup</span>
+          <span id="btnText">⬇️ Download Authorized Backup</span>
         </button>
       </form>
 
@@ -178,8 +178,8 @@
       <div class="help">
         <details>
           <summary>What happens when I click Download?</summary>
-          <p style="margin-top:0.5rem;">Your email and password are verified against the BizBook Pro database. If correct, the server packages <strong>every table, every record</strong> (all companies, all sales, all purchases, all inventory — everything) into a single JSON file and downloads it to your computer.</p>
-          <p style="margin-top:0.5rem;">The backup includes soft-deleted records too, so nothing is lost.</p>
+          <p style="margin-top:0.5rem;">Your email and password are checked against the current BizBook Pro database. Business administrators receive only their own business records. Allowlisted platform administrators can create a system-wide backup. Password-reset OTPs are never included.</p>
+          <p style="margin-top:0.5rem;">The backup also includes the authorized business's soft-deleted business records to support recovery.</p>
         </details>
 
         <details>
@@ -193,8 +193,8 @@
           <ol style="margin-left:1.5rem; margin-top:0.5rem;">
             <li>Set up a new PostgreSQL database</li>
             <li>Deploy BizBook Pro pointing to that database</li>
-            <li>Use the <code>/api/db-admin</code> endpoint with action <code>restore</code> to import this JSON</li>
-            <li>Log in with your email + password — all data will be there</li>
+            <li>Use the <code>/api/backup/restore</code> endpoint to import this JSON. Enter credentials for an active administrator account in the destination database</li>
+            <li>Business administrators can restore only their current business; platform administrators can restore system backups</li>
           </ol>
         </details>
 
@@ -220,7 +220,7 @@
           🔄 Restore from Backup
         </h3>
         <p style="font-size: 0.8rem; color: #6b7280; margin-bottom: 1rem; line-height: 1.5;">
-          If your database was reset or you lost access, you can restore all your data from a previously-downloaded backup file. Enter your email + password (must match the backup file), then select the backup JSON file you downloaded earlier.
+          Select a BizBook Pro backup and authenticate using an active administrator account in the destination database. Business administrators can restore only a backup for their current business; platform administrators can restore system-wide backups.
         </p>
         <form id="restoreForm" style="display: flex; flex-direction: column; gap: 0.75rem;">
           <div>
@@ -228,7 +228,7 @@
             <input type="email" id="restoreEmail" required autocomplete="email" placeholder="you@example.com" style="width: 100%; padding: 0.75rem 1rem; border: 1px solid #d1d5db; border-radius: 8px; font-size: 0.95rem;" />
           </div>
           <div>
-            <label for="restorePassword" style="font-size: 0.85rem; font-weight: 600; color: #374151; margin-bottom: 0.35rem; display: block;">Password (from backup file)</label>
+            <label for="restorePassword" style="font-size: 0.85rem; font-weight: 600; color: #374151; margin-bottom: 0.35rem; display: block;">Current Database Password</label>
             <input type="password" id="restorePassword" required autocomplete="current-password" placeholder="Your account password" style="width: 100%; padding: 0.75rem 1rem; border: 1px solid #d1d5db; border-radius: 8px; font-size: 0.95rem;" />
           </div>
           <div>
@@ -241,7 +241,7 @@
         </form>
         <div id="restoreStatus" class="status"></div>
         <div style="margin-top: 0.75rem; font-size: 0.75rem; color: #6b7280; line-height: 1.5;">
-          <strong>Note:</strong> The restore process only adds records that don't already exist. Existing records are NOT overwritten. This may take 1-5 minutes for large backups.
+          <strong>Important:</strong> Matching record IDs are updated and new records are inserted. Tenant administrators cannot restore another business's records. Restore operations change database data; keep a separate backup before continuing.
         </div>
       </div>
     </div>
@@ -339,7 +339,7 @@
         URL.revokeObjectURL(url);
 
         const sizeMB = (blob.size / (1024 * 1024)).toFixed(2);
-        setStatus('success', '✅ Backup downloaded successfully!<br><br>⏱️ Completed in ' + elapsed + 's<br>📦 File size: ' + sizeMB + ' MB<br><br><strong>Keep this file safe</strong> — it contains your entire database. Store it on your computer, in cloud storage (Google Drive, Dropbox), and/or on a USB drive for maximum safety.');
+        setStatus('success', '✅ Authorized backup downloaded successfully!<br><br>⏱️ Completed in ' + elapsed + 's<br>📦 File size: ' + sizeMB + ' MB<br><br><strong>Keep this file safe</strong> — it contains the business or system data your account is authorized to export. Store it securely.');
         submitBtn.disabled = false;
         btnText.textContent = '⬇️ Download Another Backup';
       } catch (err) {
@@ -406,7 +406,7 @@
         `Ready to restore database from backup file:\n\n` +
         `Backup date: ${backupDate}\n` +
         `Total records: ${totalRecords}\n\n` +
-        `This will import all data into the current database. Records that already exist will be skipped (not overwritten).\n\n` +
+        `Matching record IDs will be updated and new records inserted. A business administrator's restore is limited to their current business.\n\n` +
         `Do you want to continue?`
       )) {
         setRestoreStatus('progress', 'Restore cancelled.');
