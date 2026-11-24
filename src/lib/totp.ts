@@ -43,7 +43,6 @@ export function createTotpUri(secret: string, email: string): string {
     algorithm: 'sha1',
     digits: TOTP_CONFIG.digits,
     period: TOTP_CONFIG.step,
-    type: 'totp',
   })
 }
 
