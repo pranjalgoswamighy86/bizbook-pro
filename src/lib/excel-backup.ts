@@ -617,6 +617,12 @@ export async function restoreFromExcelData(
         include: { priceList: { select: { tenantId: true } }, inventoryItem: { select: { tenantId: true } } },
         isOwned: (record: any) => record.priceList?.tenantId === tenantId && record.inventoryItem?.tenantId === tenantId,
       },
+      {
+        sheetName: 'ProductIngredients',
+        model: (db as any).productIngredient,
+        include: { product: { select: { tenantId: true } }, inventoryItem: { select: { tenantId: true } } },
+        isOwned: (record: any) => record.product?.tenantId === tenantId && record.inventoryItem?.tenantId === tenantId,
+      },
     ]
 
     for (const check of childOwnershipChecks) {
@@ -674,6 +680,8 @@ export async function restoreFromExcelData(
       { sheetName: 'JournalEntryLines', field: 'accountId', model: 'account', parentSheet: 'Accounts', optional: false },
       { sheetName: 'PriceListItems', field: 'priceListId', model: 'priceList', parentSheet: 'PriceLists', optional: false },
       { sheetName: 'PriceListItems', field: 'inventoryItemId', model: 'inventoryItem', parentSheet: 'Inventory', optional: false },
+      { sheetName: 'ProductIngredients', field: 'productId', model: 'product', parentSheet: 'Products', optional: false },
+      { sheetName: 'ProductIngredients', field: 'inventoryItemId', model: 'inventoryItem', parentSheet: 'Inventory', optional: false },
       { sheetName: 'BankTransactions', field: 'matchedSaleId', model: 'sale', parentSheet: 'Sales', optional: true },
       { sheetName: 'BankTransactions', field: 'matchedPurchaseId', model: 'purchase', parentSheet: 'Purchases', optional: true },
     ]
@@ -866,6 +874,34 @@ export async function restoreFromExcelData(
               sheetCount++
             } catch (e: any) {
               errors.push(`Product "${row.name}": ${e.message}`)
+            }
+          }
+          break
+
+        case 'ProductIngredients':
+          for (const row of rows) {
+            try {
+              await db.productIngredient.upsert({
+                where: { id: String(row.id || '') },
+                update: {
+                  productId: String(row.productId || ''),
+                  inventoryItemId: String(row.inventoryItemId || ''),
+                  quantity: num(row.quantity),
+                  unit: String(row.unit || 'PCS'),
+                  notes: strOrNull(row.notes),
+                },
+                create: {
+                  id: String(row.id),
+                  productId: String(row.productId || ''),
+                  inventoryItemId: String(row.inventoryItemId || ''),
+                  quantity: num(row.quantity),
+                  unit: String(row.unit || 'PCS'),
+                  notes: strOrNull(row.notes),
+                },
+              })
+              sheetCount++
+            } catch (e: any) {
+              errors.push(`Product ingredient "${row.id}": ${e.message}`)
             }
           }
           break
