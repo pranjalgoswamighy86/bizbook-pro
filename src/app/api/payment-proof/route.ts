@@ -188,10 +188,10 @@ export async function GET(req: NextRequest) {
     // Check admin status or tenant ownership
     const user = await db.user.findUnique({ where: { id: auth.userId } })
     const ADMIN_EMAILS = [
-      'admin@bizbook.pro',
-      'pranjalgoswamighy86@gmail.com',
-      (process.env.ADMIN_EMAIL || '').toLowerCase(),
-    ].filter(Boolean)
+  process.env.ADMIN_EMAIL || '',
+  process.env.INFRA_OWNER_EMAIL || '',
+  process.env.INFRASTRUCTURE_OWNER_EMAIL || '',
+].map(value => value.toLowerCase().trim()).filter(Boolean)
 
     const isAdmin = user && ADMIN_EMAILS.includes(user.email.toLowerCase())
     if (!isAdmin) {
