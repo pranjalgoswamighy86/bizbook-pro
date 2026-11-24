@@ -111,8 +111,8 @@ export async function POST(req: NextRequest) {
       const buyerState = getStateCode(sale.partyGst)
       const suppliedSellerPin = typeof body.sellerPinCode === 'string' ? body.sellerPinCode.trim() : ''
       const suppliedBuyerPin = typeof body.buyerPinCode === 'string' ? body.buyerPinCode.trim() : ''
-      const supplierPin = extractPinCode(tenant.address) || (/^[1-9]\\d{5}$/.test(suppliedSellerPin) ? Number(suppliedSellerPin) : null)
-      const buyerPin = extractPinCode(sale.partyAddress) || (/^[1-9]\\d{5}$/.test(suppliedBuyerPin) ? Number(suppliedBuyerPin) : null)
+      const supplierPin = extractPinCode(tenant.address) || (/^[1-9]\d{5}$/.test(suppliedSellerPin) ? Number(suppliedSellerPin) : null)
+      const buyerPin = extractPinCode(sale.partyAddress) || (/^[1-9]\d{5}$/.test(suppliedBuyerPin) ? Number(suppliedBuyerPin) : null)
       const missingPins = [
         ...(!supplierPin ? ['seller'] : []),
         ...(!buyerPin ? ['buyer'] : []),
@@ -441,8 +441,8 @@ export async function POST(req: NextRequest) {
       if (!Array.isArray(items) || items.length === 0) return NextResponse.json({ error: 'Invoice must contain at least one item.' }, { status: 400 })
       const suppliedSellerPin = typeof body.sellerPinCode === 'string' ? body.sellerPinCode.trim() : ''
       const suppliedBuyerPin = typeof body.buyerPinCode === 'string' ? body.buyerPinCode.trim() : ''
-      const sellerPin = extractPinCode(tenant.address) || (/^[1-9]\\d{5}$/.test(suppliedSellerPin) ? Number(suppliedSellerPin) : null)
-      const buyerPin = extractPinCode(sale.partyAddress) || (/^[1-9]\\d{5}$/.test(suppliedBuyerPin) ? Number(suppliedBuyerPin) : null)
+      const sellerPin = extractPinCode(tenant.address) || (/^[1-9]\d{5}$/.test(suppliedSellerPin) ? Number(suppliedSellerPin) : null)
+      const buyerPin = extractPinCode(sale.partyAddress) || (/^[1-9]\d{5}$/.test(suppliedBuyerPin) ? Number(suppliedBuyerPin) : null)
       const missingPins = [
         ...(!sellerPin ? ['seller'] : []),
         ...(!buyerPin ? ['buyer'] : []),
