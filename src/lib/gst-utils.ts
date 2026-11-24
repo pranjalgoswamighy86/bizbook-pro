@@ -71,63 +71,65 @@ export const STATE_CODES: Record<string, string> = {
 }
 
 /**
- * Validate GSTIN format.
- * GSTIN format: XXYYYYYXXXXXXYZ (15 characters)
- *   XX     = State code (01-38)
- *   YYYYY  = PAN (5 alphabetic)
- *   XXXXXX = Entity number (4 numeric + 1 alphabetic)
- *   Y      = Registration type (Z=regular, default)
- *   Z      = Check digit (alphanumeric)
+ * Validate GSTIN structure and checksum.
  *
- * @returns { valid: boolean, error?: string }
+ * GSTIN positions:
+ *   1-2  State/UT code
+ *   3-12 PAN (10 characters: AAAAA9999A)
+ *   13   Entity number (1-9, then A-Z)
+ *   14   Reserved character (Z)
+ *   15   Mod-36 check character
+ *
+ * This checks structural plausibility and the checksum only. It does not
+ * establish that the GST registration is active on the GST portal.
  */
 export function validateGSTIN(gstin: string): { valid: boolean; error?: string } {
-  if (!gstin) {
+  const value = typeof gstin === 'string' ? gstin.trim().toUpperCase() : ''
+
+  if (!value) {
     return { valid: false, error: 'GSTIN is required' }
   }
 
-  if (gstin.length !== 15) {
-    return { valid: false, error: `GSTIN must be 15 characters, got ${gstin.length}` }
+  if (value.length !== 15) {
+    return { valid: false, error: `GSTIN must be 15 characters, got ${value.length}` }
   }
 
-  const stateCode = gstin.substring(0, 2)
+  if (!/^[0-9A-Z]{15}$/.test(value)) {
+    return { valid: false, error: 'GSTIN must contain only uppercase letters and digits' }
+  }
+
+  const stateCode = value.substring(0, 2)
   if (!STATE_CODES[stateCode]) {
     return { valid: false, error: `Invalid state code "${stateCode}" in GSTIN` }
   }
 
-  // Characters 3-7: PAN portion (should be alphanumeric, first 3 alpha, 4th alpha/digit, 5th alpha)
-  const panPortion = gstin.substring(2, 7)
-  if (!/^[A-Z]{3}[ABCFGHLJPTF][A-Z]/.test(panPortion)) {
+  // Positions 3-12 are the complete 10-character PAN.
+  const pan = value.substring(2, 12)
+  if (!/^[A-Z]{3}[ABCFGHLJPTF][A-Z][0-9]{4}[A-Z]$/.test(pan)) {
     return { valid: false, error: 'Invalid PAN portion in GSTIN' }
   }
 
-  // Characters 8-12: Entity number (4 digits + 1 alpha)
-  const entityPortion = gstin.substring(7, 12)
-  if (!/^[0-9]{4}[A-Z]$/.test(entityPortion)) {
-    return { valid: false, error: 'Invalid entity portion in GSTIN' }
+  // Position 13 identifies the registration for this PAN in the state.
+  if (!/^[1-9A-Z]$/.test(value[12])) {
+    return { valid: false, error: 'Invalid entity code in GSTIN' }
   }
 
-  // Character 13: Registration type (Z for regular taxpayers)
-  const regType = gstin[12]
-  if (!/^[A-Z0-9]$/.test(regType)) {
-    return { valid: false, error: 'Invalid registration type in GSTIN' }
+  // Position 14 is reserved and is currently always Z.
+  if (value[13] !== 'Z') {
+    return { valid: false, error: 'GSTIN reserved character (position 14) must be Z' }
   }
 
-  // Character 14: Check digit (alphanumeric)
-  const checkDigit = gstin[13]
-  if (!/^[A-Z0-9]$/.test(checkDigit)) {
-    return { valid: false, error: 'Invalid check digit in GSTIN' }
-  }
-
-  // Validate check digit using GSTN algorithm
-  const computedCheckDigit = computeGSTINCheckDigit(gstin.substring(0, 14))
-  if (computedCheckDigit !== checkDigit) {
-    return { valid: false, error: `GSTIN check digit mismatch: expected "${computedCheckDigit}", got "${checkDigit}"` }
+  // Position 15 is the checksum calculated from positions 1-14.
+  const expectedCheckDigit = computeGSTINCheckDigit(value.substring(0, 14))
+  if (expectedCheckDigit !== value[14]) {
+    return {
+      valid: false,
+      error: `GSTIN check digit mismatch: expected "${expectedCheckDigit}", got "${value[14]}"`,
+    }
   }
 
   return { valid: true }
 }
-
 /**
  * Compute GSTIN check digit using the GSTN algorithm.
  * Based on the official GSTN check digit calculation.
