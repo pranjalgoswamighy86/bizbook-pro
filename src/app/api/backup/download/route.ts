@@ -1,80 +1,68 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { rawDb } from '@/lib/db-soft-delete'
 import { requireAuth } from '@/lib/api-helpers'
+import { isSuperAdminEmail } from '@/lib/rbac/enforce-v2'
+import { buildBackupRecords } from '@/lib/backup-utils'
 
-/**
- * Complete Database Backup API
- * 
- * GET /api/backup/download
- * 
- * Exports ALL database tables to a single JSON file and sends it as
- * a downloadable attachment. This is for disaster recovery — if you
- * lose access to Railway, you can restore the entire software from
- * this backup file.
- * 
- * Any authenticated user can download a backup of their own tenant data.
- */
+export const dynamic = 'force-dynamic'
 
 export async function GET(req: NextRequest) {
   try {
     const auth = await requireAuth(req)
     if (auth instanceof NextResponse) return auth
 
-    // Get all table names from Prisma
-    const tableNames = [
-      'tenant', 'user', 'userTenant',
-      'sale', 'purchase', 'expense',
-      'inventoryItem', 'debtor', 'creditor',
-      'account', 'journalEntry', 'journalEntryLine',
-      'staff', 'salaryPayment',
-      'subscription', 'subscriptionQueue', 'recharge', 'usageLog',
-      'auditLog', 'helpSupportTicket',
-      'payment', 'receipt', 'party',
-      'product', 'productIngredient',
-      'batch', 'priceList', 'priceListItem',
-      'bankTransaction', 'bankStatementUpload',
-    ]
+    const isPlatformAdmin = isSuperAdminEmail(auth.email)
+    const tenantId = isPlatformAdmin ? null : auth.user.tenantId
 
-    const backup: Record<string, unknown[]> = {}
-    
-    for (const table of tableNames) {
-      try {
-        const records = await rawDb[table].findMany({ take: 100000 })
-        backup[table] = records
-      } catch {
-        backup[table] = []
+    if (!isPlatformAdmin) {
+      if (!tenantId) {
+        return NextResponse.json({ error: 'No business is linked to this account.' }, { status: 403 })
+      }
+
+      const membership = await rawDb.userTenant.findFirst({
+        where: { userId: auth.userId, tenantId },
+        select: { role: true, isOwner: true },
+      })
+      if (!membership || (membership.role !== 'MAIN_ADMIN' && !membership.isOwner)) {
+        return NextResponse.json({ error: 'A business administrator role is required to download a backup.' }, { status: 403 })
       }
     }
 
+    const { data, tableErrors, totalRecords } = await buildBackupRecords(tenantId, 100000)
     const backupData = {
       _metadata: {
         software: 'BizBook Pro',
-        version: 'v4.107',
+        version: 'v6.31.0',
         exportDate: new Date().toISOString(),
-        tableCount: Object.keys(backup).length,
-        totalRecords: Object.values(backup).reduce((sum, arr) => sum + arr.length, 0),
-        instructions: 'To restore: 1. Set up new PostgreSQL database 2. Run prisma db push to create tables 3. Import this JSON data into the tables 4. Deploy the application',
+        exportedBy: auth.email,
+        exportMethod: 'authenticated',
+        scope: isPlatformAdmin ? 'global' : 'tenant',
+        tenantId: tenantId || undefined,
+        tableCount: Object.keys(data).length,
+        totalRecords,
+        tableErrors: tableErrors.length,
+        instructions: 'Restore this backup using a current BizBook Pro administrator account. Business administrators can restore only their own business data. Platform administrators can restore system backups.',
+        schemaNote: 'Password reset OTPs are intentionally excluded from backups.',
       },
-      data: backup,
+      tableErrors: tableErrors.length > 0 ? tableErrors : undefined,
+      data,
     }
 
-    const jsonStr = JSON.stringify(backupData, null, 2)
-    const buffer = Buffer.from(jsonStr, 'utf-8')
-
+    const buffer = Buffer.from(JSON.stringify(backupData), 'utf-8')
+    const date = new Date().toISOString().split('T')[0]
+    const scopeName = isPlatformAdmin ? 'system' : 'business'
     return new NextResponse(buffer, {
       status: 200,
       headers: {
-        'Content-Type': 'application/json',
-        'Content-Disposition': `attachment; filename="bizbook_pro_backup_${new Date().toISOString().split('T')[0]}.json"`,
+        'Content-Type': 'application/json; charset=utf-8',
+        'Content-Disposition': `attachment; filename="bizbook_pro_${scopeName}_backup_${date}.json"`,
         'Content-Length': buffer.length.toString(),
-        'Cache-Control': 'no-cache',
+        'Cache-Control': 'no-store, no-cache, must-revalidate',
+        'Pragma': 'no-cache',
       },
     })
-  } catch (error: any) {
-    console.error('Backup error:', error)
-    return NextResponse.json(
-      { error: 'Backup failed', details: error?.message || 'Unknown error' },
-      { status: 500 }
-    )
+  } catch (error) {
+    console.error('[BACKUP-DOWNLOAD] Error:', error)
+    return NextResponse.json({ error: 'Backup failed. Please try again or contact support.' }, { status: 500 })
   }
 }
