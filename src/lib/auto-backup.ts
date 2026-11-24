@@ -18,14 +18,19 @@ import { writeFile, mkdir, readFile, unlink, readdir, stat } from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
 
-// Railway's mounted volume survives container replacement and redeploys.
-const VOLUME_MOUNT_PATH = process.env.RAILWAY_VOLUME_MOUNT_PATH?.trim()
+// Persist company backups on Railway's mounted volume. The app's Railway
+// volume is mounted at /app/data; local development uses the repository db dir.
+const VOLUME_MOUNT_PATH =
+  process.env.RAILWAY_VOLUME_MOUNT_PATH?.trim() ||
+  (existsSync('/app/data') ? '/app/data' : '')
 const CONFIGURED_BACKUP_PATH = process.env.BIZBOOK_BACKUP_DIR?.trim()
 const BACKUP_DIR = path.resolve(
   CONFIGURED_BACKUP_PATH ||
-    (VOLUME_MOUNT_PATH
-      ? path.join(VOLUME_MOUNT_PATH, 'excel-backups')
-      : path.join(process.cwd(), 'db', 'excel-backups'))
+    path.join(
+      VOLUME_MOUNT_PATH || path.join(process.cwd(), 'db'),
+      'bizbook-backups',
+      'excel'
+    )
 )
 const DEBOUNCE_MS = 30_000 // 30 seconds between auto-backups per tenant
 
@@ -237,7 +242,7 @@ async function generateAndSaveBackup(tenantId: string, trigger: string): Promise
 
   // Ensure backup directory exists
   const tenantDir = path.join(BACKUP_DIR, tenantId)
-  await mkdir(tenantDir, { recursive: true })
+  await mkdir(tenantDir, { recursive: true, mode: 0o700 })
 
   // Generate the Excel backup
   const { buffer, meta } = await generateExcelBackup(tenantId)
@@ -249,7 +254,7 @@ async function generateAndSaveBackup(tenantId: string, trigger: string): Promise
   const filePath = path.join(tenantDir, filename)
 
   // Save the Excel file (overwrites existing)
-  await writeFile(filePath, buffer)
+  await writeFile(filePath, buffer, { mode: 0o600 })
 
   // Save metadata info file (also overwrites)
   const info: BackupInfo = {
@@ -261,11 +266,11 @@ async function generateAndSaveBackup(tenantId: string, trigger: string): Promise
     trigger,
   }
   const infoPath = path.join(tenantDir, filename.replace('.xlsx', '.json'))
-  await writeFile(infoPath, JSON.stringify(info, null, 2))
+  await writeFile(infoPath, JSON.stringify(info, null, 2), { mode: 0o600 })
 
   // Save as _latest.json for quick access (overwrites)
   const latestPath = path.join(tenantDir, '_latest.json')
-  await writeFile(latestPath, JSON.stringify(info, null, 2))
+  await writeFile(latestPath, JSON.stringify(info, null, 2), { mode: 0o600 })
 
   // v4.157: No cleanup needed — single file overwrites itself
 
