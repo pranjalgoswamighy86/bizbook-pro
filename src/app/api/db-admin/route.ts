@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import fs from 'fs'
 import path from 'path'
 import { requireAuth } from '@/lib/api-helpers'
-import { isSuperAdminEmail } from '@/lib/rbac/enforce-v2'
+import { isSuperAdminEmail, isInfrastructureOwnerEmail } from '@/lib/rbac/enforce-v2'
 
 const BACKUP_DIR = path.join(process.cwd(), 'db', 'backups')
 
@@ -14,7 +14,12 @@ const BACKUP_DIR = path.join(process.cwd(), 'db', 'backups')
 export async function POST(req: NextRequest) {
   const auth = await requireAuth(req)
   if (auth instanceof NextResponse) return auth
-  if (!isSuperAdminEmail(auth.email)) {
+  const isPlatformAdmin = (
+    isSuperAdminEmail(auth.email) && auth.user.role === 'SUPER_ADMIN'
+  ) || (
+    isInfrastructureOwnerEmail(auth.email) && auth.user.role === 'INFRASTRUCTURE_OWNER_ADMIN'
+  )
+  if (!isPlatformAdmin) {
     return NextResponse.json({ error: 'Platform administrator access is required.' }, { status: 403 })
   }
 
