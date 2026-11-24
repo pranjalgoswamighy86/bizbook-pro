@@ -19,6 +19,7 @@ import { isInterStateSupply } from '@/lib/gst-utils'
 import { Plus, Pencil, Trash2, X, ChevronDown, Eye, Loader2, Sparkles, FileCheck } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import { PartySuggest } from '@/components/app/party-suggest'
+import { GstinInput } from '@/components/app/gstin-input'
 import { ItemSuggest } from '@/components/app/item-suggest'
 import { triggerBackupDownload } from '@/hooks/use-excel-backup'
 import { authFetch } from '@/lib/auth-fetch'
@@ -516,7 +517,7 @@ export function PurchaseRegister() {
                   partyType="SUPPLIER"
                 />
                 <div><Label>Supplier Address</Label><Input value={form.partyAddress} onChange={(e) => setForm({ ...form, partyAddress: e.target.value })} placeholder="Full address" /></div>
-                <div><Label>Supplier GST</Label><Input value={form.partyGst} onChange={(e) => setForm({ ...form, partyGst: e.target.value })} placeholder="GSTIN" /></div>
+                <GstinInput label="Supplier GSTIN" value={form.partyGst} onChange={(value) => setForm((prev) => ({ ...prev, partyGst: value }))} placeholder="15-character GSTIN" />
               </div>
 
               {/* AI Smart Import hint */}
