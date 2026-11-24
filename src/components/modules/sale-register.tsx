@@ -581,7 +581,7 @@ export function SaleRegister() {
         if (missingPins.includes('seller')) {
           const value = window.prompt('Enter the 6-digit PIN code of this business registered address:')
           if (!value) { if (irpWindow && !irpWindow.closed) irpWindow.close(); return }
-          if (!/^[1-9]\\d{5}$/.test(value.trim())) {
+          if (!/^[1-9]\d{5}$/.test(value.trim())) {
             if (irpWindow && !irpWindow.closed) irpWindow.close()
             toast({ title: 'Invalid seller PIN code', description: 'Enter a valid six-digit Indian PIN code.', variant: 'destructive' })
             return
@@ -591,7 +591,7 @@ export function SaleRegister() {
         if (missingPins.includes('buyer')) {
           const value = window.prompt(`Enter the 6-digit PIN code for ${sale.partyName || 'the customer'}'s billing address:`)
           if (!value) { if (irpWindow && !irpWindow.closed) irpWindow.close(); return }
-          if (!/^[1-9]\\d{5}$/.test(value.trim())) {
+          if (!/^[1-9]\d{5}$/.test(value.trim())) {
             if (irpWindow && !irpWindow.closed) irpWindow.close()
             toast({ title: 'Invalid buyer PIN code', description: 'Enter a valid six-digit Indian PIN code.', variant: 'destructive' })
             return
