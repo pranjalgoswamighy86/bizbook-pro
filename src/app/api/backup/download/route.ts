@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { rawDb } from '@/lib/db-soft-delete'
 import { requireAuth } from '@/lib/api-helpers'
-import { isSuperAdminEmail } from '@/lib/rbac/enforce-v2'
+import { isSuperAdminEmail, isInfrastructureOwnerEmail } from '@/lib/rbac/enforce-v2'
 import { buildBackupRecords } from '@/lib/backup-utils'
 
 export const dynamic = 'force-dynamic'
@@ -11,7 +11,11 @@ export async function GET(req: NextRequest) {
     const auth = await requireAuth(req)
     if (auth instanceof NextResponse) return auth
 
-    const isPlatformAdmin = isSuperAdminEmail(auth.email)
+    const isPlatformAdmin = (
+      isSuperAdminEmail(auth.email) && auth.user.role === 'SUPER_ADMIN'
+    ) || (
+      isInfrastructureOwnerEmail(auth.email) && auth.user.role === 'INFRASTRUCTURE_OWNER_ADMIN'
+    )
     const tenantId = isPlatformAdmin ? null : auth.user.tenantId
 
     if (!isPlatformAdmin) {
