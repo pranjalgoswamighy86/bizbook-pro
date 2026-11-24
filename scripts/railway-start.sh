@@ -9,7 +9,7 @@ mkdir -p db
 # Apply only non-destructive schema changes. Destructive diffs require a
 # reviewed migration and must never be auto-accepted during startup.
 echo "→ Syncing database schema in safe mode..."
-npx prisma db push --skip-generate 2>/dev/null || echo "⚠️ Safe schema sync was not applied; review the Prisma diff before changing data."
+npx prisma db push --skip-generate
 
 # Never create a publicly-known administrator password on an empty database.
 # The first administrator must register through the verified account flow.
