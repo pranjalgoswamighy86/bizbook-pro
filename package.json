@@ -27,7 +27,8 @@
     "electron:dev": "npm run electron:compile && concurrently \"npm run dev\" \"wait-on http://localhost:3000 && electron electron/main.js\"",
     "electron:pack": "npm run build && npm run electron:compile && electron-builder --config electron-builder.yml --dir",
     "electron:build": "npm run build && npm run electron:compile && electron-builder --config electron-builder.yml --publish never",
-    "electron:dist": "npm run electron:build"
+    "electron:dist": "npm run electron:build",
+    "test": "tsc src/lib/gst-utils.ts --target ES2020 --module commonjs --outDir .test-build --skipLibCheck && node --test tests/*.test.cjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
