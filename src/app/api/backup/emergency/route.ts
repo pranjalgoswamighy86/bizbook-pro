@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { rawDb } from '@/lib/db-soft-delete'
 import { verifyPassword } from '@/lib/auth'
+import { checkLoginRateLimit, clearLoginAttempts, getClientIP, recordLoginAttempt } from '@/lib/rate-limit-db'
 
 /**
  * EMERGENCY Database Backup API
@@ -18,8 +19,9 @@ import { verifyPassword } from '@/lib/auth'
  * Authentication is done by directly verifying email + password against
  * the User table — NO session required, NO tenant required.
  *
- * Any registered user can use this to download a complete backup of
- * their entire database (all tenants, all records).
+ * This endpoint exports ALL tenants and all records, so it is restricted
+ * to configured system-administrator identities only. Ordinary tenant
+ * administrators should use the tenant-scoped /api/backup export.
  *
  * Usage from a browser:
  *   Visit /emergency-backup.html — fill in email + password — click Download.
@@ -47,7 +49,30 @@ export async function POST(req: NextRequest) {
     const email = String(body.email).trim().toLowerCase()
     const password = String(body.password)
 
-    // Use rawDb to bypass soft-delete filter — we want to authenticate
+    // A system-wide backup contains every tenant's financial and personal data.
+    // Never expose it to an ordinary tenant account.
+    const systemAdminEmails = new Set([
+      'admin@bizbook.pro',
+      'pranjalgoswamighy86@gmail.com',
+      process.env.ADMIN_EMAIL || '',
+      process.env.INFRASTRUCTURE_OWNER_EMAIL || '',
+    ].map(value => value.toLowerCase().trim()).filter(Boolean))
+
+    if (!systemAdminEmails.has(email)) {
+      return NextResponse.json({ error: 'Emergency whole-database backup is restricted to the system administrator.' }, { status: 403 })
+    }
+
+    const clientIP = getClientIP(req)
+    const rateLimit = await checkLoginRateLimit(email, clientIP)
+    if (!rateLimit.allowed) {
+      return NextResponse.json(
+        { error: 'Too many backup authentication attempts. Please try again later.' },
+        { status: 429, headers: { 'Retry-After': String(rateLimit.retryAfterSeconds) } }
+      )
+    }
+
+    // Use rawDb to bypass soft-delete filter — the designated system administrator
+    // must still be able to retrieve a backup if their account was soft-deleted.
     // the user even if their account was soft-deleted, so they can
     // still get their data out.
     const user = await rawDb.user.findFirst({
@@ -69,11 +94,15 @@ export async function POST(req: NextRequest) {
     const passwordValid = user ? verifyPassword(password, user.password) : false
 
     if (!user || !passwordValid) {
+      await recordLoginAttempt(email, clientIP, false)
       return NextResponse.json(
         { error: 'Invalid email or password.' },
         { status: 401 }
       )
     }
+
+    await recordLoginAttempt(email, clientIP, true)
+    await clearLoginAttempts(email)
 
     // We deliberately DO NOT block on isActive / isDeleted here.
     // Emergency backup is the user's safety net — if their account was
@@ -241,29 +270,11 @@ export async function POST(req: NextRequest) {
  * NOTE: This is less secure (password in URL) but useful for testing
  * and for users who can't figure out curl. The POST endpoint is preferred.
  */
-export async function GET(req: NextRequest) {
-  const url = new URL(req.url)
-  const email = url.searchParams.get('email')
-  const password = url.searchParams.get('password')
-
-  if (!email || !password) {
-    return NextResponse.json(
-      {
-        error: 'Missing email or password',
-        usage: 'POST /api/backup/emergency with body { email, password }',
-        alternative:
-          'Or visit /emergency-backup.html for a simple form interface',
-      },
-      { status: 400 }
-    )
-  }
-
-  // Re-dispatch to POST by constructing a synthetic request
-  return POST(
-    new NextRequest(req.url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password }),
-    })
+// Credentials in query strings can leak through logs and browser history.
+// Keep this endpoint POST-only.
+export async function GET() {
+  return NextResponse.json(
+    { error: 'GET is disabled. Send email and password in a POST request body.' },
+    { status: 405, headers: { Allow: 'POST' } }
   )
 }
