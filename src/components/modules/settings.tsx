@@ -51,6 +51,33 @@ export function SettingsPage() {
   const [activityTotal, setActivityTotal] = useState(0)
   const activityPageSize = 25
   const [bizForm, setBizForm] = useState({ name: '', address: '', phone: '', email: '', gstNumber: '', panNumber: '', upiId: '' })
+  // Per-tenant GST Suvidha Provider configuration. Secrets are write-only.
+  const [gspForm, setGspForm] = useState({ gspCode: '', gspClientId: '', gspClientSecret: '', gspUsername: '', gspPassword: '' })
+  const [gspConfigured, setGspConfigured] = useState(false)
+  const [gspEnv, setGspEnv] = useState('sandbox')
+  const [gspLoading, setGspLoading] = useState(false)
+  const [gspSaving, setGspSaving] = useState(false)
+
+  useEffect(() => {
+    if (!tenant?.id) return
+    let active = true
+    setGspLoading(true)
+    authFetch(`/api/settings/gsp-config?tenantId=${encodeURIComponent(tenant.id)}`)
+      .then(async (res) => {
+        const data = await res.json().catch(() => ({}))
+        if (!res.ok) throw new Error(data.error || 'Unable to load GSP configuration')
+        if (active) {
+          setGspConfigured(!!data.configured)
+          setGspEnv(data.irpEnv || 'sandbox')
+        }
+      })
+      .catch((error) => {
+        if (active) toast({ title: 'GSP settings unavailable', description: error.message, variant: 'destructive' })
+      })
+      .finally(() => { if (active) setGspLoading(false) })
+    return () => { active = false }
+  }, [tenant?.id, toast])
+
 
   // --- About Tab State ---
   const [dbStats, setDbStats] = useState<Record<string, number>>({})
@@ -800,6 +827,54 @@ export function SettingsPage() {
     setOtpDeliveryMethod('unknown')
   }
 
+
+  const handleSaveGspConfig = async () => {
+    if (!tenant) return
+    const values = Object.values(gspForm)
+    if (values.some((value) => !value.trim())) {
+      toast({ title: 'All GSP fields are required', variant: 'destructive' })
+      return
+    }
+    setGspSaving(true)
+    try {
+      const res = await authFetch('/api/settings/gsp-config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenantId: tenant.id, ...gspForm, irpEnv: gspEnv }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || 'Unable to save GSP configuration')
+      setGspConfigured(!!data.configured)
+      setGspForm({ gspCode: '', gspClientId: '', gspClientSecret: '', gspUsername: '', gspPassword: '' })
+      toast({ title: 'GSP configuration saved', description: 'Credentials are encrypted before storage.' })
+    } catch (error: any) {
+      toast({ title: 'GSP configuration failed', description: error?.message || 'Please try again.', variant: 'destructive' })
+    } finally {
+      setGspSaving(false)
+    }
+  }
+
+  const handleClearGspConfig = async () => {
+    if (!tenant || !window.confirm('Remove this business’s saved GSP credentials?')) return
+    setGspSaving(true)
+    try {
+      const res = await authFetch('/api/settings/gsp-config', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenantId: tenant.id }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || 'Unable to clear GSP configuration')
+      setGspConfigured(false)
+      setGspForm({ gspCode: '', gspClientId: '', gspClientSecret: '', gspUsername: '', gspPassword: '' })
+      toast({ title: 'GSP credentials removed' })
+    } catch (error: any) {
+      toast({ title: 'Unable to remove GSP credentials', description: error?.message || 'Please try again.', variant: 'destructive' })
+    } finally {
+      setGspSaving(false)
+    }
+  }
+
   if (!canManage(user?.role || 'VIEW_ONLY')) {
     return (
       <div className="p-6">
@@ -819,8 +894,9 @@ export function SettingsPage() {
       <h2 className="text-lg font-semibold flex items-center gap-2"><Settings className="h-5 w-5" />Settings</h2>
 
       <Tabs defaultValue="company" className="space-y-4">
-        <TabsList className="grid w-full grid-cols-7 max-w-2xl">
+        <TabsList className="grid w-full grid-cols-8 max-w-3xl">
           <TabsTrigger value="company" className="text-xs sm:text-sm">Company</TabsTrigger>
+          <TabsTrigger value="gsp" className="text-xs sm:text-sm">GST / GSP</TabsTrigger>
           <TabsTrigger value="invoice" className="text-xs sm:text-sm">Invoice</TabsTrigger>
           <TabsTrigger value="users" className="text-xs sm:text-sm">Users</TabsTrigger>
           <TabsTrigger value="limits" className="text-xs sm:text-sm">Usage Limits</TabsTrigger>
@@ -1654,6 +1730,40 @@ export function SettingsPage() {
                     <span>✓ Data Backup & Restore</span>
                   </div>
                 </div>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ==================== Tenant GSP Credentials ==================== */}
+        <TabsContent value="gsp" className="space-y-4">
+          <Card className="border-0 shadow-sm">
+            <CardHeader>
+              <CardTitle className="text-sm flex items-center gap-2"><ShieldCheck className="h-4 w-4" />GST Portal / GSP Integration</CardTitle>
+              <CardDescription>Configure this business’s own authorised GSP credentials. Tahigo International does not use its own GST identity for customer transactions.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-center justify-between rounded-lg border p-3">
+                <div>
+                  <p className="text-sm font-medium">Credential status</p>
+                  <p className="text-xs text-muted-foreground">{gspLoading ? 'Checking configuration…' : gspConfigured ? 'Credentials are configured for this business.' : 'No GSP credentials saved for this business.'}</p>
+                </div>
+                <Badge variant={gspConfigured ? 'default' : 'secondary'}>{gspLoading ? 'Checking' : gspConfigured ? 'Configured' : 'Not configured'}</Badge>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1"><Label>GSP Code</Label><Input value={gspForm.gspCode} onChange={(e) => setGspForm(v => ({ ...v, gspCode: e.target.value }))} placeholder="GSP identifier" autoComplete="off" /></div>
+                <div className="space-y-1"><Label>IRP Environment</Label><Select value={gspEnv} onValueChange={setGspEnv}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="sandbox">Sandbox / Testing</SelectItem><SelectItem value="production">Production</SelectItem></SelectContent></Select></div>
+                <div className="space-y-1"><Label>GSP Client ID</Label><Input value={gspForm.gspClientId} onChange={(e) => setGspForm(v => ({ ...v, gspClientId: e.target.value }))} autoComplete="off" /></div>
+                <div className="space-y-1"><Label>GSP Client Secret</Label><Input type="password" value={gspForm.gspClientSecret} onChange={(e) => setGspForm(v => ({ ...v, gspClientSecret: e.target.value }))} autoComplete="new-password" /></div>
+                <div className="space-y-1"><Label>GSP Username</Label><Input value={gspForm.gspUsername} onChange={(e) => setGspForm(v => ({ ...v, gspUsername: e.target.value }))} autoComplete="off" /></div>
+                <div className="space-y-1"><Label>GSP Password</Label><Input type="password" value={gspForm.gspPassword} onChange={(e) => setGspForm(v => ({ ...v, gspPassword: e.target.value }))} autoComplete="new-password" /></div>
+              </div>
+              <div className="rounded-lg bg-muted/50 p-3 text-xs text-muted-foreground">
+                Credentials are encrypted with AES-256-GCM before database storage. They are write-only and are never returned to the browser. Use production credentials only after testing with your GSP and confirming your GST registration is eligible for the relevant service.
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button onClick={handleSaveGspConfig} disabled={gspSaving || gspLoading}>{gspSaving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}Save GSP Credentials</Button>
+                {gspConfigured && <Button variant="outline" onClick={handleClearGspConfig} disabled={gspSaving}>Remove Credentials</Button>}
               </div>
             </CardContent>
           </Card>
