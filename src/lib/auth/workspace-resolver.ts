@@ -127,7 +127,10 @@ export function generateWorkspaceScopedToken(
   userEmail: string,
   selectedWorkspace: ResolvedWorkspace
 ): string {
-  const secret = process.env.SESSION_SECRET || 'fallback-dev-secret-change-me';
+  const secret = process.env.SESSION_SECRET;
+  if (!secret || secret.length < 32) {
+    throw new Error('SESSION_SECRET must be initialized with at least 32 characters before issuing workspace tokens.');
+  }
 
   const header = { alg: 'HS256', typ: 'JWT' };
   const payload = {
