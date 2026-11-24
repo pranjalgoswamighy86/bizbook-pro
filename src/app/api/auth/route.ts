@@ -151,10 +151,8 @@ export async function POST(req: NextRequest) {
         }, { status: 409 })
       }
 
-      // v4.124: Master mobile (9101555075) BYPASSES phone uniqueness check —
-      // the master mobile can be used across ALL tenant accounts. This is the
-      // admin's mobile that works as a universal login + OTP receiver.
-      // Only non-master mobiles are checked for uniqueness.
+      // Only the explicitly configured shared business phone may be reused
+      // across tenants; all other business phone numbers remain unique.
       if (!isMasterMobile(businessPhone)) {
         const existingPhoneTenant = await findTenantByPhone(businessPhone)
         if (existingPhoneTenant) {
@@ -182,7 +180,7 @@ export async function POST(req: NextRequest) {
       //   - Email first (Resend primary, SMTP fallback)
       //   - SMS text only (no voice/TTS — Rule 2.1) if email fails
       //   - WhatsApp fail-safe if SMS fails AND WHATSAPP_ACCESS_TOKEN set
-      //   - NEVER routes to master mobile for non-admin users (Rule 1.1 fix)
+      //   - NEVER routes OTP to a shared business phone as a fallback (Rule 1.1 fix)
       //   - Logs to AuditLog table
       console.log(`[REG-OTP] Dispatching via multi-channel pipeline to ${email} / ${businessPhone || 'no-phone'}`)
       const otpResult = await dispatchOtp(otp, {
@@ -200,11 +198,9 @@ export async function POST(req: NextRequest) {
         const errorMsg = otpResult.fallbackReason || 'All OTP delivery channels failed'
         console.error(`[REG-OTP] All channels failed: ${errorMsg}`)
         if (errorMsg.includes('NOT_CONFIGURED') || errorMsg.includes('not configured')) {
-          // v4.155: OTP bypass is now STRICTLY gated behind non-production environments.
-          // In production (Railway with NODE_ENV=production), if email/SMS is not configured,
-          // registration FAILS — the user must configure BREVO_API_KEY or RESEND_API_KEY.
-          // This prevents the security hole where OTP was returned in plaintext JSON.
-          if (process.env.NODE_ENV === 'production' && process.env.OTP_BYPASS_ALLOWED !== 'true') {
+          // OTP must never be returned in an API response in production.
+          // Do not allow an environment flag to override this production safeguard.
+          if (process.env.NODE_ENV === 'production') {
             console.error(`[REG-OTP] 🔒 Production mode + no OTP provider — refusing to register ${email}`)
             return NextResponse.json({
               sent: false,
@@ -213,7 +209,7 @@ export async function POST(req: NextRequest) {
             }, { status: 503 })
           }
 
-          // Non-production (dev/staging) OR explicit OTP_BYPASS_ALLOWED=true: emergency fallback
+          // Non-production only: emergency fallback for local development and staging
           console.warn(`[REG-OTP] ⚠️ OTP delivery not configured (NODE_ENV=${process.env.NODE_ENV}) — returning OTP directly for emergency registration`)
           console.warn(`[REG-OTP] ⚠️ OTP for ${email}: ${otp}`)
           return NextResponse.json({
@@ -281,7 +277,7 @@ export async function POST(req: NextRequest) {
         }, { status: 409 })
       }
 
-      // v4.124: Master mobile bypass for register-verify
+      // Apply the same explicitly configured shared-phone uniqueness exception.
       if (!isMasterMobile(businessPhone)) {
         const existingPhoneTenant = await findTenantByPhone(businessPhone)
         if (existingPhoneTenant) {
@@ -369,83 +365,16 @@ export async function POST(req: NextRequest) {
     // Legacy register action (kept for backward compatibility)
     // ============================================================
     if (action === 'register') {
-      const { name, email, password, businessName, businessAddress, businessPhone, businessGst } = body
-
-      if (!name || !email || !password || !businessName || !businessPhone) {
-        return NextResponse.json({
-          error: 'All fields are required: Name, Email, Password, Business Name, and Phone Number.',
-        }, { status: 400 })
-      }
-      if (password.length < 6) {
-        return NextResponse.json({ error: 'Password must be at least 6 characters.' }, { status: 400 })
-      }
-
-      const existingUser = await db.user.findFirst({ where: { email, isDeleted: false } })
-      if (existingUser) {
-        return NextResponse.json({
-          error: 'This email ID is already registered. Please go to the Login page and log in with your existing account.',
-          field: 'email',
-        }, { status: 400 })
-      }
-
-      // v4.124: Master mobile bypass for simplified registration
-      if (!isMasterMobile(businessPhone)) {
-        const existingPhoneTenant = await findTenantByPhone(businessPhone)
-        if (existingPhoneTenant) {
-          return NextResponse.json({
-            error: 'This mobile number is already registered with another account. Please use a different mobile number or go to the Login page.',
-            field: 'phone',
-          }, { status: 400 })
-        }
-      }
-
-      // ---- SECURITY PATCH v1: hash password ----
-      const passwordHash = hashPassword(password)
-      // -------------------------------------------
-
-      const { tenant, user } = await db.$transaction(async (tx) => {
-        const tenant = await tx.tenant.create({
-          data: {
-            name: businessName,
-            address: businessAddress,
-            phone: businessPhone,
-            gstNumber: businessGst,
-            email,
-            plan: 'free',
-          },
-        })
-        const user = await tx.user.create({
-          data: {
-            name,
-            email,
-            password: passwordHash,
-            role: 'MAIN_ADMIN',
-            tenantId: tenant.id,
-          },
-        })
-        await tx.userTenant.create({
-          data: { userId: user.id, tenantId: tenant.id, role: 'MAIN_ADMIN', isOwner: true },
-        })
-        return { tenant, user }
-      })
-
-      // v4.114: Log that this tenant is now protected
-      console.log(`[REGISTER] New account created: ${email} (Company: ${tenant.name})`)
-      console.log(`[TENANT-PROTECT] ✓ Tenant "${tenant.name}" (email: ${tenant.email}) is now a PROTECTED TENANT — data cannot be hard-deleted.`)
-
-      // ---- SECURITY PATCH v1: set session cookie ----
-      const token = createSessionToken(user.id, user.email)
-      const res = NextResponse.json({
-        user: { id: user.id, email: user.email, name: user.name, role: user.role, tenantId: user.tenantId },
-        // v6.27.2: Use serializeTenant() so freshly registered accounts
-        // also carry invoice customization fields (null defaults) — keeps
-        // the frontend store shape consistent across all auth flows.
-        tenant: serializeTenant(tenant),
-        sessionToken: token,  // for Bearer header fallback when cookies are blocked
-      })
-      setSessionCookie(res, token)
-      return res
-      // -----------------------------------------------
+      // The legacy path created MAIN_ADMIN accounts without verifying email.
+      // All clients use register-send-otp + register-verify; keep the old action
+      // explicitly closed so callers cannot bypass email verification.
+      return NextResponse.json(
+        {
+          error: 'Direct registration is disabled. Verify your email using the OTP registration flow.',
+          code: 'OTP_REGISTRATION_REQUIRED',
+        },
+        { status: 410 }
+      )
     }
 
     // ============================================================
@@ -1443,7 +1372,7 @@ export async function POST(req: NextRequest) {
         const reason = otpResult.fallbackReason || ''
         if (reason.includes('NOT_CONFIGURED') || reason.includes('not configured')) {
           // v4.155: OTP bypass gated behind non-production environments (same as registration)
-          if (process.env.NODE_ENV === 'production' && process.env.OTP_BYPASS_ALLOWED !== 'true') {
+          if (process.env.NODE_ENV === 'production') {
             console.error(`[RESET-OTP] 🔒 Production mode + no OTP provider — refusing reset for ${targetUser.email}`)
             return NextResponse.json({
               sent: false,
@@ -1451,7 +1380,7 @@ export async function POST(req: NextRequest) {
               hint: 'Contact your administrator to enable email/SMS OTP delivery.',
             }, { status: 503 })
           }
-          // Non-production OR explicit OTP_BYPASS_ALLOWED=true: emergency fallback
+          // Non-production only: emergency fallback for local development and staging
           console.warn(`[RESET-OTP] ⚠️ OTP delivery not configured (NODE_ENV=${process.env.NODE_ENV}) — returning OTP directly for emergency reset`)
           console.warn(`[RESET-OTP] ⚠️ OTP for ${targetUser.email}: ${otp}`)
           message = 'OTP delivery service is not configured. Your verification code is shown below.'

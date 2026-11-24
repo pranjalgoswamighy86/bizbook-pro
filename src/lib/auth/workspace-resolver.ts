@@ -8,7 +8,8 @@
  * PLACE AT: lib/auth/workspace-resolver.ts
  */
 
-import { prisma } from '@/lib/db';
+import { db as prisma } from '@/lib/db';
+import { createHmac } from 'crypto';
 
 // ---------- Types ----------
 export interface ResolvedWorkspace {
@@ -126,8 +127,10 @@ export function generateWorkspaceScopedToken(
   userEmail: string,
   selectedWorkspace: ResolvedWorkspace
 ): string {
-  const crypto = require('crypto');
-  const secret = process.env.SESSION_SECRET || 'fallback-dev-secret-change-me';
+  const secret = process.env.SESSION_SECRET;
+  if (!secret || secret.length < 32) {
+    throw new Error('SESSION_SECRET must be initialized with at least 32 characters before issuing workspace tokens.');
+  }
 
   const header = { alg: 'HS256', typ: 'JWT' };
   const payload = {
@@ -144,8 +147,7 @@ export function generateWorkspaceScopedToken(
 
   const encodedHeader = Buffer.from(JSON.stringify(header)).toString('base64url');
   const encodedPayload = Buffer.from(JSON.stringify(payload)).toString('base64url');
-  const signature = crypto
-    .createHmac('sha256', secret)
+  const signature = createHmac('sha256', secret)
     .update(`${encodedHeader}.${encodedPayload}`)
     .digest('base64url');
 

@@ -5,18 +5,16 @@
  * Converts all existing plaintext passwords in the User table to scrypt hashes.
  * Safe to run multiple times — it skips users whose password is already hashed.
  *
- * Also resets the default admin password (admin@bizbook.pro) to a known
- * scrypt hash of "admin123" so the default credentials still work after
- * the patch is applied.
+ * Preserves each user's current password while converting legacy plaintext
+ * values to scrypt hashes. It never creates or resets any administrator
+ * credentials.
  *
  * Usage:
- *   node scripts/migrate-passwords.js                # uses DATABASE_URL env
+ *   node scripts/migrate-passwords.js                # uses the local SQLite database
  *   node scripts/migrate-passwords.js ./db/custom.db # explicit path
  *
- * After running this script:
- *   1. Start the server
- *   2. Log in with admin@bizbook.pro / admin123
- *   3. IMMEDIATELY change the password via Settings
+ * Existing accounts retain their current password. Create new admin accounts
+ * through the verified registration flow or a separately controlled setup process.
  */
 
 const crypto = require('crypto')
@@ -88,7 +86,6 @@ async function main() {
 
     let migrated = 0
     let skipped = 0
-    let reset = 0
 
     for (const user of users) {
       if (isPasswordHashed(user.password)) {
@@ -110,34 +107,14 @@ async function main() {
       migrated++
     }
 
-    // Ensure the default admin exists with a known password
-    const adminEmail = 'admin@bizbook.pro'
-    const admin = await prisma.user.findUnique({ where: { email: adminEmail } })
-    if (admin) {
-      if (!isPasswordHashed(admin.password) || admin.password === 'admin123') {
-        await prisma.user.update({
-          where: { id: admin.id },
-          data: { password: hashPassword('admin123') },
-        })
-        console.log(`  RESET ${adminEmail}  → "admin123" (default)`)
-        reset++
-      }
-    } else {
-      console.log(`  Note: ${adminEmail} not found — skipping default reset`)
-    }
-
     console.log('')
     console.log('============================================')
     console.log('  Migration complete')
     console.log('============================================')
     console.log(`  Migrated:   ${migrated}`)
     console.log(`  Skipped:    ${skipped}  (already hashed)`)
-    console.log(`  Reset:      ${reset}   (default admin)`)
     console.log('')
-    console.log('Next steps:')
-    console.log('  1. Start the server:  npm start')
-    console.log('  2. Log in:  admin@bizbook.pro  /  admin123')
-    console.log('  3. Change the password via Settings immediately.')
+    console.log("Next step: start the server and sign in with each user\u0027s existing password.")
     console.log('')
 
     // IMPORTANT: Set SESSION_SECRET in .env so session tokens survive restarts

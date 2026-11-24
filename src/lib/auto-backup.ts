@@ -18,9 +18,21 @@ import { writeFile, mkdir, readFile, unlink, readdir, stat } from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
 
-const BACKUP_DIR = path.join(process.cwd(), 'db', 'excel-backups')
+// Persist company backups on Railway's mounted volume. The app's Railway
+// volume is mounted at /app/data; local development uses the repository db dir.
+const VOLUME_MOUNT_PATH =
+  process.env.RAILWAY_VOLUME_MOUNT_PATH?.trim() ||
+  (existsSync('/app/data') ? '/app/data' : '')
+const CONFIGURED_BACKUP_PATH = process.env.BIZBOOK_BACKUP_DIR?.trim()
+const BACKUP_DIR = path.resolve(
+  CONFIGURED_BACKUP_PATH ||
+    path.join(
+      VOLUME_MOUNT_PATH || path.join(process.cwd(), 'db'),
+      'bizbook-backups',
+      'excel'
+    )
+)
 const DEBOUNCE_MS = 30_000 // 30 seconds between auto-backups per tenant
-const MAX_BACKUPS_PER_TENANT = 10 // Keep last 10 Excel backups per tenant
 
 // Track last backup time per tenant (in-memory debounce)
 const lastBackupTime = new Map<string, number>()
@@ -167,17 +179,34 @@ export async function listBackupFiles(tenantId: string): Promise<Array<{
 }
 
 /**
+ * Resolve a backup filename strictly inside its tenant folder.
+ * Reject separators before resolving so encoded ../ paths can never escape
+ * into another tenant's backup directory.
+ */
+function resolveTenantBackupFile(tenantId: string, filename: string): { tenantDir: string; filePath: string } | null {
+  if (!/^[A-Za-z0-9_-]{1,128}$/.test(tenantId)) return null
+  if (
+    typeof filename !== 'string' ||
+    filename !== path.basename(filename) ||
+    !/^[A-Za-z0-9][A-Za-z0-9._-]{0,150}\.xlsx$/.test(filename)
+  ) {
+    return null
+  }
+
+  const tenantDir = path.resolve(BACKUP_DIR, tenantId)
+  const filePath = path.resolve(tenantDir, filename)
+  if (!filePath.startsWith(tenantDir + path.sep)) return null
+
+  return { tenantDir, filePath }
+}
+
+/**
  * Get the full path of a backup file for download.
  */
 export function getBackupFilePath(tenantId: string, filename: string): string | null {
-  // Security: prevent path traversal
-  const sanitized = filename.replace(/[^a-zA-Z0-9._-]/g, '')
-  if (!sanitized.endsWith('.xlsx')) return null
-
-  const filePath = path.join(BACKUP_DIR, tenantId, sanitized)
-  if (!existsSync(filePath)) return null
-
-  return filePath
+  const resolved = resolveTenantBackupFile(tenantId, filename)
+  if (!resolved || !existsSync(resolved.filePath)) return null
+  return resolved.filePath
 }
 
 /**
@@ -185,16 +214,15 @@ export function getBackupFilePath(tenantId: string, filename: string): string | 
  */
 export async function deleteBackupFile(tenantId: string, filename: string): Promise<boolean> {
   try {
-    const sanitized = filename.replace(/[^a-zA-Z0-9._-]/g, '')
-    const filePath = path.join(BACKUP_DIR, tenantId, sanitized)
+    const resolved = resolveTenantBackupFile(tenantId, filename)
+    if (!resolved || !existsSync(resolved.filePath)) return false
 
-    if (!existsSync(filePath)) return false
+    await unlink(resolved.filePath)
 
-    await unlink(filePath)
-
-    // Also delete corresponding info file
-    const infoFile = sanitized.replace('.xlsx', '.json')
-    const infoPath = path.join(BACKUP_DIR, tenantId, infoFile)
+    // Also delete corresponding metadata, constrained to the same tenant folder.
+    const infoFile = filename.replace(/\.xlsx$/, '.json')
+    const infoPath = path.resolve(resolved.tenantDir, infoFile)
+    if (!infoPath.startsWith(resolved.tenantDir + path.sep)) return false
     if (existsSync(infoPath)) {
       await unlink(infoPath).catch(() => {})
     }
@@ -214,7 +242,7 @@ async function generateAndSaveBackup(tenantId: string, trigger: string): Promise
 
   // Ensure backup directory exists
   const tenantDir = path.join(BACKUP_DIR, tenantId)
-  await mkdir(tenantDir, { recursive: true })
+  await mkdir(tenantDir, { recursive: true, mode: 0o700 })
 
   // Generate the Excel backup
   const { buffer, meta } = await generateExcelBackup(tenantId)
@@ -226,7 +254,7 @@ async function generateAndSaveBackup(tenantId: string, trigger: string): Promise
   const filePath = path.join(tenantDir, filename)
 
   // Save the Excel file (overwrites existing)
-  await writeFile(filePath, buffer)
+  await writeFile(filePath, buffer, { mode: 0o600 })
 
   // Save metadata info file (also overwrites)
   const info: BackupInfo = {
@@ -238,49 +266,16 @@ async function generateAndSaveBackup(tenantId: string, trigger: string): Promise
     trigger,
   }
   const infoPath = path.join(tenantDir, filename.replace('.xlsx', '.json'))
-  await writeFile(infoPath, JSON.stringify(info, null, 2))
+  await writeFile(infoPath, JSON.stringify(info, null, 2), { mode: 0o600 })
 
   // Save as _latest.json for quick access (overwrites)
   const latestPath = path.join(tenantDir, '_latest.json')
-  await writeFile(latestPath, JSON.stringify(info, null, 2))
+  await writeFile(latestPath, JSON.stringify(info, null, 2), { mode: 0o600 })
 
   // v4.157: No cleanup needed — single file overwrites itself
-  // (was: cleanupOldBackups(tenantId) which kept last 10)
 
   console.log(`[AUTO-BACKUP] Updated: ${filename} (${meta.totalRecords} records, ${(buffer.length / 1024).toFixed(1)}KB, trigger: ${trigger})`)
 
   return info
 }
 
-async function cleanupOldBackups(tenantId: string): Promise<void> {
-  const tenantDir = path.join(BACKUP_DIR, tenantId)
-  if (!existsSync(tenantDir)) return
-
-  try {
-    const files = await readdir(tenantDir)
-    const xlsxFiles = files
-      .filter(f => f.startsWith('backup_') && f.endsWith('.xlsx'))
-      .map(f => ({
-        name: f,
-        time: f.replace('backup_', '').replace('.xlsx', ''),
-      }))
-      .sort((a, b) => b.time.localeCompare(a.time)) // newest first
-
-    // Delete old backups beyond the limit
-    if (xlsxFiles.length > MAX_BACKUPS_PER_TENANT) {
-      const toDelete = xlsxFiles.slice(MAX_BACKUPS_PER_TENANT)
-      for (const file of toDelete) {
-        const filePath = path.join(tenantDir, file.name)
-        await unlink(filePath).catch(() => {})
-
-        // Also delete corresponding info file
-        const infoFile = file.name.replace('.xlsx', '.json')
-        const infoPath = path.join(tenantDir, infoFile)
-        await unlink(infoPath).catch(() => {})
-      }
-      console.log(`[AUTO-BACKUP] Cleaned up ${toDelete.length} old backups for tenant ${tenantId}`)
-    }
-  } catch (err) {
-    console.error(`[AUTO-BACKUP] Cleanup failed for tenant ${tenantId}:`, err)
-  }
-}

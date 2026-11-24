@@ -79,10 +79,10 @@ export async function GET(req: NextRequest) {
         ? ['❌ SESSION_SECRET not set — sessions will be unstable across restarts']
         : ['✅ SESSION_SECRET set']),
       ...(!process.env.MASTER_MOBILE_NUMBER
-        ? ['❌ MASTER_MOBILE_NUMBER not set — defaults to 9101555075']
+        ? ['❌ MASTER_MOBILE_NUMBER not set — shared-phone exception is disabled']
         : ['✅ MASTER_MOBILE_NUMBER set']),
       ...(!process.env.ADMIN_EMAIL
-        ? ['❌ ADMIN_EMAIL not set — defaults to admin@bizbook.pro']
+        ? ['❌ ADMIN_EMAIL not set — configure ADMIN_EMAIL or INFRA_OWNER_EMAIL in Railway']
         : ['✅ ADMIN_EMAIL set']),
     ],
   })

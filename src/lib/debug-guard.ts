@@ -9,9 +9,8 @@
  *
  * This guard requires:
  *   1. A valid session token (requireAuth).
- *   2. The authenticated user's email matches the ADMIN_EMAIL env var.
- *      Falls back to admin@bizbook.pro if ADMIN_EMAIL is unset (matching
- *      the existing default in debug-env's recommendations).
+ *   2. The authenticated user's email matches a deployment-configured
+ *      platform administrator identity (ADMIN_EMAIL or INFRA_OWNER_EMAIL).
  *
  * Returns null if access is granted, or a NextResponse (401/403) to return
  * directly to the client if denied.
@@ -25,9 +24,13 @@ export async function requireDebugAccess(req: NextRequest): Promise<null | NextR
   if (access instanceof NextResponse) return access
 
   // 2. Must be the configured admin
-  const adminEmail = (process.env.ADMIN_EMAIL || 'admin@bizbook.pro').toLowerCase().trim()
+  const adminEmails = new Set([
+    process.env.ADMIN_EMAIL || '',
+    process.env.INFRA_OWNER_EMAIL || '',
+    process.env.INFRASTRUCTURE_OWNER_EMAIL || '',
+  ].map(value => value.toLowerCase().trim()).filter(Boolean))
   const userEmail = (access.user?.email || '').toLowerCase().trim()
-  if (!userEmail || userEmail !== adminEmail) {
+  if (!userEmail || !adminEmails.has(userEmail)) {
     return NextResponse.json(
       { error: 'Forbidden. Debug endpoints are restricted to the platform administrator.' },
       { status: 403 }

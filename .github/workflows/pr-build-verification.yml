@@ -26,6 +26,21 @@ jobs:
       - name: Install dependencies
         run: npm install --no-audit --no-fund --force
 
+      - name: Validate startup and seed script syntax
+        run: |
+          node --check scripts/railway-start.js
+          node --check scripts/startup-backup.js
+          node --check scripts/seed-admin.js
+          node --check scripts/seed-dev-admin.js
+          node --check scripts/migrate-passwords.js
+          bash -n scripts/railway-start.sh
+          node --check scripts/try-api-import.js
+          node --check scripts/final-import.js
+          node --check scripts/find-tenant-and-import.js
+          node --check scripts/final-import-v2.js
+          node --check scripts/final-import-v3.js
+          python3 -m py_compile scripts/stress-test.py scripts/generate-chat-log.py
+
       - name: Generate Prisma client
         run: npx prisma generate
         env:
@@ -33,6 +48,38 @@ jobs:
 
       - name: Build application
         run: npm run build
+
+      - name: TypeScript type check
+        run: npx tsc --noEmit -p tsconfig.ci.json
         env:
           DATABASE_URL: postgresql://placeholder:placeholder@localhost:5432/placeholder
           NODE_ENV: production
+
+      - name: Lint changed application files
+        run: |
+          npx eslint \
+            src/app/api/admin/delete-account/route.ts \
+            src/app/api/auth/route.ts \
+            src/app/api/auto-backup/route.ts \
+            src/app/api/backup/emergency/route.ts \
+            src/app/api/backup/restore/route.ts \
+            src/app/api/db-admin/route.ts \
+            src/app/api/debug-env/route.ts \
+            src/app/api/help-tickets/route.ts \
+            src/app/api/payment-proof/review/route.ts \
+            src/app/api/payment-proof/route.ts \
+            src/app/api/subscription/route.ts \
+            src/app/api/upi-checkout/route.ts \
+            src/components/modules/backup.tsx \
+            src/components/modules/super-admin-subscriptions.tsx \
+            src/lib/auto-backup.ts \
+            src/lib/auth/workspace-resolver.ts \
+            src/lib/debug-guard.ts \
+            src/lib/excel-backup.ts \
+            src/lib/master-mobile.ts \
+            src/lib/otp/dispatcher.ts \
+            src/lib/rbac/enforce-v2.ts
+
+      - name: Repository lint baseline (informational)
+        run: npm run lint
+        continue-on-error: true

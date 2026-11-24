@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { rawDb, db } from '@/lib/db-soft-delete'
+import { rawDb } from '@/lib/db-soft-delete'
 import { verifyPassword } from '@/lib/auth'
+import { requireAuth } from '@/lib/api-helpers'
+import { checkLoginRateLimit, clearLoginAttempts, getClientIP, recordLoginAttempt } from '@/lib/rate-limit-db'
 
 /**
  * Database Restore API — v4.120
@@ -8,22 +10,14 @@ import { verifyPassword } from '@/lib/auth'
  * POST /api/backup/restore
  * Body: { "email": "...", "password": "...", "backupData": {...} }
  *
- * v4.120 CHANGES:
- *   1. Authentication now accepts EITHER:
- *      - The password from the BACKUP file (original behavior), OR
- *      - The password from the CURRENT database (new — lets admin restore
- *        even when they don't remember the old password)
- *   2. Uses upsert instead of create — existing records are UPDATED, not skipped.
- *      This fixes the "duplicate key" error when admin@bizbook.pro already exists.
- *   3. Handles the seeded admin user: updates its password hash, role, and tenantId
- *      to match the backup, so the admin can log in with their original password
- *      after restore.
+ * Security requirements:
+ *   - A live BizBook Pro session is required.
+ *   - The session email must be a configured system administrator.
+ *   - The password is verified against that account in the current database.
+ *   - The backup must contain the same administrator identity.
  *
- * The restore process:
- *   1. Verifies the user's credentials (backup OR current DB)
- *   2. Validates the backup structure
- *   3. Imports all tables in dependency order using upsert
- *   4. Returns a summary of what was restored
+ * Restore upserts all supported tables by ID and can overwrite records
+ * across every tenant. Only use a trusted backup after taking a fresh copy.
  */
 
 export const maxDuration = 600 // 10 minutes
@@ -65,6 +59,12 @@ const TABLE_ORDER: Array<[string, string]> = [
 
 export async function POST(req: NextRequest) {
   try {
+    // A whole-database restore can overwrite records across every tenant.
+    // Authenticate against the live application session and current DB password.
+    // Never trust a password hash embedded in the uploaded backup: that file is untrusted input.
+    const auth = await requireAuth(req)
+    if (auth instanceof NextResponse) return auth
+
     const body = await req.json().catch(() => null)
     if (!body || !body.email || !body.password || !body.backupData) {
       return NextResponse.json(
@@ -79,92 +79,60 @@ export async function POST(req: NextRequest) {
     const email = String(body.email).trim().toLowerCase()
     const password = String(body.password)
     const backupData = body.backupData
+    const authMethod = 'system-admin-session-and-current-database-password'
+    const sessionEmail = auth.email.toLowerCase().trim()
 
-    // Validate backup structure
-    if (!backupData._metadata || !backupData.data) {
+    const clientIP = getClientIP(req)
+    const rateLimit = await checkLoginRateLimit(sessionEmail, clientIP)
+    if (!rateLimit.allowed) {
       return NextResponse.json(
-        { error: 'Invalid backup file. The backup must have _metadata and data fields.' },
-        { status: 400 }
+        { error: 'Too many restore authentication attempts. Please try again later.' },
+        { status: 429, headers: { 'Retry-After': String(rateLimit.retryAfterSeconds) } }
       )
     }
 
-    if (backupData._metadata.software !== 'BizBook Pro') {
-      return NextResponse.json(
-        { error: 'This backup file was not created by BizBook Pro.' },
-        { status: 400 }
-      )
+    if (email !== sessionEmail) {
+      return NextResponse.json({ error: 'The restore email must match the signed-in administrator.' }, { status: 403 })
     }
 
-    // v4.120: Authenticate against EITHER the backup OR the current database
-    const backupUsers = backupData.data.User || []
+    // This route restores all tenants, not one tenant. Only the system
+    // administrator identities used by the platform RBAC may run it.
+    const systemAdminEmails = new Set([
+      process.env.ADMIN_EMAIL || '',
+      process.env.INFRA_OWNER_EMAIL || '',
+      process.env.INFRASTRUCTURE_OWNER_EMAIL || '',
+    ].map(value => value.toLowerCase().trim()).filter(Boolean))
+
+    if (!systemAdminEmails.has(sessionEmail)) {
+      return NextResponse.json({ error: 'A system administrator account is required for whole-database restore.' }, { status: 403 })
+    }
+
+    const currentUser = await rawDb.user.findUnique({
+      where: { id: auth.userId },
+      select: { password: true },
+    })
+    if (!currentUser || !verifyPassword(password, currentUser.password)) {
+      await recordLoginAttempt(sessionEmail, clientIP, false)
+      return NextResponse.json({ error: 'Invalid administrator password.' }, { status: 401 })
+    }
+
+    await clearLoginAttempts(sessionEmail)
+
+    // The backup must contain the same administrator identity. Its password
+    // hash is not used for authentication; only the current DB password is trusted.
+    if (!backupData._metadata || !backupData.data || backupData._metadata.software !== 'BizBook Pro') {
+      return NextResponse.json({ error: 'Invalid BizBook Pro backup file.' }, { status: 400 })
+    }
+
+    const backupUsers = Array.isArray(backupData.data.User) ? backupData.data.User : []
     const backupUser = backupUsers.find(
-      (u: any) => u.email && u.email.toLowerCase() === email
+      (u: any) => typeof u?.email === 'string' && u.email.toLowerCase() === sessionEmail
     )
-
-    let authenticated = false
-    let authMethod = ''
-
-    // Try backup credentials first
-    if (backupUser) {
-      const backupPasswordValid = verifyPassword(password, backupUser.password)
-      if (backupPasswordValid) {
-        authenticated = true
-        authMethod = 'backup'
-      }
+    if (!backupUser) {
+      return NextResponse.json({ error: 'The backup does not contain the signed-in administrator account.' }, { status: 400 })
     }
 
-    // If backup auth failed, try current database credentials
-    if (!authenticated) {
-      try {
-        const currentUser = await db.user.findFirst({
-          where: { email: { equals: email, mode: 'insensitive' } },
-          select: { id: true, email: true, password: true, role: true, tenantId: true },
-        })
-        if (currentUser) {
-          const currentPasswordValid = verifyPassword(password, currentUser.password)
-          if (currentPasswordValid) {
-            authenticated = true
-            authMethod = 'current-db'
-          }
-        }
-      } catch {
-        // Current DB lookup failed — continue
-      }
-    }
-
-    // v4.120: SPECIAL BYPASS — if the email is admin@bizbook.pro and the
-    // password is the default seeded password (admin123), allow restore.
-    // This is for emergency recovery when the database was just reset.
-    if (!authenticated && email === 'admin@bizbook.pro' && password === 'admin123') {
-      // Verify that admin@bizbook.pro exists in the current DB with the seeded password
-      try {
-        const seededAdmin = await db.user.findFirst({
-          where: { email: 'admin@bizbook.pro' },
-          select: { id: true, password: true },
-        })
-        if (seededAdmin && verifyPassword('admin123', seededAdmin.password)) {
-          authenticated = true
-          authMethod = 'seeded-admin-bypass'
-        }
-      } catch {
-        // Continue
-      }
-    }
-
-    if (!authenticated) {
-      const errorMsg = backupUser
-        ? `Invalid password. The password must match either:\n1. The user account in the backup file, OR\n2. The current database's admin password (try "admin123" if the database was just reset)`
-        : `Email "${email}" not found in the backup file or current database. The backup contains ${backupUsers.length} user(s).`
-      return NextResponse.json(
-        {
-          error: errorMsg,
-          backupUsers: backupUsers.map((u: any) => u.email),
-        },
-        { status: 401 }
-      )
-    }
-
-    console.log(`[RESTORE] Authenticated via ${authMethod}. Starting restore...`)
+    console.log(`[RESTORE] Authenticated system administrator session for ${sessionEmail}. Starting restore...`)
 
     // Begin restore process
     const results: Array<{ table: string; imported: number; updated: number; skipped: number; error?: string }> = []
@@ -202,7 +170,7 @@ export async function POST(req: NextRequest) {
           delete cleanRecord.subscriptions
 
           // v4.120: Use upsert — creates if not exists, updates if exists
-          // This fixes the "duplicate key" error when admin@bizbook.pro already exists
+          // The verified backup administrator may already exist in the current database.
           await (rawDb as any)[label].upsert({
             where: { id: record.id },
             create: cleanRecord,
@@ -247,10 +215,7 @@ export async function POST(req: NextRequest) {
     // Write audit log (best-effort)
     try {
       // Find the admin's tenant from the backup
-      const adminUser = backupUsers.find((u: any) =>
-        u.email && u.email.toLowerCase() === 'admin@bizbook.pro'
-      )
-      const userTenantId = backupUser?.tenantId || adminUser?.tenantId
+      const userTenantId = backupUser.tenantId
       if (userTenantId) {
         const tenantExists = await rawDb.tenant.findUnique({
           where: { id: userTenantId },
@@ -260,8 +225,8 @@ export async function POST(req: NextRequest) {
           await rawDb.auditLog.create({
             data: {
               tenantId: userTenantId,
-              userId: backupUser?.id || adminUser?.id || 'restore',
-              userName: backupUser?.name || 'Admin',
+              userId: backupUser.id,
+              userName: backupUser.name || 'Admin',
               action: 'DATABASE_RESTORE',
               entityType: 'Backup',
               entityId: null,

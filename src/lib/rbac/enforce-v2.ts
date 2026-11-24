@@ -4,8 +4,8 @@
  * UPGRADE FROM v1: Adds SUPER_ADMIN tier above MAIN_ADMIN
  *
  * Hierarchy (per Spec Part 1):
- *   Tier 0: SUPER_ADMIN              — admin@bizbook.pro (system owner)
- *   Tier 1: INFRASTRUCTURE_OWNER     — PRANJALGOSWAMIGHY86@GMAIL.COM (external owner)
+ *   Tier 0: SUPER_ADMIN              — configured ADMIN_EMAIL / INFRA_OWNER_EMAIL identities
+ *   Tier 1: INFRASTRUCTURE_OWNER     — deployment-configured owner identity
  *   Tier 2: MAIN_ADMIN / TENANT      — Business owner (full control within tenant)
  *   Tier 3: JUNIOR_ADMIN             — Sub-user (data mutation: edit/delete)
  *   Tier 4: DATA_ENTRY               — Sub-user (create only)
@@ -91,15 +91,19 @@ const PERMISSION_MATRIX: Record<Role, Record<Action, boolean>> = {
 };
 
 // ---------- Tier identification ----------
-// SUPER_ADMIN and INFRA_OWNER share the same email list — both have full bypass
+// System administrator permissions are granted only to configured deployment identities.
 const SUPER_ADMIN_EMAILS = [
-  'admin@bizbook.pro',
-  'pranjalgoswamighy86@gmail.com',
-  (process.env.ADMIN_EMAIL || '').toLowerCase(),
-  (process.env.INFRASTRUCTURE_OWNER_EMAIL || '').toLowerCase(),
-].filter(Boolean);
+  process.env.ADMIN_EMAIL || '',
+  process.env.INFRA_OWNER_EMAIL || '',
+  process.env.INFRASTRUCTURE_OWNER_EMAIL || '',
+].map(value => value.toLowerCase().trim()).filter(Boolean);
 
-const INFRA_OWNER_EMAILS = SUPER_ADMIN_EMAILS;
+// Infrastructure-owner permissions are granted only to explicitly configured
+// deployment identities; no public or personal email is privileged by default.
+const INFRA_OWNER_EMAILS = [
+  process.env.INFRA_OWNER_EMAIL || '',
+  process.env.INFRASTRUCTURE_OWNER_EMAIL || '',
+].map(value => value.toLowerCase().trim()).filter(Boolean);
 
 // ---------- Main permission checker ----------
 export async function requirePermission(
@@ -107,12 +111,20 @@ export async function requirePermission(
   resource: string,
   action: Action
 ): Promise<PermissionResult> {
-  // 1. Auth check (use your existing auth helper)
+  // 1. Authenticate from the current application session.
   let user: any;
   try {
-    const { requireAuth } = await import('@/lib/auth');
-    user = await requireAuth(req);
-  } catch (err) {
+    const { requireAuth } = await import('@/lib/api-helpers');
+    const auth = await requireAuth(req);
+    if (auth instanceof NextResponse) {
+      return { ok: false, response: auth };
+    }
+    user = {
+      ...auth.user,
+      email: auth.email,
+      activeTenantId: auth.user.tenantId,
+    };
+  } catch {
     return {
       ok: false,
       response: NextResponse.json(
@@ -184,8 +196,8 @@ export async function requirePermission(
   }
 
   // Load UserTenant to get role
-  const { prisma } = await import('@/lib/db');
-  const userTenant = await prisma.userTenant.findUnique({
+  const { db } = await import('@/lib/db');
+  const userTenant = await db.userTenant.findUnique({
     where: { userId_tenantId: { userId: user.id, tenantId } },
     select: { role: true, isOwner: true },
   });
@@ -210,7 +222,7 @@ export async function requirePermission(
   if (!allowed) {
     // Log denied attempt using existing AuditLog schema
     try {
-      await prisma.auditLog.create({
+      await db.auditLog.create({
         data: {
           userId: user.id,
           tenantId,
@@ -281,14 +293,25 @@ export function isInfrastructureOwnerEmail(email: string | undefined): boolean {
   return INFRA_OWNER_EMAILS.includes(email.toLowerCase());
 }
 
-// ---------- Master Mobile bypass (Rule 1.1) ----------
-// Super Admin's mobile (9101555075) can be associated with infinite tenant/user IDs
-// This bypasses the standard Rule 1.2 uniqueness check
+// ---------- Explicitly configured shared business phone ----------
+/**
+ * This is a narrow registration uniqueness exception only. It does not grant
+ * system-admin permissions or bypass OTP. Without an explicit environment
+ * setting the exception is disabled.
+ */
 export function isMasterMobile(mobile: string): boolean {
-  const masterMobile = process.env.MASTER_MOBILE_NUMBER || '9101555075';
   const normalized = mobile.replace(/\D/g, '');
-  const normalizedMaster = masterMobile.replace(/\D/g, '');
-  return normalized === normalizedMaster;
+  const normalizedMaster = (process.env.MASTER_MOBILE_NUMBER || '').replace(/\D/g, '');
+  if (!normalizedMaster || !normalized) return false;
+
+  const toTenDigits = (value: string) => {
+    if (value.length === 12 && value.startsWith('91')) return value.slice(2);
+    if (value.length === 11 && value.startsWith('0')) return value.slice(1);
+    return value;
+  };
+
+  const master = toTenDigits(normalizedMaster);
+  return master.length === 10 && toTenDigits(normalized) === master;
 }
 
 /*
@@ -318,7 +341,7 @@ export function isMasterMobile(mobile: string): boolean {
  *
  *   // In /api/auth/register:
  *   if (isMasterMobile(req.body.mobile)) {
- *     // Super Admin's mobile — skip uniqueness check
+ *     // Configured shared business phone — skip uniqueness check; OTP is still required
  *     // Allow registration even if mobile exists in other tenants
  *   } else {
  *     // Standard user — enforce Rule 1.2 uniqueness

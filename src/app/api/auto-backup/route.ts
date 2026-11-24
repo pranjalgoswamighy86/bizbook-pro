@@ -1,12 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { triggerAutoBackup, forceGenerateBackup, getLatestBackupInfo, listBackupFiles, getBackupFilePath, deleteBackupFile } from '@/lib/auto-backup'
 import { parseExcelBackup, restoreFromExcelData, generateExcelBackup } from '@/lib/excel-backup'
-import { writeFile, mkdir, readFile } from 'fs/promises'
-import { join } from 'path'
-import { randomUUID } from 'crypto'
-import { requireAuthAndTenant, requireAuthAndRole, requireAuth, writeAuditLog } from '@/lib/api-helpers'
-
-const UPLOAD_DIR = join(process.cwd(), 'upload')
+import { readFile } from 'fs/promises'
+import { requireAuthAndTenant, requireAuthAndRole } from '@/lib/api-helpers'
 
 /**
  * Auto-Backup API
@@ -40,8 +36,22 @@ export async function POST(req: NextRequest) {
     const body = await req.json()
     const { action, tenantId } = body
 
-    if (!tenantId && action !== 'upload-restore') {
+    if (!tenantId) {
       return NextResponse.json({ error: 'Company ID is required' }, { status: 400 })
+    }
+
+    // Every auto-backup action is tenant-scoped. Verify membership before
+    // reading metadata, triggering a backup, or returning any company data.
+    const tenantAccess = await requireAuthAndTenant(req, tenantId)
+    if (tenantAccess instanceof NextResponse) return tenantAccess
+
+    // Export, restore, and backup-file management are restricted to the
+    // business owner/admin. Never accept a role supplied in the request body.
+    let verifiedRole = tenantAccess.role
+    if (action !== 'trigger') {
+      const adminAccess = await requireAuthAndRole(req, tenantId, ['MAIN_ADMIN'])
+      if (adminAccess instanceof NextResponse) return adminAccess
+      verifiedRole = adminAccess.role
     }
 
     switch (action) {
@@ -76,7 +86,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ success: deleted })
 
       case 'upload-restore':
-        return await handleUploadRestore(body)
+        return await handleUploadRestore(body, verifiedRole)
 
       default:
         return NextResponse.json({ error: 'Invalid action. Use: trigger, generate, generate-download, latest, list, delete, upload-restore' }, { status: 400 })
@@ -94,11 +104,6 @@ export async function POST(req: NextRequest) {
  * - tenantId + action=download-all: Generate fresh backup and download in one request (one-click)
  */
 export async function GET(req: NextRequest) {
-  // ---- SECURITY PATCH v1: require auth ----
-  const auth = await requireAuth(req)
-  if (auth instanceof NextResponse) return auth
-  // ------------------------------------------
-
   try {
     const url = new URL(req.url)
     const tenantId = url.searchParams.get('tenantId')
@@ -110,6 +115,11 @@ export async function GET(req: NextRequest) {
     if (!tenantId) {
       return NextResponse.json({ error: 'tenantId is required' }, { status: 400 })
     }
+
+    // Downloading a full business backup requires current membership and
+    // MAIN_ADMIN rights for the requested tenant, not merely any valid session.
+    const access = await requireAuthAndRole(req, tenantId, ['MAIN_ADMIN'])
+    if (access instanceof NextResponse) return access
 
     // One-click download: generate fresh backup and return the file directly
     if (action === 'download-all') {
@@ -194,18 +204,26 @@ async function handleFileUpload(req: NextRequest): Promise<NextResponse> {
     const tenantId = formData.get('tenantId') as string | null
     const action = formData.get('action') as string | null
 
+    if (!tenantId) {
+      return NextResponse.json({ error: 'Company ID is required' }, { status: 400 })
+    }
+
+    // Parse/restore uploads only after verifying tenant membership and role.
+    const access = await requireAuthAndRole(req, tenantId, ['MAIN_ADMIN'])
+    if (access instanceof NextResponse) return access
+
+    if (action !== 'analyze' && action !== 'restore') {
+      return NextResponse.json({ error: 'Invalid upload action. Use analyze or restore.' }, { status: 400 })
+    }
     if (!file) {
       return NextResponse.json({ error: 'No file uploaded' }, { status: 400 })
     }
+    if (file.size <= 0 || file.size > 25 * 1024 * 1024) {
+      return NextResponse.json({ error: 'The Excel backup must be between 1 byte and 25 MB.' }, { status: 413 })
+    }
 
-    // Save the uploaded file temporarily
-    await mkdir(UPLOAD_DIR, { recursive: true })
-    const fileId = randomUUID()
-    const filePath = join(UPLOAD_DIR, `${fileId}.xlsx`)
+    // Keep the upload in memory; do not persist arbitrary unauthenticated files.
     const buffer = Buffer.from(await file.arrayBuffer())
-    await writeFile(filePath, buffer)
-
-    // Parse the Excel file
     const parseResult = await parseExcelBackup(buffer)
 
     if (!parseResult.success) {
@@ -215,16 +233,7 @@ async function handleFileUpload(req: NextRequest): Promise<NextResponse> {
       }, { status: 400 })
     }
 
-    // If action is 'analyze', just return the parsed data for preview
     if (action === 'analyze') {
-      // ---- SECURITY PATCH v1: auth + tenant access ----
-      if (!tenantId) { // v6.30.1: FIX TS2345 — narrow tenantId to string before passing to requireAuthAndRole
-        return NextResponse.json({ error: 'Company ID is required' }, { status: 400 })
-      }
-      const access = await requireAuthAndRole(req, tenantId, ['MAIN_ADMIN'])
-      if (access instanceof NextResponse) return access
-      // --------------------------------------------------
-
       return NextResponse.json({
         success: true,
         fileName: file.name,
@@ -234,45 +243,27 @@ async function handleFileUpload(req: NextRequest): Promise<NextResponse> {
           Object.entries(parseResult.data).map(([key, rows]) => [key, rows.length])
         ),
         warnings: parseResult.warnings,
-        // Include sample data from each sheet (first 3 rows)
         preview: Object.fromEntries(
           Object.entries(parseResult.data).map(([key, rows]) => [key, rows.slice(0, 3)])
         ),
       })
     }
 
-    // If action is 'restore', apply the data to the database
-    if (action === 'restore' && tenantId) {
-      const userRole = formData.get('userRole') as string | null
-      const result = await restoreFromExcelData(tenantId, parseResult.data, userRole || undefined)
-      return NextResponse.json(result)
-    }
-
-    // Default: return parsed data info
-    return NextResponse.json({
-      success: true,
-      fileName: file.name,
-      meta: parseResult.meta,
-      sheetNames: Object.keys(parseResult.data),
-      recordCounts: Object.fromEntries(
-        Object.entries(parseResult.data).map(([key, rows]) => [key, rows.length])
-      ),
-      warnings: parseResult.warnings,
-      errors: parseResult.errors,
-    })
+    const result = await restoreFromExcelData(tenantId, parseResult.data, access.role)
+    return NextResponse.json(result)
   } catch (error) {
     console.error('File upload error:', error)
     return NextResponse.json({ error: 'Failed to process uploaded file' }, { status: 500 })
   }
 }
 
-async function handleUploadRestore(body: any): Promise<NextResponse> {
-  const { tenantId, userRole, data } = body
+async function handleUploadRestore(body: any, verifiedRole: string): Promise<NextResponse> {
+  const { tenantId, data } = body
 
-  if (!tenantId || !data) {
-    return NextResponse.json({ error: 'tenantId and data are required' }, { status: 400 })
+  if (!tenantId || !data || typeof data !== 'object' || Array.isArray(data)) {
+    return NextResponse.json({ error: 'tenantId and a valid backup data object are required' }, { status: 400 })
   }
 
-  const result = await restoreFromExcelData(tenantId, data, userRole)
+  const result = await restoreFromExcelData(tenantId, data, verifiedRole)
   return NextResponse.json(result)
 }

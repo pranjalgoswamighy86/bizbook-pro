@@ -35,10 +35,10 @@ git push -u origin main
 ### Step 3: Set Secret Environment Variables
 In Render dashboard → Environment:
 - `SESSION_SECRET` = (generate: `openssl rand -hex 32`)
-- `SMTP_USER` = `pranjalgoswamighy86@gmail.com`
-- `SMTP_PASS` = `nvyz jufl wbbc ffys`
-- `SMTP_FROM` = `BizBook Pro <pranjalgoswamighy86@gmail.com>`
-- `TWOFACTOR_API_KEY` = `cf178fc7-67cf-11f1-8f15-0200cd936042`
+- `SMTP_USER` = `<verified sender email>`
+- `SMTP_PASS` = `<configure in provider; do not commit>`
+- `SMTP_FROM` = `BizBook Pro <verified sender email>`
+- `TWOFACTOR_API_KEY` = `<configure in provider; do not commit>`
 - `RAZORPAY_KEY_ID` = (your Razorpay key, or leave empty)
 - `RAZORPAY_KEY_SECRET` = (your Razorpay secret, or leave empty)
 
@@ -102,10 +102,10 @@ flyctl launch --no-deploy
 flyctl volumes create bizbook_data --size 1
 
 flyctl secrets set SESSION_SECRET="$(openssl rand -hex 32)"
-flyctl secrets set SMTP_USER="pranjalgoswamighy86@gmail.com"
-flyctl secrets set SMTP_PASS="nvyz jufl wbbc ffys"
-flyctl secrets set SMTP_FROM="BizBook Pro <pranjalgoswamighy86@gmail.com>"
-flyctl secrets set TWOFACTOR_API_KEY="cf178fc7-67cf-11f1-8f15-0200cd936042"
+flyctl secrets set SMTP_USER="<verified sender email>"
+flyctl secrets set SMTP_PASS="<set securely in provider; never commit>"
+flyctl secrets set SMTP_FROM="BizBook Pro <verified sender email>"
+flyctl secrets set TWOFACTOR_API_KEY="<set securely in provider; never commit>"
 flyctl secrets set TWOFACTOR_SENDER_ID="BIZBOK"
 flyctl secrets set TWOFACTOR_TEMPLATE_NAME="BizBook Pro"
 ```
@@ -166,10 +166,10 @@ SESSION_SECRET=<random 64-char hex string>
 SMTP_HOST=smtp.gmail.com
 SMTP_PORT=587
 SMTP_SECURE=false
-SMTP_USER=pranjalgoswamighy86@gmail.com
-SMTP_PASS=nvyz jufl wbbc ffys
-SMTP_FROM=BizBook Pro <pranjalgoswamighy86@gmail.com>
-TWOFACTOR_API_KEY=cf178fc7-67cf-11f1-8f15-0200cd936042
+SMTP_USER=<VERIFIED_SENDER_EMAIL>
+SMTP_PASS=<SET_IN_SECRET_MANAGER>
+SMTP_FROM=BizBook Pro <VERIFIED_SENDER_EMAIL>
+TWOFACTOR_API_KEY=<SET_IN_SECRET_MANAGER>
 TWOFACTOR_SENDER_ID=BIZBOK
 TWOFACTOR_TEMPLATE_NAME=BizBook Pro
 RAZORPAY_KEY_ID=<your key or empty>

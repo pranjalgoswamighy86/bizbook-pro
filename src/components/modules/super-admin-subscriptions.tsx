@@ -71,16 +71,12 @@ export function SuperAdminSubscriptionPanel() {
   const [searchQuery, setSearchQuery] = useState('')
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editForm, setEditForm] = useState<Partial<TenantSubscription>>({})
-
-  // Check if user is Super Admin
-  const ADMIN_BYPASS_EMAILS = [
-    'admin@bizbook.pro',
-    'pranjalgoswamighy86@gmail.com',
-  ]
-  const isAuthorized = user?.email && ADMIN_BYPASS_EMAILS.includes(user.email.toLowerCase())
+  // The backend is the source of truth for system-admin authorization.
+  const [isAuthorized, setIsAuthorized] = useState<boolean | null>(null)
 
   const fetchAllSubscriptions = async () => {
-    if (!isAuthorized || !tenant?.id) {
+    if (!tenant?.id || !user?.email) {
+      setIsAuthorized(false)
       setLoading(false)
       return
     }
@@ -97,11 +93,16 @@ export function SuperAdminSubscriptionPanel() {
       })
       const data = await res.json()
       if (!res.ok) {
-        setError(data.error || 'Failed to load subscriptions')
+        setIsAuthorized(false)
+        setSubscriptions([])
+        setError(data.error || 'System administrator access is required')
         return
       }
+      setIsAuthorized(true)
       setSubscriptions(data.subscriptions || [])
     } catch (err: any) {
+      setIsAuthorized(false)
+      setSubscriptions([])
       setError(err?.message || 'Network error')
     } finally {
       setLoading(false)
@@ -179,7 +180,11 @@ export function SuperAdminSubscriptionPanel() {
     }
   }
 
-  // Unauthorized UI
+  // Wait for the server-side authorization check before showing restricted content.
+  if (loading && isAuthorized === null) {
+    return <div className="p-6 text-sm text-muted-foreground">Checking administrator access…</div>
+  }
+
   if (!isAuthorized) {
     return (
       <div className="p-6 max-w-2xl mx-auto">
@@ -187,12 +192,9 @@ export function SuperAdminSubscriptionPanel() {
           <ShieldAlert className="h-12 w-12 text-rose-500 mx-auto mb-3" />
           <h2 className="text-xl font-bold text-rose-800 mb-2">Access Restricted</h2>
           <p className="text-sm text-rose-700">
-            This panel is only accessible to Super Admin (<code>admin@bizbook.pro</code>) and
-            Infrastructure Owner.
+            This panel is restricted to the system administrator identities configured by the deployment.
           </p>
-          <p className="text-xs text-rose-600 mt-2">
-            Your current email: <code>{user?.email || 'Not logged in'}</code>
-          </p>
+          {error && <p className="text-xs text-rose-600 mt-2">{error}</p>}
         </div>
       </div>
     )

@@ -70,8 +70,6 @@ if (_secretLooksMalformed(process.env.SESSION_SECRET)) {
   }
   process.env.SESSION_SECRET = crypto.randomBytes(48).toString('hex');
 }
-process.env.MASTER_MOBILE_NUMBER = process.env.MASTER_MOBILE_NUMBER || '9101555075';
-process.env.ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin@bizbook.pro';
 process.env.NEXT_TELEMETRY_DISABLED = '1';
 
 // v4.56: Verify DATABASE_URL is set (PostgreSQL connection string)
@@ -106,21 +104,23 @@ try {
   execSync('npx prisma generate', { stdio: 'inherit', env: process.env, cwd: '/app' });
   console.log('✓ Prisma client regenerated');
 } catch (e) {
-  console.log('⚠️ Prisma generate failed:', e.message);
+  console.error('[FATAL] Prisma client generation failed; refusing to start with a stale generated client:', e.message);
+  process.exit(1);
 }
 
 // Step 2: Push Prisma schema to PostgreSQL (creates tables if missing)
-// v4.182: Force --accept-data-loss to handle schema changes with existing data
-console.log('→ Syncing database schema to PostgreSQL...');
+// Never auto-accept destructive schema changes during an application restart.
+// If Prisma detects a destructive diff, it must be reviewed and migrated separately.
+console.log('→ Syncing database schema to PostgreSQL (safe mode)...');
 try {
-  execSync('npx prisma db push --skip-generate --accept-data-loss', {
+  execSync('npx prisma db push --skip-generate', {
     stdio: 'inherit',
     env: { ...process.env, DATABASE_URL: process.env.DATABASE_URL }
   });
   console.log('✓ Database schema synced');
 } catch (e) {
-  console.log('⚠️ Prisma db push failed:', e.message);
-  console.log('⚠️ App will start anyway — queries may fail until schema is synced');
+  console.error('[FATAL] Safe Prisma schema sync failed; refusing to start against a potentially incompatible database:', e.message);
+  process.exit(1);
 }
 
 // Step 3: Seed admin user (idempotent — only creates if empty)
@@ -131,56 +131,7 @@ try {
 
   prisma.user.count().then(async (count) => {
     if (count === 0) {
-      console.log('→ No users found, seeding admin...');
-      const crypto = require('crypto');
-      const salt = crypto.randomBytes(16);
-      const hash = crypto.scryptSync('admin123', salt, 64);
-      const passwordHash = salt.toString('hex') + ':' + hash.toString('hex');
-
-      let tenant = await prisma.tenant.findFirst({ where: { email: 'admin@bizbook.pro' } }).catch(() => null);
-      if (!tenant) {
-        tenant = await prisma.tenant.create({
-          data: { name: 'BizBook Pro Demo', phone: '9999999999', email: 'admin@bizbook.pro', plan: 'free' }
-        });
-      }
-
-      const existingUser = await prisma.user.findFirst({ where: { email: 'admin@bizbook.pro' } }).catch(() => null);
-      if (!existingUser) {
-        let user;
-        try {
-          user = await prisma.user.create({
-            data: {
-              name: 'Admin',
-              email: 'admin@bizbook.pro',
-              password: passwordHash,
-              role: 'MAIN_ADMIN',
-              tenantId: tenant.id,
-              lastLoginAt: new Date(),
-              lastOtpVerifiedAt: new Date(),
-              passwordChangedAt: new Date(),
-            },
-          });
-        } catch (createErr) {
-          user = await prisma.user.create({
-            data: {
-              name: 'Admin',
-              email: 'admin@bizbook.pro',
-              password: passwordHash,
-              role: 'MAIN_ADMIN',
-              tenantId: tenant.id,
-            },
-          });
-        }
-        const existingLink = await prisma.userTenant.findFirst({ where: { userId: user.id, tenantId: tenant.id } }).catch(() => null);
-        if (!existingLink) {
-          await prisma.userTenant.create({
-            data: { userId: user.id, tenantId: tenant.id, role: 'MAIN_ADMIN', isOwner: true },
-          });
-        }
-        console.log('✓ Admin user created');
-      } else {
-        console.log('✓ Admin user already exists');
-      }
+      console.warn('[SECURITY] Database is empty; no default administrator or password is created. Register an account using a verified email configured as ADMIN_EMAIL or INFRA_OWNER_EMAIL, then sign in.');
     } else {
       console.log('✓ Database has', count, 'users — skipping seed (data preserved)');
     }

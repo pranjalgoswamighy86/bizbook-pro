@@ -2,24 +2,24 @@
  * v4.115: Automatic Startup Backup
  * =================================
  * Runs on every container startup AFTER the database is confirmed reachable.
- * Exports ALL tenant data to a JSON file in /tmp/bizbook-backups/.
+ * Exports ALL tenant data to a JSON file on Railway's mounted persistent volume.
+ * In production, /app/data is the configured volume mount. Local development
+ * falls back to the repository's db/bizbook-backups directory.
  *
- * Why /tmp?
- *   - Persists across container restarts within the same Railway deployment
- *   - Survives Next.js server crashes (PM2 restarts)
- *   - Does NOT survive new deploys (Railway rebuilds the image)
- *
- * For true cross-deploy protection, users should download backups to their
- * own computer via /emergency-backup.html (v4.109) or /api/backup/download
- * (v4.108, requires login).
- *
- * This script is a SAFETY NET, not a primary backup strategy.
+ * The startup snapshot is a recovery safety net, not a replacement for
+ * tenant-scoped downloadable backups or an independent off-site backup.
  */
 
 const fs = require('fs');
 const path = require('path');
 
-const BACKUP_DIR = '/tmp/bizbook-backups';
+const configuredMount = process.env.RAILWAY_VOLUME_MOUNT_PATH?.trim();
+const mountedDataDir = configuredMount || (fs.existsSync('/app/data') ? '/app/data' : null);
+const dataRoot = mountedDataDir || path.join(process.cwd(), 'db');
+const BACKUP_DIR = path.resolve(
+  process.env.BIZBOOK_STARTUP_BACKUP_DIR?.trim() ||
+  path.join(dataRoot, 'bizbook-backups', 'startup')
+);
 const MAX_BACKUPS = 10; // Keep last 10 startup backups
 
 function log(level, msg) {
@@ -52,7 +52,7 @@ async function main() {
   try {
     // Create backup directory if it doesn't exist
     if (!fs.existsSync(BACKUP_DIR)) {
-      fs.mkdirSync(BACKUP_DIR, { recursive: true });
+      fs.mkdirSync(BACKUP_DIR, { recursive: true, mode: 0o700 });
     }
 
     // Export all tables using raw queries (bypasses soft-delete filter)
@@ -107,7 +107,7 @@ async function main() {
     const filepath = path.join(BACKUP_DIR, filename);
 
     const jsonStr = JSON.stringify(backupData, null, 2);
-    fs.writeFileSync(filepath, jsonStr, 'utf-8');
+    fs.writeFileSync(filepath, jsonStr, { encoding: 'utf-8', mode: 0o600, flag: 'wx' });
 
     const sizeMB = (Buffer.byteLength(jsonStr, 'utf-8') / (1024 * 1024)).toFixed(2);
     log('OK', `✓ Startup backup created: ${filepath} (${sizeMB} MB, ${totalRecords} records)`);

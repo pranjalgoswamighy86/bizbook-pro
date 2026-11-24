@@ -62,11 +62,6 @@ export interface OtpDispatchResult {
   auditId?: string;
 }
 
-// ---------- Constants ----------
-// v6.25.6: OTP bypass DISABLED — all users including super admins must verify OTP
-// Both admin@bizbook.pro and pranjalgoswamighy86@gmail.com now require OTP like everyone else
-const ADMIN_BYPASS_EMAILS: string[] = [];
-
 // ---------- Main Dispatcher ----------
 export async function dispatchOtp(
   otp: string,
@@ -83,19 +78,6 @@ export async function dispatchOtp(
       smsDelivered: false,
       whatsappDelivered: false,
       fallbackReason: 'NO_TARGET: neither email nor mobile provided',
-    };
-  }
-
-  // ---------- Admin bypass (DISABLED in v6.25.6) ----------
-  if (target.email && ADMIN_BYPASS_EMAILS.length > 0 && ADMIN_BYPASS_EMAILS.includes(target.email.toLowerCase())) {
-    console.log(`[OTP] Admin bypass — no OTP sent to ${target.email}`);
-    return {
-      ok: true,
-      primaryChannel: 'none',
-      emailDelivered: false,
-      smsDelivered: false,
-      whatsappDelivered: false,
-      fallbackReason: 'ADMIN_BYPASS',
     };
   }
 

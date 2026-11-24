@@ -19,10 +19,10 @@ import { requireAuth } from '@/lib/api-helpers'
 
 // Admin override email list — must match upi-checkout route
 const ADMIN_OVERRIDE_EMAILS = [
-  'admin@bizbook.pro',
-  'pranjalgoswamighy86@gmail.com',
-  (process.env.ADMIN_EMAIL || '').toLowerCase(),
-].filter(Boolean)
+  process.env.ADMIN_EMAIL || '',
+  process.env.INFRA_OWNER_EMAIL || '',
+  process.env.INFRASTRUCTURE_OWNER_EMAIL || '',
+].map(value => value.toLowerCase().trim()).filter(Boolean).filter(Boolean)
 
 async function requireSuperAdmin(req: NextRequest) {
   const auth = await requireAuth(req)

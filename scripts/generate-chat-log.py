@@ -369,22 +369,21 @@ public/manifest.json                — PWA manifest
 RAILWAY ENVIRONMENT VARIABLES
 =================================================================
 
-DATABASE_URL        = file:/app/db/custom.db
-SMTP_USER           = pranjalgoswamighy86@gmail.com
-SMTP_PASS           = (Gmail App Password)
-SMTP_HOST           = smtp.gmail.com
-SMTP_PORT           = 465
-SMTP_SECURE         = true
-SESSION_SECRET      = (64+ char random string)
-MASTER_MOBILE_NUMBER = 9101555075
-ADMIN_EMAIL         = admin@bizbook.pro
-TWOFACTOR_API_KEY   = (2Factor.in API key)
-TWOFACTOR_SENDER_ID = BIZBOK
-TWOFACTOR_TEMPLATE_NAME = BizBook Pro
-RESEND_API_KEY      = re_xxxxx (for email, needs domain verification)
-RESEND_FROM         = BizBook Pro <onboarding@resend.dev>
-MASTER_UPI_VPA      = 9101555075@kotakbank
-MASTER_UPI_NAME     = Tahigo International
+Configuration examples only. Never copy credentials, account identifiers,
+personal phone numbers or payment identifiers into generated chat logs.
+
+DATABASE_URL             = [SET_IN_RAILWAY]
+SESSION_SECRET           = [SET_IN_RAILWAY]
+ADMIN_EMAIL              = [CONFIGURED_ADMIN_EMAIL]
+INFRA_OWNER_EMAIL        = [CONFIGURED_OWNER_EMAIL]
+SMTP_USER                = [VERIFIED_SENDER_EMAIL]
+SMTP_PASS                = [SET_IN_SECRET_MANAGER]
+BREVO_API_KEY            = [SET_IN_SECRET_MANAGER]
+RESEND_API_KEY           = [SET_IN_SECRET_MANAGER]
+TWOFACTOR_API_KEY        = [SET_IN_SECRET_MANAGER]
+MASTER_MOBILE_NUMBER     = [OPTIONAL_CONFIGURED_BUSINESS_PHONE]
+MASTER_UPI_VPA           = [MERCHANT_UPI_ID]
+OPENAI_API_KEY           = [SET_IN_SECRET_MANAGER]
 
 =================================================================
 KNOWN ISSUES (as of 18 June 2026)
@@ -413,7 +412,7 @@ DEPLOYMENT URL
 
 https://carefree-success-production-7766.up.railway.app/
 
-Admin Login: admin@bizbook.pro / admin123
+Admin Login: [REDACTED — use the configured verified administrator account]
 
 =================================================================
 END OF CHAT LOG

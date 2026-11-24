@@ -151,12 +151,12 @@
   <div class="container">
     <div class="header">
       <h1>⚠️ Emergency Database Backup</h1>
-      <p>Download a complete copy of your entire BizBook Pro database. Works even if you can't log in normally.</p>
+      <p>Download a complete database backup. This global export is restricted to configured system administrators; ordinary businesses should use the company backup in Settings.</p>
     </div>
 
     <div class="body">
       <div class="warning">
-        <strong>When to use this:</strong> If you can't log in to the app, or if the regular backup option in Settings isn't working, this page will still let you download all your data using just your email and password.
+        <strong>When to use this:</strong> This recovery tool is for the designated system administrator only. It verifies the current administrator password directly, so it can still download the database when normal sign-in is unavailable. It exports every tenant and must be kept private.
       </div>
 
       <form id="backupForm">
@@ -193,7 +193,7 @@
           <ol style="margin-left:1.5rem; margin-top:0.5rem;">
             <li>Set up a new PostgreSQL database</li>
             <li>Deploy BizBook Pro pointing to that database</li>
-            <li>Use the <code>/api/db-admin</code> endpoint with action <code>restore</code> to import this JSON</li>
+            <li>Sign in as the configured system administrator, then submit the JSON via <code>/api/backup/restore</code> from this page</li>
             <li>Log in with your email + password — all data will be there</li>
           </ol>
         </details>
@@ -220,7 +220,7 @@
           🔄 Restore from Backup
         </h3>
         <p style="font-size: 0.8rem; color: #6b7280; margin-bottom: 1rem; line-height: 1.5;">
-          If your database was reset or you lost access, you can restore all your data from a previously-downloaded backup file. Enter your email + password (must match the backup file), then select the backup JSON file you downloaded earlier.
+          Restore requires an active signed-in system-administrator session in this browser. If the database was reset, first register and verify the configured system-administrator email, then sign in. Enter the current database password and select a trusted backup JSON file.
         </p>
         <form id="restoreForm" style="display: flex; flex-direction: column; gap: 0.75rem;">
           <div>
@@ -228,7 +228,7 @@
             <input type="email" id="restoreEmail" required autocomplete="email" placeholder="you@example.com" style="width: 100%; padding: 0.75rem 1rem; border: 1px solid #d1d5db; border-radius: 8px; font-size: 0.95rem;" />
           </div>
           <div>
-            <label for="restorePassword" style="font-size: 0.85rem; font-weight: 600; color: #374151; margin-bottom: 0.35rem; display: block;">Password (from backup file)</label>
+            <label for="restorePassword" style="font-size: 0.85rem; font-weight: 600; color: #374151; margin-bottom: 0.35rem; display: block;">Current administrator password</label>
             <input type="password" id="restorePassword" required autocomplete="current-password" placeholder="Your account password" style="width: 100%; padding: 0.75rem 1rem; border: 1px solid #d1d5db; border-radius: 8px; font-size: 0.95rem;" />
           </div>
           <div>
@@ -241,7 +241,7 @@
         </form>
         <div id="restoreStatus" class="status"></div>
         <div style="margin-top: 0.75rem; font-size: 0.75rem; color: #6b7280; line-height: 1.5;">
-          <strong>Note:</strong> The restore process only adds records that don't already exist. Existing records are NOT overwritten. This may take 1-5 minutes for large backups.
+          <strong>Important:</strong> Restore upserts records by ID and can overwrite existing records across all tenants. Export a fresh backup first, use only a trusted file, and remain signed in as the configured system administrator in this browser.
         </div>
       </div>
     </div>
