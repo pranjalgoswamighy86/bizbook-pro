@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthAndRole, writeAuditLog } from '@/lib/api-helpers'
-import { getEffectiveGspConfig, saveTenantGspConfig, clearTenantGspConfig, tenantHasGspCredentials, isEncryptionActive } from '@/lib/gsp-credentials'
+import { saveTenantGspConfig, clearTenantGspConfig, tenantHasGspCredentials, isEncryptionActive } from '@/lib/gsp-credentials'
 import { db } from '@/lib/db-soft-delete'
 
 const ADMIN_ROLES = ['MAIN_ADMIN']
