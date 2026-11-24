@@ -176,6 +176,7 @@ async function handleFileUpload(req: NextRequest) {
 
   let parsedData: any = null
   let dataType = 'unknown'
+  const sourceTruncationWarnings: string[] = []
 
   // ============================================================
   // Parse by file type
@@ -236,11 +237,13 @@ async function handleFileUpload(req: NextRequest) {
       // JSON file
       parsedData = JSON.parse(buffer.toString('utf-8'))
       dataType = 'json'
+      if (buffer.length > 10000) sourceTruncationWarnings.push('JSON source exceeds the 10,000-character AI context limit; the preview may omit later content.')
       console.log(`[AI-Import] Parsed JSON`)
     } else if (['txt'].includes(ext)) {
       // Text file
       parsedData = { content: buffer.toString('utf-8') }
       dataType = 'text'
+      if (buffer.length > 10000) sourceTruncationWarnings.push('Text source exceeds the 10,000-character AI context limit; later content is not included in the preview.')
       console.log(`[AI-Import] Parsed text: ${buffer.length} bytes`)
     } else if (['pdf'].includes(ext)) {
       // v6.27.5: PDF — extract real text with pdf-parse (was a placeholder before)
@@ -254,11 +257,13 @@ async function handleFileUpload(req: NextRequest) {
           info: pdfData.info,
         }
         dataType = 'pdf'
+        if ((pdfData.text?.length || 0) > 10000) sourceTruncationWarnings.push('PDF text exceeds the 10,000-character AI context limit; later content is not included in the preview.')
         console.log(`[AI-Import] Parsed PDF: ${pdfData.numpages} pages, ${pdfData.text?.length || 0} chars`)
         // If text extraction yielded nothing (scanned PDF), fall through to image-vision path
         // by treating the first page as an image. We mark dataType so the AI prompt builder
         // can route to vision.
         if (!pdfData.text || pdfData.text.trim().length < 20) {
+          if ((pdfData.numpages || 0) > 1) sourceTruncationWarnings.push('Scanned PDF: only page 1 is sent to vision analysis. Other pages are not included in this preview.')
           console.warn('[AI-Import] PDF text extraction yielded empty content (likely scanned). Falling back to vision AI.')
           // Convert first page to PNG via pdfjs-dist and feed to vision model.
           // Note: page rendering requires a canvas implementation. In the Next.js
@@ -288,6 +293,11 @@ async function handleFileUpload(req: NextRequest) {
           } catch (renderErr: any) {
             console.warn('[AI-Import] PDF page-render fallback failed:', renderErr?.message)
           }
+          if (!parsedData?.base64) {
+            return NextResponse.json({
+              error: 'This PDF appears to be scanned, but the server could not render its first page for AI analysis. Convert it to a searchable PDF or upload the pages as images.',
+            }, { status: 422 })
+          }
         }
       } catch (pdfErr: any) {
         console.error('[AI-Import] pdf-parse failed:', pdfErr)
@@ -309,14 +319,16 @@ async function handleFileUpload(req: NextRequest) {
       const text = buffer.toString('utf-8')
       parsedData = { content: text.substring(0, 10000), note: 'XML file (Tally export or similar)' }
       dataType = 'xml'
+      if (text.length > 10000) sourceTruncationWarnings.push('XML source exceeds the 10,000-character AI context limit; later content is not included in the preview.')
       console.log(`[AI-Import] XML file: ${text.length} chars`)
-    } else if (['docx', 'doc'].includes(ext)) {
+    } else if (ext === 'docx') {
       // v6.27.5: Word document — extract real text with mammoth (was a placeholder before)
       try {
         const mammoth = await import('mammoth')
         const result = await mammoth.extractRawText({ arrayBuffer })
         parsedData = { content: result.value || '', note: `Word document: ${file.name}` }
         dataType = 'doc'
+        if ((result.value?.length || 0) > 10000) sourceTruncationWarnings.push('Word document text exceeds the 10,000-character AI context limit; later content is not included in the preview.')
         console.log(`[AI-Import] Parsed DOCX: ${result.value?.length || 0} chars`)
       } catch (docErr: any) {
         console.error('[AI-Import] mammoth failed:', docErr)
@@ -339,7 +351,6 @@ async function handleFileUpload(req: NextRequest) {
   // AI Analysis
   // ============================================================
   let analysis: any = null
-  let spreadsheetTruncationWarnings: string[] = []
 
   // v6.19: Build category hint for the AI prompt
   // When the user selects a category (not 'auto'), tell the AI to extract data for that specific category
@@ -369,12 +380,12 @@ async function handleFileUpload(req: NextRequest) {
       // v6.19.1: Truncate to avoid Gemini 400 errors on large files (303+ rows)
       const sheets = parsedData as Record<string, any[]>
       const MAX_ROWS_PER_SHEET = 30 // Truncate to 30 sample rows per sheet (was 5, but headers + 30 rows is safe for all providers)
-      const MAX_TOTAL_CHARS = 20000 // Hard cap to stay under token limits
-      const sheetSummary = Object.entries(sheets).map(([name, rows]) => {
+      const MAX_TOTAL_CHARS = 20000
+      const fullSheetSummary = Object.entries(sheets).map(([name, rows]) => {
         const headers = rows.length > 0 ? Object.keys(rows[0]) : []
         const sampleRows = rows.slice(0, MAX_ROWS_PER_SHEET)
         if (rows.length > MAX_ROWS_PER_SHEET) {
-          spreadsheetTruncationWarnings.push(`Sheet "${name}": only the first ${MAX_ROWS_PER_SHEET} of ${rows.length} rows were analyzed; ${rows.length - MAX_ROWS_PER_SHEET} rows were not sent to the AI and are NOT included in the import preview.`)
+          sourceTruncationWarnings.push(`Sheet "${name}": only the first ${MAX_ROWS_PER_SHEET} of ${rows.length} rows were analyzed; ${rows.length - MAX_ROWS_PER_SHEET} rows were not sent to the AI and are NOT included in the import preview.`)
         }
         const truncatedNote = rows.length > MAX_ROWS_PER_SHEET
           ? `\nIMPORTANT: ONLY the first ${MAX_ROWS_PER_SHEET} rows are included below. The remaining ${rows.length - MAX_ROWS_PER_SHEET} rows were not analyzed.`
@@ -546,8 +557,8 @@ Provide a structured analysis with:
       analysis.confidence = Math.max(0, Math.min(1, analysis.confidence))
       analysis.warnings = Array.isArray(analysis.warnings) ? analysis.warnings.filter((item: unknown) => typeof item === 'string') : []
       analysis.suggestions = Array.isArray(analysis.suggestions) ? analysis.suggestions.filter((item: unknown) => typeof item === 'string') : []
-      if (spreadsheetTruncationWarnings.length > 0) {
-        analysis.warnings.unshift(...spreadsheetTruncationWarnings)
+      if (sourceTruncationWarnings.length > 0) {
+        analysis.warnings.unshift(...sourceTruncationWarnings)
         analysis.partialExtraction = true
         analysis.rowsAnalyzedPerSheet = 30
       }
@@ -560,8 +571,8 @@ Provide a structured analysis with:
         _provider: provider,
         _rawResponse: result,
         importData: { sales: [], purchases: [], expenses: [], products: [], parties: [], staff: [], bankTransactions: [] },
-        warnings: ['AI response could not be parsed as JSON. Showing raw summary.', ...spreadsheetTruncationWarnings],
-        partialExtraction: spreadsheetTruncationWarnings.length > 0,
+        warnings: ['AI response could not be parsed as JSON. Showing raw summary.', ...sourceTruncationWarnings],
+        partialExtraction: sourceTruncationWarnings.length > 0,
         suggestions: [],
       }
     }
@@ -578,8 +589,8 @@ Provide a structured analysis with:
       confidence: 0,
       summary: `File parsed (${dataType}) but AI analysis failed: ${aiError.message}. You can review the raw data below and try again.`,
       importData: { sales: [], purchases: [], expenses: [], products: [], parties: [], staff: [], bankTransactions: [] },
-      warnings: [`AI analysis failed: ${aiError.message}`, ...spreadsheetTruncationWarnings],
-      partialExtraction: spreadsheetTruncationWarnings.length > 0,
+      warnings: [`AI analysis failed: ${aiError.message}`, ...sourceTruncationWarnings],
+      partialExtraction: sourceTruncationWarnings.length > 0,
       suggestions: ['Try uploading a clearer file, or convert to Excel/CSV for better results.'],
       _aiError: aiError.message,
       _parsedData: true,
