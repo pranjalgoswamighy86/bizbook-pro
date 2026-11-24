@@ -19,5 +19,20 @@
 // type" errors). GSTIN validator verified correct against official GSTN
 // format (10-char PAN at positions 3-12, entity at 13, Z at 14, checksum
 // at 15). Help-chat frontend/backend contract verified aligned.
-export const APP_VERSION = 'v6.30.10'
+// v6.30.11: E-invoice PIN code capture + manual IRIS IRP handoff — both
+// e-invoice API paths return a structured PIN_CODE_REQUIRED response when
+// seller/buyer PIN is missing; Sales Register prompts and retries with
+// validated six-digit PINs. Sale register's "Record IRN" button completes
+// the B2B manual IRP workflow: generate INV-01 payload → submit on IRIS
+// portal → paste back IRN/AckNo/AckDate. IRN validated as 64 hex chars;
+// cancellation enforced only within the 24-hour IRP window.
+// v6.30.12: Inventory SERVICE item type + Purchase Record IRN — inventory
+// item type dropdown now includes "Service" alongside Raw Material and
+// Finished Product (purple badge), so service businesses can maintain
+// SAC-coded catalog items. Purchase register now has a "Record IRN" button
+// for B2B purchases with a GST-registered supplier, completing the manual
+// e-invoice workflow on the purchase side (the supplier generates the IRN;
+// the buyer records it). Green FileCheck icon appears next to the invoice
+// number once IRN is recorded.
+export const APP_VERSION = 'v6.30.12'
 export const APP_BUILD_DATE = '2026-11-24'
