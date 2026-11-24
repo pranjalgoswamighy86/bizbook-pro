@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireAuthAndTenant, requireAuthAndRole, requireAuth, writeAuditLog } from '@/lib/api-helpers'
+import { requireAuthAndTenant, writeAuditLog } from '@/lib/api-helpers'
 import { db } from '@/lib/db-soft-delete'
 import {
-  STATE_CODES,
   validateGSTIN,
   validateHSN,
   getStateCode,
@@ -201,7 +200,6 @@ export async function POST(req: NextRequest) {
         },
       }
 
-      // Generate IRN hash
       const finYear = getFinancialYear(new Date(sale.date))
 
       return NextResponse.json({
@@ -236,6 +234,10 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'Sale not found' }, { status: 404 })
       }
 
+      if (status && status !== 'GENERATED') return NextResponse.json({ error: 'Only GENERATED status can be recorded manually. Cancellation must be confirmed by the IRP.' }, { status: 400 })
+      if (typeof irn !== 'string' || !/^[A-Fa-f0-9]{64}$/.test(irn.trim())) return NextResponse.json({ error: 'Enter the 64-character IRN returned by the IRP.' }, { status: 400 })
+      if (!ackNo || !ackDate || Number.isNaN(new Date(ackDate).getTime())) return NextResponse.json({ error: 'Valid IRP acknowledgement number and date are required.' }, { status: 400 })
+
       const updateData: {
         einvoiceStatus?: string
         einvoiceIrn?: string | null
@@ -243,9 +245,9 @@ export async function POST(req: NextRequest) {
         einvoiceAckDate?: string | null
         einvoiceQrCodeText?: string | null
       } = { // v6.30.2: FIX TS2322 — was Record<string, unknown> (too loose for Prisma Exact type)
-        einvoiceStatus: status || 'GENERATED',
+        einvoiceStatus: 'GENERATED',
       }
-      if (irn) updateData.einvoiceIrn = irn
+      updateData.einvoiceIrn = irn.trim().toUpperCase()
       if (ackNo) updateData.einvoiceAckNo = ackNo
       if (ackDate) updateData.einvoiceAckDate = ackDate
       if (qrCodeText) updateData.einvoiceQrCodeText = qrCodeText
@@ -295,6 +297,10 @@ export async function POST(req: NextRequest) {
       const purchase = await db.purchase.findUnique({ where: { id: purchaseId } })
       if (!purchase || purchase.tenantId !== access.tenantId) return NextResponse.json({ error: 'Purchase not found' }, { status: 404 })
 
+      if (status && status !== 'GENERATED') return NextResponse.json({ error: 'Only GENERATED status can be recorded for a supplier-issued IRN.' }, { status: 400 })
+      if (typeof irn !== 'string' || !/^[A-Fa-f0-9]{64}$/.test(irn.trim())) return NextResponse.json({ error: 'Enter the 64-character IRN supplied by the vendor.' }, { status: 400 })
+      if (!ackNo || !ackDate || Number.isNaN(new Date(ackDate).getTime())) return NextResponse.json({ error: 'Valid supplier acknowledgement number and date are required.' }, { status: 400 })
+
       const updateData: {
         einvoiceStatus?: string
         einvoiceIrn?: string | null
@@ -302,7 +308,7 @@ export async function POST(req: NextRequest) {
         einvoiceAckDate?: string | null
         einvoiceQrCodeText?: string | null
       } = { einvoiceStatus: status || 'GENERATED' } // v6.30.2: FIX TS2322 — was Record<string, unknown>
-      if (irn) updateData.einvoiceIrn = irn
+      updateData.einvoiceIrn = irn.trim().toUpperCase()
       if (ackNo) updateData.einvoiceAckNo = ackNo
       if (ackDate) updateData.einvoiceAckDate = ackDate
       if (qrCodeText) updateData.einvoiceQrCodeText = qrCodeText
