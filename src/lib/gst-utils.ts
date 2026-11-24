@@ -30,44 +30,17 @@ export function roundTo2(value: number): number {
  * Includes Ladakh (38) created after bifurcation of J&K in 2019
  */
 export const STATE_CODES: Record<string, string> = {
-  '01': 'Jammu & Kashmir',
-  '02': 'Himachal Pradesh',
-  '03': 'Punjab',
-  '04': 'Chandigarh',
-  '05': 'Uttarakhand',
-  '06': 'Haryana',
-  '07': 'Delhi',
-  '08': 'Rajasthan',
-  '09': 'Uttar Pradesh',
-  '10': 'Bihar',
-  '11': 'Sikkim',
-  '12': 'Arunachal Pradesh',
-  '13': 'Nagaland',
-  '14': 'Manipur',
-  '15': 'Mizoram',
-  '16': 'Tripura',
-  '17': 'Meghalaya',
-  '18': 'Assam',
-  '19': 'West Bengal',
-  '20': 'Jharkhand',
-  '21': 'Odisha',
-  '22': 'Chhattisgarh',
-  '23': 'Madhya Pradesh',
-  '24': 'Gujarat',
-  '25': 'Daman & Diu',
-  '26': 'Dadra & Nagar Haveli and Daman & Diu',
-  '27': 'Maharashtra',
-  '28': 'Andhra Pradesh',
-  '29': 'Karnataka',
-  '30': 'Goa',
-  '31': 'Lakshadweep',
-  '32': 'Kerala',
-  '33': 'Tamil Nadu',
-  '34': 'Puducherry',
-  '35': 'Andaman & Nicobar Islands',
-  '36': 'Telangana',
-  '37': 'Andhra Pradesh (New)',
-  '38': 'Ladakh',
+  '01': 'Jammu & Kashmir', '02': 'Himachal Pradesh', '03': 'Punjab',
+  '04': 'Chandigarh', '05': 'Uttarakhand', '06': 'Haryana', '07': 'Delhi',
+  '08': 'Rajasthan', '09': 'Uttar Pradesh', '10': 'Bihar', '11': 'Sikkim',
+  '12': 'Arunachal Pradesh', '13': 'Nagaland', '14': 'Manipur',
+  '15': 'Mizoram', '16': 'Tripura', '17': 'Meghalaya', '18': 'Assam',
+  '19': 'West Bengal', '20': 'Jharkhand', '21': 'Odisha', '22': 'Chhattisgarh',
+  '23': 'Madhya Pradesh', '24': 'Gujarat', '25': 'Daman & Diu',
+  '26': 'Dadra & Nagar Haveli', '27': 'Maharashtra', '28': 'Andhra Pradesh',
+  '29': 'Karnataka', '30': 'Goa', '31': 'Lakshadweep', '32': 'Kerala',
+  '33': 'Tamil Nadu', '34': 'Puducherry', '35': 'Andaman & Nicobar Islands',
+  '36': 'Telangana', '37': 'Andhra Pradesh (New)', '38': 'Ladakh',
 }
 
 /**
@@ -192,73 +165,15 @@ export function isInterStateSupply(supplierGstin: string, buyerGstin: string): b
 }
 
 /**
- * v6.29.3: Best-effort extraction of a 6-digit Indian pincode from an address
- * string. Used to populate the IRP e-invoice 'Pin' field, which IRP requires
- * and which was previously hardcoded to 0 (causing IRN generation to fail
- * validation with error 'Pin should be at least 6 digits').
- *
- * Strategy:
- *   1. Regex for a 6-digit number anywhere in the address (handles
- *      "Andheri East, Mumbai 400069", "Bengaluru-560001", "110001, Delhi").
- *   2. Fallback to a state-capital default pincode keyed by GSTIN state code,
- *      so the payload still validates even when the address has no pin.
- *   3. If no GSTIN either, fall back to 110001 (New Delhi) — IRP accepts any
- *      valid 6-digit pin; the buyer/seller can correct it post-generation.
- *
- * NOTE: This is a stop-gap until schema migrations add explicit pinCode fields
- * to Tenant / Sale / Purchase. Returns a NUMBER (IRP Pin field is numeric).
+ * Extract a real six-digit PIN from the supplied address.
+ * Never fabricate a PIN from a GSTIN state code: IRP validates the address,
+ * and a guessed PIN can route an invoice to the wrong location.
+ * Returns null when the address does not contain a PIN.
  */
-const STATE_DEFAULT_PIN: Record<string, number> = {
-  '01': 193224, // Jammu & Kashmir (Srinagar region)
-  '02': 382010, // Himachal Pradesh (Shimla)
-  '03': 248001, // Punjab (Chandigarh — used as shared capital pin)
-  '04': 248001, // Chandigarh
-  '05': 226001, // Uttarakhand (Lucknow — closest major)
-  '06': 122001, // Haryana (Gurugram)
-  '07': 110001, // Delhi
-  '08': 302001, // Rajasthan (Jaipur)
-  '09': 226001, // Uttar Pradesh (Lucknow)
-  '10': 800001, // Bihar (Patna)
-  '11': 781001, // Sikkim (Gangtok — closest)
-  '12': 734001, // Arunachal Pradesh (Itanagar)
-  '13': 781001, // Nagaland (Kohima — closest)
-  '14': 781001, // Manipur (Imphal)
-  '15': 781001, // Mizoram (Aizawl)
-  '16': 781001, // Tripura (Agartala)
-  '17': 722101, // Meghalaya (Shillong)
-  '18': 492001, // Chhattisgarh (Raipur)
-  '19': 462001, // Madhya Pradesh (Bhopal)
-  '20': 400001, // Maharashtra (Mumbai)
-  '21': 560001, // Karnataka (Bengaluru)
-  '22': 673001, // Goa (Panaji)
-  '23': 695001, // Kerala (Thiruvananthapuram)
-  '24': 380001, // Gujarat (Ahmedabad)
-  '25': 751001, // Odisha (Bhubaneswar)
-  '26': 533001, // Andhra Pradesh (Visakhapatnam — post-bifurcation capital region)
-  '27': 400001, // Maharashtra (Mumbai — duplicates 20; GSTIN code 27 is MH)
-  '28': 500001, // Andhra Pradesh (Hyderabad — old code, now Telangana)
-  '29': 500001, // Karnataka (Bengaluru — old code, kept for legacy GSTINs)
-  '30': 500001, // Telangana (Hyderabad)
-  '31': 380001, // Gujarat (old code)
-  '32': 682001, // Lakshadweep (Kavaratti)
-  '33': 700001, // West Bengal (Kolkata)
-  '34': 734001, // Puducherry (Yanam region)
-  '35': 601101, // Andaman & Nicobar (Port Blair)
-  '36': 682001, // Daman & Diu
-  '37': 382001, // Dadra & Nagar Haveli
-  '38': 380001, // Dadra & Nagar Haveli and Daman & Diu (merged UT)
-  '97': 110001, // Other Territory
-  '98': 110001, // Centre Jurisdiction (fallback)
-}
-
-export function extractPinCode(address: string | null | undefined, gstin?: string | null): number {
-  if (address) {
-    const m = address.match(/\b(\d{6})\b/)
-    if (m && m[1]) return parseInt(m[1], 10)
-  }
-  const state = getStateCode(gstin || '')
-  if (state && STATE_DEFAULT_PIN[state]) return STATE_DEFAULT_PIN[state]
-  return 110001 // New Delhi — IRP-acceptable fallback
+export function extractPinCode(address: string | null | undefined): number | null {
+  if (!address) return null
+  const match = address.match(/\b([1-9]\d{5})\b/)
+  return match?.[1] ? Number(match[1]) : null
 }
 
 /**

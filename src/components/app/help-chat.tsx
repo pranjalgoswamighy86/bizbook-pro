@@ -49,13 +49,13 @@ export function HelpChatTab({ tenantId }: { tenantId?: string }) {
   const sendMessage = async () => {
     if (!input.trim() || loading) return
 
+    const submittedText = input.trim()
     const userMessage: ChatMessage = {
       role: 'user',
-      content: input.trim(),
+      content: submittedText,
       timestamp: new Date().toISOString(),
     }
     setMessages(prev => [...prev, userMessage])
-    setInput('')
     setLoading(true)
 
     try {
@@ -64,16 +64,16 @@ export function HelpChatTab({ tenantId }: { tenantId?: string }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           tenantId,
-          message: input.trim(),
+          message: submittedText,
           history: messages.slice(-8).map(({ role, content }) => ({ role, content })),
         }),
       })
 
-      if (!res.ok) {
-        throw new Error('Failed to get response')
-      }
-
       const data = await res.json()
+      if (!res.ok) {
+        throw new Error(data.error || `Support request failed (${res.status})`)
+      }
+      setInput('')
       const aiMessage: ChatMessage = {
         role: 'ai',
         content: data.response || 'I apologize, I couldn\'t process your request. Please try rephrasing your question.',
@@ -82,18 +82,20 @@ export function HelpChatTab({ tenantId }: { tenantId?: string }) {
       }
       setMessages(prev => [...prev, aiMessage])
 
-      // Show toast if ticket was created
-      if (data.ticketCreated) {
+      // Only announce escalation; AI-resolved conversations are archived as resolved.
+      if (data.needsHumanSupport) {
         toast({
-          title: 'Support ticket created',
-          description: 'Your query has been forwarded to the admin team.',
+          title: 'Forwarded to support team',
+          description: 'Your message has been flagged for a team member to review.',
           duration: 5000,
         })
       }
     } catch (err: any) {
+      // Keep the draft so the user can retry; do not silently discard a message.
+      setInput(submittedText)
       const errorMessage: ChatMessage = {
         role: 'ai',
-        content: 'I\'m unable to send your message right now. Please check your connection and try again. Your message has not been confirmed as delivered.',
+        content: err?.message || 'I\'m unable to send your message right now. Please check your connection and try again. Your message has not been confirmed as delivered.',
         timestamp: new Date().toISOString(),
       }
       setMessages(prev => [...prev, errorMessage])

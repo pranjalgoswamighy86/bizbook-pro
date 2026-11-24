@@ -36,15 +36,17 @@ import crypto from 'crypto'
 const IRP_SANDBOX_URL = 'https://einvoice1.traces.gov.in'
 const IRP_PRODUCTION_URL = 'https://einvoice.gst.gov.in'
 
-function getIrpBaseUrl(): string {
+export function getIrpBaseUrl(): string {
   return process.env.IRP_ENV === 'production' ? IRP_PRODUCTION_URL : IRP_SANDBOX_URL
 }
 
-function isIrpConfigured(): boolean {
+export function isIrpConfigured(): boolean {
   return !!(
     process.env.IRP_GSP_CODE &&
     process.env.IRP_GSP_CLIENT_ID &&
-    process.env.IRP_GSP_CLIENT_SECRET
+    process.env.IRP_GSP_CLIENT_SECRET &&
+    process.env.IRP_GSP_USERNAME &&
+    process.env.IRP_GSP_PASSWORD
   )
 }
 
@@ -91,6 +93,7 @@ async function getIrpAuthToken(): Promise<string> {
       'gsp-code': gspCode!,
     },
     body: JSON.stringify(authPayload),
+    signal: AbortSignal.timeout(15000),
   })
 
   if (!authRes.ok) {
@@ -145,6 +148,7 @@ export async function submitToIrp(inv01Payload: any): Promise<IrpSubmitResult> {
         'gsp-code': process.env.IRP_GSP_CODE!,
       },
       body: JSON.stringify(inv01Payload),
+      signal: AbortSignal.timeout(20000),
     })
 
     if (!res.ok) {
@@ -225,6 +229,7 @@ export async function cancelIrn(irn: string, reason: string): Promise<IrpSubmitR
         'gsp-code': process.env.IRP_GSP_CODE!,
       },
       body: JSON.stringify({ Irn: irn, CnlRsn: reason, CnlRem: 'Cancelled via BizBook Pro' }),
+      signal: AbortSignal.timeout(20000),
     })
 
     if (!res.ok) {
@@ -307,4 +312,3 @@ export async function getIrnDetails(irn: string): Promise<IrpSubmitResult & { da
   }
 }
 
-export { isIrpConfigured, getIrpBaseUrl }

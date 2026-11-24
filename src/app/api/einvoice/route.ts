@@ -1,9 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireAuthAndTenant, requireAuthAndRole, requireAuth, writeAuditLog } from '@/lib/api-helpers'
+import { requireAuthAndTenant, writeAuditLog } from '@/lib/api-helpers'
 import { db } from '@/lib/db-soft-delete'
-import { createHash } from 'crypto'
 import {
-  STATE_CODES,
   validateGSTIN,
   validateHSN,
   getStateCode,
@@ -18,27 +16,37 @@ import {
 // v4.152: IRP direct integration
 import { submitToIrp, cancelIrn, isIrpConfigured, getIrpBaseUrl } from '@/lib/irp-integration'
 
+// Sale items may store GST as one GST entry (18%) or split CGST + SGST
+// entries (9% + 9%). IRP needs the combined GST rate.
+function getItemGstRate(item: Record<string, any>): number {
+  const taxes = Array.isArray(item.taxes) ? item.taxes : []
+  const gstTaxes = taxes.filter((tax: any) =>
+    ['GST', 'CGST', 'SGST', 'IGST'].includes(String(tax?.name || '').trim().toUpperCase())
+  )
+  if (gstTaxes.length > 0) {
+    return gstTaxes.reduce((sum: number, tax: any) => sum + Number(tax?.percent || 0), 0)
+  }
+  return Number(item.gstRate || 0)
+}
+
 // ============================================================
 // GST E-Invoice API
 // Generates INV-01 compliant JSON payload for IRP submission
 // Supports: payload generation, status tracking, cancellation
 // ============================================================
 
-function generateIRNHash(gstin: string, finYear: string, docType: string, docNo: string): string {
-  // Generate a deterministic 64-char hash for IRN based on primary keys
-  // In production, this would be SHA-256; here we create a consistent hash
-  const raw = `${gstin}|${finYear}|${docType}|${docNo}`
-  return createHash('sha256').update(raw).digest('hex')
-}
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
-    const { action, tenantId } = body
+    const { action } = body
+    const requestedTenantId = typeof body?.tenantId === 'string' ? body.tenantId : ''
+    if (!requestedTenantId) return NextResponse.json({ error: 'No business selected' }, { status: 400 })
 
-    if (!tenantId) {
-      return NextResponse.json({ error: 'No business selected' }, { status: 400 })
-    }
+    // Authenticate and verify tenant membership before ANY read or write action.
+    const requestAccess = await requireAuthAndTenant(req, requestedTenantId)
+    if (requestAccess instanceof NextResponse) return requestAccess
+    const tenantId = requestAccess.tenantId
 
     if (action === 'generate-payload') {
       // Generate e-invoice JSON payload (INV-01 schema) for a sale
@@ -101,6 +109,11 @@ export async function POST(req: NextRequest) {
       // Determine supply type
       const supplierState = getStateCode(tenant.gstNumber)
       const buyerState = getStateCode(sale.partyGst)
+      const supplierPin = extractPinCode(tenant.address)
+      const buyerPin = extractPinCode(sale.partyAddress)
+      if (!supplierPin || !buyerPin) {
+        return NextResponse.json({ error: 'Valid six-digit PIN codes are required in both seller and buyer addresses before generating an e-invoice.' }, { status: 400 })
+      }
       const isInterState = isInterStateSupply(tenant.gstNumber, sale.partyGst)
 
       // BUG FIX: SupTyp should correctly reflect supply type
@@ -114,7 +127,7 @@ export async function POST(req: NextRequest) {
         const qty = Number(item.qty) || 0
         const rate = Number(item.rate) || 0
         const discount = Number(item.discount || 0)
-        const gstRt = Number(item.taxes?.[0]?.percent || item.gstRate || 0)
+        const gstRt = getItemGstRate(item)
 
         // BUG FIX: Calculate GST from assessable value and rate, not from pre-calculated totalTax
         // This ensures correct tax computation and proper CGST/SGST/IGST split
@@ -122,7 +135,8 @@ export async function POST(req: NextRequest) {
 
         return {
           SlNo: String(idx + 1),
-          PrdNm: String(item.name || ''),
+          PrdDesc: String(item.name || ''),
+          IsServc: item.saleItemType === 'SERVICE' ? 'Y' : 'N',
           HsnCd: String(item.hsn || ''),
           Qty: qty,
           Unit: String(item.unit || 'PCS'),
@@ -170,42 +184,50 @@ export async function POST(req: NextRequest) {
           No: sale.invoiceNumber,
           Dt: formatDateForEinvoice(sale.date),
         },
-        SupDtls: {
+        SellerDtls: {
           Gstin: tenant.gstNumber,
           LglNm: tenant.name,
           TrdNm: tenant.name,
           Addr1: tenant.address || '',
           Loc: '',
-          Pin: extractPinCode(tenant.address, tenant.gstNumber),
+          Pin: supplierPin,
           Stcd: supplierState,
         },
-        RecDtls: {
+        BuyerDtls: {
           Gstin: sale.partyGst,
           LglNm: sale.partyName,
           TrdNm: sale.partyName,
           Addr1: sale.partyAddress || '',
           Loc: '',
-          Pin: extractPinCode(sale.partyAddress, sale.partyGst),
+          Pin: buyerPin,
           Pos: buyerState,
           Stcd: buyerState,
         },
         ItemList: calculatedItems,
-        ValDtls: invoiceTotals,
+        ValDtls: {
+          AssVal: invoiceTotals.assVal,
+          CgstVal: invoiceTotals.cgstVal,
+          SgstVal: invoiceTotals.sgstVal,
+          IgstVal: invoiceTotals.igstVal,
+          CesVal: invoiceTotals.cesVal,
+          StCesVal: invoiceTotals.stCesVal,
+          Discount: invoiceTotals.discount,
+          OthChrg: invoiceTotals.othChrg,
+          RndOffAmt: invoiceTotals.rndOffAmt,
+          TotInvVal: invoiceTotals.totInvVal,
+        },
         PayDtls: {
           Nm: sale.partyName,
           Mode: sale.paymentStatus === 'RECEIVED' ? 'Cash' : 'Credit',
           PayTerm: sale.paymentStatus === 'RECEIVED' ? 'Immediate' : 'Credit',
-          PayDue: sale.paymentStatus === 'RECEIVED' ? 0 : sale.totalAmount - (sale.amountReceived || 0),
+          PaymtDue: sale.paymentStatus === 'RECEIVED' ? 0 : sale.totalAmount - (sale.amountReceived || 0),
         },
       }
 
-      // Generate IRN hash
       const finYear = getFinancialYear(new Date(sale.date))
-      const irnHash = generateIRNHash(tenant.gstNumber, finYear, 'INV', sale.invoiceNumber)
 
       return NextResponse.json({
         payload,
-        irnHash,
         metadata: {
           saleId: sale.id,
           invoiceNumber: sale.invoiceNumber,
@@ -236,6 +258,10 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'Sale not found' }, { status: 404 })
       }
 
+      if (status && status !== 'GENERATED') return NextResponse.json({ error: 'Only GENERATED status can be recorded manually. Cancellation must be confirmed by the IRP.' }, { status: 400 })
+      if (typeof irn !== 'string' || !/^[A-Fa-f0-9]{64}$/.test(irn.trim())) return NextResponse.json({ error: 'Enter the 64-character IRN returned by the IRP.' }, { status: 400 })
+      if (!ackNo || !ackDate || Number.isNaN(new Date(ackDate).getTime())) return NextResponse.json({ error: 'Valid IRP acknowledgement number and date are required.' }, { status: 400 })
+
       const updateData: {
         einvoiceStatus?: string
         einvoiceIrn?: string | null
@@ -243,9 +269,9 @@ export async function POST(req: NextRequest) {
         einvoiceAckDate?: string | null
         einvoiceQrCodeText?: string | null
       } = { // v6.30.2: FIX TS2322 — was Record<string, unknown> (too loose for Prisma Exact type)
-        einvoiceStatus: status || 'GENERATED',
+        einvoiceStatus: 'GENERATED',
       }
-      if (irn) updateData.einvoiceIrn = irn
+      updateData.einvoiceIrn = irn.trim().toUpperCase()
       if (ackNo) updateData.einvoiceAckNo = ackNo
       if (ackDate) updateData.einvoiceAckDate = ackDate
       if (qrCodeText) updateData.einvoiceQrCodeText = qrCodeText
@@ -259,183 +285,38 @@ export async function POST(req: NextRequest) {
     }
 
     if (action === 'cancel') {
-      // ---- SECURITY PATCH v1: auth + tenant access ----
-      const access = await requireAuthAndTenant(req, tenantId)
-      if (access instanceof NextResponse) return access
-      // --------------------------------------------------
-
-      // Mark e-invoice as cancelled (within 24-hour window)
+      // Never mark an IRN cancelled locally unless the IRP confirms it.
       const { saleId, reason } = body
-      if (!saleId) {
-        return NextResponse.json({ error: 'Sale ID required' }, { status: 400 })
-      }
-
+      if (!saleId) return NextResponse.json({ error: 'Sale ID required' }, { status: 400 })
+      const reasonCode = String(reason || '1')
+      if (!/^[1-6]$/.test(reasonCode)) return NextResponse.json({ error: 'Invalid IRP cancellation reason. Use a reason code from 1 to 6.' }, { status: 400 })
       const sale = await db.sale.findUnique({ where: { id: saleId } })
-      if (!sale || sale.tenantId !== tenantId) {
-        return NextResponse.json({ error: 'Sale not found' }, { status: 404 })
+      if (!sale || sale.tenantId !== tenantId) return NextResponse.json({ error: 'Sale not found' }, { status: 404 })
+      if (!sale.einvoiceIrn || sale.einvoiceStatus !== 'GENERATED') return NextResponse.json({ error: 'Only an active IRP-generated invoice can be cancelled.' }, { status: 400 })
+      if (!sale.einvoiceAckDate) return NextResponse.json({ error: 'Acknowledgement date is missing; verify the IRP record before cancellation.' }, { status: 400 })
+      const hoursDiff = (Date.now() - new Date(sale.einvoiceAckDate).getTime()) / (1000 * 60 * 60)
+      if (!Number.isFinite(hoursDiff) || hoursDiff < 0 || hoursDiff > 24) {
+        return NextResponse.json({ error: 'The IRP 24-hour cancellation window has expired or the acknowledgement date is invalid. Issue a credit note instead.' }, { status: 400 })
       }
-
-      if (sale.einvoiceStatus !== 'GENERATED') {
-        return NextResponse.json({ error: 'Only generated e-invoices can be cancelled' }, { status: 400 })
-      }
-
-      // Check 24-hour window
-      if (sale.einvoiceAckDate) {
-        const ackDate = new Date(sale.einvoiceAckDate)
-        const hoursDiff = (Date.now() - ackDate.getTime()) / (1000 * 60 * 60)
-        if (hoursDiff > 24) {
-          return NextResponse.json({
-            error: `Cannot cancel e-invoice: 24-hour cancellation window has expired (${hoursDiff.toFixed(1)} hours since generation). Issue a Credit Note instead.`
-          }, { status: 400 })
-        }
-      }
-
-      const updated = await db.sale.update({
-        where: { id: saleId },
-        data: {
-          einvoiceStatus: 'CANCELLED',
-        }
+      const result = await cancelIrn(sale.einvoiceIrn, reasonCode)
+      if (!result.success) return NextResponse.json({ success: false, mode: result.mode, error: result.errorMessage || 'IRP cancellation failed' }, { status: 502 })
+      const updated = await db.sale.update({ where: { id: saleId }, data: { einvoiceStatus: 'CANCELLED' } })
+      await writeAuditLog({
+        tenantId, userId: requestAccess.userId, userName: requestAccess.user?.name || 'Unknown',
+        action: 'UPDATE', entityType: 'E-Invoice', entityId: saleId,
+        entityName: `IRN cancelled for ${sale.invoiceNumber}`,
+        changes: { irn: sale.einvoiceIrn, reason: reasonCode },
       })
-
-      return NextResponse.json({ sale: updated })
+      return NextResponse.json({ success: true, sale: updated })
     }
 
     if (action === 'generate-purchase-payload') {
-      // Generate e-invoice JSON payload for a purchase
-      const { purchaseId } = body
-      if (!purchaseId) {
-        return NextResponse.json({ error: 'Purchase ID required' }, { status: 400 })
-      }
-
-      const purchase = await db.purchase.findUnique({ where: { id: purchaseId } })
-      if (!purchase || purchase.tenantId !== tenantId) {
-        return NextResponse.json({ error: 'Purchase not found' }, { status: 404 })
-      }
-
-      const tenant = await db.tenant.findUnique({ where: { id: tenantId } })
-      if (!tenant) {
-        return NextResponse.json({ error: 'Business not found' }, { status: 404 })
-      }
-
-      if (!tenant.gstNumber || !purchase.partyGst) {
-        return NextResponse.json({ error: 'Both company and supplier GSTIN are required for e-invoicing' }, { status: 400 })
-      }
-
-      // BUG FIX: Validate GSTIN format for both supplier and buyer
-      const supplierGstinValidation = validateGSTIN(purchase.partyGst)
-      if (!supplierGstinValidation.valid) {
-        return NextResponse.json({ error: `Invalid supplier GSTIN: ${supplierGstinValidation.error}` }, { status: 400 })
-      }
-
-      const buyerGstinValidation = validateGSTIN(tenant.gstNumber)
-      if (!buyerGstinValidation.valid) {
-        return NextResponse.json({ error: `Invalid buyer GSTIN: ${buyerGstinValidation.error}` }, { status: 400 })
-      }
-
-      let items: Record<string, unknown>[]
-      try {
-        items = JSON.parse(purchase.items || '[]')
-      } catch {
-        return NextResponse.json({ error: 'Failed to parse purchase items. Please verify the purchase data.' }, { status: 400 })
-      }
-      if (!Array.isArray(items) || items.length === 0) {
-        return NextResponse.json({ error: 'Purchase has no items. Add at least one item before generating e-invoice.' }, { status: 400 })
-      }
-      const supplierState = getStateCode(purchase.partyGst)
-      const buyerState = getStateCode(tenant.gstNumber)
-      const isInterState = isInterStateSupply(purchase.partyGst, tenant.gstNumber)
-
-      // BUG FIX: Validate HSN codes for B2B e-invoicing
-      for (let i = 0; i < items.length; i++) {
-        const item = items[i]
-        const hsnValidation = validateHSN(String(item.hsn || ''), true)
-        if (!hsnValidation.valid) {
-          return NextResponse.json({
-            error: `Item ${i + 1} (${item.name || 'unnamed'}): ${hsnValidation.error}`
-          }, { status: 400 })
-        }
-      }
-
-      // BUG FIX: Calculate item-level GST properly with reconciliation
-      const calculatedItems = items.map((item: Record<string, unknown>, idx: number) => {
-        const qty = Number(item.qty) || 0
-        const rate = Number(item.rate) || 0
-        const discount = Number(item.discount || 0)
-        const gstRt = Number(item.taxes?.[0]?.percent || item.gstRate || 0)
-
-        // BUG FIX: Calculate GST from assessable value and rate
-        const itemGST = calculateItemGST(qty, rate, gstRt, discount, isInterState)
-
-        return {
-          SlNo: String(idx + 1),
-          PrdNm: String(item.name || ''),
-          HsnCd: String(item.hsn || ''),
-          Qty: qty,
-          Unit: String(item.unit || 'PCS'),
-          UnitPrice: roundTo2(rate),
-          TotAmt: itemGST.totAmt,
-          // BUG FIX: Added missing Discount and AssAmt fields for purchase items
-          Discount: roundTo2(discount),
-          AssAmt: itemGST.assAmt,
-          GstRt: gstRt,
-          // BUG FIX: CGST/SGST split now calculated correctly (not naive halving)
-          CgstAmt: itemGST.cgstAmt,
-          SgstAmt: itemGST.sgstAmt,
-          IgstAmt: itemGST.igstAmt,
-          CesRt: 0,
-          CesAmt: 0,
-          OthChrg: 0,
-          // BUG FIX: TotItemVal must equal AssAmt + all tax amounts (not totAmt + gstAmt)
-          TotItemVal: itemGST.totItemVal,
-        }
-      })
-
-      // BUG FIX: Calculate invoice-level totals from item-level values
-      const invoiceTotals = calculateInvoiceTotals(
-        calculatedItems.map(item => ({
-          assAmt: item.AssAmt,
-          cgstAmt: item.CgstAmt,
-          sgstAmt: item.SgstAmt,
-          igstAmt: item.IgstAmt,
-        })),
-        purchase.totalAmount
-      )
-
-      const payload = {
-        Version: '1.1',
-        TranDtls: { TaxSch: 'GST', SupTyp: 'B2B', RegRev: 'N' },
-        DocDtls: {
-          Typ: 'INV',
-          No: purchase.invoiceNumber,
-          Dt: formatDateForEinvoice(purchase.date),
-        },
-        SupDtls: {
-          Gstin: purchase.partyGst,
-          LglNm: purchase.partyName,
-          TrdNm: purchase.partyName,
-          Addr1: purchase.partyAddress || (purchase as any).address || '',
-          Loc: '',
-          Pin: extractPinCode(purchase.partyAddress, purchase.partyGst),
-          Stcd: supplierState,
-        },
-        RecDtls: {
-          Gstin: tenant.gstNumber,
-          LglNm: tenant.name,
-          TrdNm: tenant.name,
-          Addr1: tenant.address || '',
-          Loc: '',
-          Pin: extractPinCode(tenant.address, tenant.gstNumber),
-          Pos: buyerState,
-          Stcd: buyerState,
-        },
-        ItemList: calculatedItems,
-        ValDtls: invoiceTotals,
-      }
-
-      const finYear = getFinancialYear(new Date(purchase.date))
-      const irnHash = generateIRNHash(purchase.partyGst, finYear, 'INV', purchase.invoiceNumber)
-
-      return NextResponse.json({ payload, irnHash, metadata: { purchaseId, isInterState, generatedAt: new Date().toISOString() } })
+      // Purchases are supplier-issued invoices; BizBook Pro records the IRN
+      // supplied by the vendor and must never generate one on the buyer's behalf.
+      return NextResponse.json({
+        error: 'A supplier must generate the IRN for a purchase invoice. Enter the supplier-issued IRN and acknowledgement details instead.',
+        code: 'SUPPLIER_ISSUED_EINVOICE',
+      }, { status: 400 })
     }
 
     if (action === 'update-purchase-status') {
@@ -449,14 +330,18 @@ export async function POST(req: NextRequest) {
       const purchase = await db.purchase.findUnique({ where: { id: purchaseId } })
       if (!purchase || purchase.tenantId !== access.tenantId) return NextResponse.json({ error: 'Purchase not found' }, { status: 404 })
 
+      if (status && status !== 'GENERATED') return NextResponse.json({ error: 'Only GENERATED status can be recorded for a supplier-issued IRN.' }, { status: 400 })
+      if (typeof irn !== 'string' || !/^[A-Fa-f0-9]{64}$/.test(irn.trim())) return NextResponse.json({ error: 'Enter the 64-character IRN supplied by the vendor.' }, { status: 400 })
+      if (!ackNo || !ackDate || Number.isNaN(new Date(ackDate).getTime())) return NextResponse.json({ error: 'Valid supplier acknowledgement number and date are required.' }, { status: 400 })
+
       const updateData: {
         einvoiceStatus?: string
         einvoiceIrn?: string | null
         einvoiceAckNo?: string | null
         einvoiceAckDate?: string | null
         einvoiceQrCodeText?: string | null
-      } = { einvoiceStatus: status || 'GENERATED' } // v6.30.2: FIX TS2322 — was Record<string, unknown>
-      if (irn) updateData.einvoiceIrn = irn
+      } = { einvoiceStatus: 'GENERATED' }
+      updateData.einvoiceIrn = irn.trim().toUpperCase()
       if (ackNo) updateData.einvoiceAckNo = ackNo
       if (ackDate) updateData.einvoiceAckDate = ackDate
       if (qrCodeText) updateData.einvoiceQrCodeText = qrCodeText
@@ -531,12 +416,35 @@ export async function POST(req: NextRequest) {
 
       // Build the INV-01 payload (reuses existing logic from generate-payload)
       // For brevity, we'll call the internal helper — in a refactor this would be extracted
-      const items = JSON.parse(sale.items || '[]')
+      let items: any[]
+      try {
+        items = JSON.parse(sale.items || '[]')
+      } catch {
+        return NextResponse.json({ error: 'Invoice item data is invalid. Reopen and save the invoice before generating an IRN.' }, { status: 400 })
+      }
       const buyerGstin = sale.partyGst || ''
-      if (!buyerGstin || buyerGstin.length !== 15) {
-        return NextResponse.json({
-          error: 'Buyer GSTIN is required for e-invoice (B2B only). Add buyer GSTIN to the sale.',
-        }, { status: 400 })
+      const sellerValidation = validateGSTIN(tenant.gstNumber)
+      const buyerValidation = validateGSTIN(buyerGstin)
+      if (!sellerValidation.valid || !buyerValidation.valid) {
+        return NextResponse.json({ error: `Valid seller and buyer GSTINs are required. ${!sellerValidation.valid ? `Seller: ${sellerValidation.error}` : `Buyer: ${buyerValidation.error}`}` }, { status: 400 })
+      }
+      if (!Array.isArray(items) || items.length === 0) return NextResponse.json({ error: 'Invoice must contain at least one item.' }, { status: 400 })
+      const sellerPin = extractPinCode(tenant.address)
+      const buyerPin = extractPinCode(sale.partyAddress)
+      if (!sellerPin || !buyerPin) return NextResponse.json({ error: 'Valid six-digit PIN codes are required in both seller and buyer addresses before IRN generation.' }, { status: 400 })
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i]
+        const validation = validateHSN(String(item?.hsn || ''), true)
+        if (!validation.valid) return NextResponse.json({ error: `Item ${i + 1}: ${validation.error}` }, { status: 400 })
+        const qty = Number(item?.qty)
+        const rate = Number(item?.rate)
+        const gstRate = getItemGstRate(item)
+        const discount = Number(item?.discount || 0)
+        if (!Number.isFinite(qty) || qty <= 0 || !Number.isFinite(rate) || rate < 0 ||
+            !Number.isFinite(gstRate) || gstRate < 0 || gstRate > 100 ||
+            !Number.isFinite(discount) || discount < 0 || discount > qty * rate) {
+          return NextResponse.json({ error: `Item ${i + 1} has invalid quantity, rate, GST rate, or discount.` }, { status: 400 })
+        }
       }
 
       const interState = isInterStateSupply(tenant.gstNumber, buyerGstin)
@@ -544,7 +452,7 @@ export async function POST(req: NextRequest) {
         const gst = calculateItemGST(
           Number(item.qty || 0),
           Number(item.rate || 0),
-          Number(item.gstRate || 0),
+          getItemGstRate(item),
           Number(item.discount || 0),
           interState
         )
@@ -559,7 +467,7 @@ export async function POST(req: NextRequest) {
           TotAmt: gst.totAmt,
           Discount: roundTo2(Number(item.discount || 0)),
           AssAmt: gst.assAmt,
-          GstRt: Number(item.gstRate || 0),
+          GstRt: getItemGstRate(item),
           IgstAmt: gst.igstAmt,
           CgstAmt: gst.cgstAmt,
           SgstAmt: gst.sgstAmt,
@@ -585,14 +493,14 @@ export async function POST(req: NextRequest) {
           Gstin: tenant.gstNumber,
           LglNm: tenant.name,
           Addr1: tenant.address || '',
-          Pin: extractPinCode(tenant.address, tenant.gstNumber),
+          Pin: sellerPin,
           Stcd: getStateCode(tenant.gstNumber),
         },
         BuyerDtls: {
           Gstin: buyerGstin,
           LglNm: sale.partyName,
           Addr1: sale.partyAddress || '',
-          Pin: extractPinCode(sale.partyAddress, buyerGstin),
+          Pin: buyerPin,
           Stcd: getStateCode(buyerGstin),
           Pos: getStateCode(buyerGstin),
         },
@@ -602,9 +510,12 @@ export async function POST(req: NextRequest) {
           CgstVal: totals.cgstVal,
           SgstVal: totals.sgstVal,
           IgstVal: totals.igstVal,
-          CesVal: 0,
-          RndOffAmt: 0,
-          TotInvVal: roundTo2(sale.totalAmount),
+          CesVal: totals.cesVal,
+          StCesVal: totals.stCesVal,
+          Discount: totals.discount,
+          OthChrg: totals.othChrg,
+          RndOffAmt: totals.rndOffAmt,
+          TotInvVal: totals.totInvVal,
         },
         PayDtls: { CrDay: 0, PaidAmt: roundTo2(sale.amountReceived || 0), PaymtDue: roundTo2(sale.totalAmount - (sale.amountReceived || 0)) },
       }
@@ -673,18 +584,23 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'No IRN exists for this sale' }, { status: 400 })
       }
 
-      // Check 24-hour window
-      if (sale.einvoiceAckDate) {
-        const ackDate = new Date(sale.einvoiceAckDate)
-        const hoursDiff = (Date.now() - ackDate.getTime()) / (1000 * 60 * 60)
-        if (hoursDiff > 24) {
-          return NextResponse.json({
-            error: `24-hour cancellation window expired (${hoursDiff.toFixed(1)}h). Issue a Credit Note instead.`,
-          }, { status: 400 })
-        }
+      // IRP cancellation is permitted only for an active IRN inside 24 hours.
+      if (sale.einvoiceStatus !== 'GENERATED' || !sale.einvoiceAckDate) {
+        return NextResponse.json({ error: 'Only an active IRP-generated invoice with an acknowledgement date can be cancelled.' }, { status: 400 })
+      }
+      const ackDate = new Date(sale.einvoiceAckDate)
+      const hoursDiff = (Date.now() - ackDate.getTime()) / (1000 * 60 * 60)
+      if (!Number.isFinite(hoursDiff) || hoursDiff < 0 || hoursDiff > 24) {
+        return NextResponse.json({
+          error: 'The IRP 24-hour cancellation window has expired or the acknowledgement date is invalid. Issue a credit note instead.',
+        }, { status: 400 })
+      }
+      const reasonCode = String(reason || '1')
+      if (!/^[1-6]$/.test(reasonCode)) {
+        return NextResponse.json({ error: 'Invalid IRP cancellation reason. Use a reason code from 1 to 6.' }, { status: 400 })
       }
 
-      const cancelResult = await cancelIrn(sale.einvoiceIrn, reason || '1')
+      const cancelResult = await cancelIrn(sale.einvoiceIrn, reasonCode)
 
       if (cancelResult.success) {
         const updated = await db.sale.update({

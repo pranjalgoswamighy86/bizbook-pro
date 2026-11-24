@@ -1,0 +1,38 @@
+name: PR Build Verification
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [fix/ai-support-einvoice-security-nov-2026]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund --force
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+        env:
+          DATABASE_URL: postgresql://placeholder:placeholder@localhost:5432/placeholder
+
+      - name: Build application
+        run: npm run build
+        env:
+          DATABASE_URL: postgresql://placeholder:placeholder@localhost:5432/placeholder
+          NODE_ENV: production

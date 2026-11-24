@@ -189,7 +189,7 @@ export async function POST(req: NextRequest) {
         aiResponse: response,
         category,
         needsHumanSupport,
-        status: 'OPEN',
+        status: needsHumanSupport ? 'OPEN' : 'AI_RESOLVED',
       },
     })
 
