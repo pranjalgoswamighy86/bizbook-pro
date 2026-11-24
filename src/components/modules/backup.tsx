@@ -387,10 +387,10 @@ export function BackupPage() {
                 <FileSpreadsheet className="h-4 w-4 text-emerald-600 mt-0.5 shrink-0" />
                 <div className="text-xs">
                   <p className="font-semibold text-emerald-900 dark:text-emerald-100">
-                    Recent Backup History
+                    Latest Backup Snapshot
                   </p>
                   <p className="text-emerald-800 dark:text-emerald-200 mt-1">
-                    Up to 10 business-specific Excel snapshots are retained on the server. Use the history below to download an older snapshot or remove one you no longer need.
+                    One current Excel snapshot is retained per business on Railway's persistent volume. Each new backup replaces the previous snapshot; download a copy to keep an offline version.
                   </p>
                 </div>
               </div>
@@ -515,7 +515,7 @@ export function BackupPage() {
             <div className="flex items-center justify-between">
               <CardTitle className="text-base flex items-center gap-2">
                 <HardDrive className="h-4 w-4 text-emerald-600" />
-                Company Backup History
+                Latest Company Backup
               </CardTitle>
               <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={loadExcelBackups} disabled={excelLoading}>
                 <RefreshCw className="h-3 w-3 mr-1" /> Refresh
@@ -586,7 +586,7 @@ export function BackupPage() {
               <div>
                 <h4 className="text-sm font-medium">Backup Information</h4>
                 <ul className="text-xs text-muted-foreground mt-1 space-y-1">
-                  <li>• <strong>Company backups:</strong> Up to 10 tenant-scoped Excel snapshots are retained on the server</li>
+                  <li>• <strong>Company backups:</strong> One latest tenant-scoped Excel snapshot is retained on Railway's persistent volume</li>
                   <li>• <strong>Offline copy:</strong> Download an Excel or JSON backup and keep it in a safe location</li>
                   <li>• <strong>Offline cache:</strong> Selected business data is cached in this browser for offline access</li>
                   <li>• <strong>Restore/import:</strong> Upload a trusted Excel backup through AI Smart Import</li>
