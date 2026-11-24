@@ -330,7 +330,7 @@ export function isMasterMobile(mobile: string): boolean {
  *
  *   // In /api/auth/register:
  *   if (isMasterMobile(req.body.mobile)) {
- *     // Super Admin's mobile — skip uniqueness check
+ *     // Configured shared business phone — skip uniqueness check; OTP is still required
  *     // Allow registration even if mobile exists in other tenants
  *   } else {
  *     // Standard user — enforce Rule 1.2 uniqueness
