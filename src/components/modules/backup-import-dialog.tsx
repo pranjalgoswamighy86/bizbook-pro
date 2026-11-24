@@ -163,7 +163,7 @@ export function BackupImportDialog({ open, onOpenChange, companyName }: BackupIm
   }
 
   /** Open file picker — uses File System Access API if available, otherwise fallback to file input */
-  const handleSelectFile = async () => {
+  async function handleSelectFile() {
     // Try the modern File System Access API first
     if ('showOpenFilePicker' in window) {
       try {
