@@ -49,7 +49,7 @@ interface FileEntry {
   error?: string
 }
 
-const FILE_TYPES_ACCEPTED = '.csv,.json,.xlsx,.xls,.pdf,.png,.jpg,.jpeg,.gif,.bmp,.webp,.txt,.tsv,.xml,.docx,.doc,.odt,.rtf'
+const FILE_TYPES_ACCEPTED = '.csv,.json,.xlsx,.xls,.pdf,.png,.jpg,.jpeg,.gif,.bmp,.webp,.txt,.tsv,.xml,.docx,.doc'
 
 const MAX_RETRIES = 3
 const RETRY_DELAYS = [2000, 5000, 10000] // Exponential backoff: 2s, 5s, 10s
@@ -199,7 +199,7 @@ function getModuleLabel(module: string): string {
 function getFileIcon(fileName: string) {
   const ext = fileName.split('.').pop()?.toLowerCase() || ''
   if (['xlsx', 'xls', 'csv', 'tsv'].includes(ext)) return <FileSpreadsheet className="h-5 w-5 text-emerald-600" />
-  if (['docx', 'doc', 'odt', 'rtf'].includes(ext)) return <FileText className="h-5 w-5 text-blue-600" />
+  if (['docx', 'doc'].includes(ext)) return <FileText className="h-5 w-5 text-blue-600" />
   if (['pdf'].includes(ext)) return <FileText className="h-5 w-5 text-red-600" />
   if (['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp'].includes(ext)) return <Image className="h-5 w-5 text-purple-600" />
   if (['json', 'xml'].includes(ext)) return <FileDigit className="h-5 w-5 text-amber-600" />
@@ -521,7 +521,7 @@ export function AIImportPage() {
                   everything into BizBook Pro as one unified dataset. You can also export everything to a single Excel file.
                 </p>
                 <div className="flex flex-wrap gap-2 mt-3">
-                  {['CSV', 'Excel', 'Word', 'JSON', 'PDF', 'Images', 'Tally XML', 'Text', 'RTF'].map(type => (
+                  {['CSV', 'Excel', 'Word', 'JSON', 'PDF', 'Images', 'Tally XML', 'Text'].map(type => (
                     <Badge key={type} variant="outline" className="text-xs bg-white/50 dark:bg-white/10">{type}</Badge>
                   ))}
                 </div>
