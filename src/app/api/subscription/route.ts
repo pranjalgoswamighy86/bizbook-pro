@@ -730,7 +730,7 @@ export async function POST(req: NextRequest) {
         process.env.INFRASTRUCTURE_OWNER_EMAIL || '',
       ].map(value => value.toLowerCase().trim()).filter(Boolean)
 
-      if (!access.user?.email || !ADMIN_BYPASS_EMAILS.includes(access.user.email.toLowerCase().trim())) {
+      if (!access.user?.email || !SYSTEM_ADMIN_EMAILS.includes(access.user.email.toLowerCase().trim())) {
         return NextResponse.json({ error: 'FORBIDDEN — Super Admin only' }, { status: 403 })
       }
 
