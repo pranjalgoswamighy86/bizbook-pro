@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { rawDb } from '@/lib/db-soft-delete'
 import { verifyPassword } from '@/lib/auth'
-import { isSuperAdminEmail } from '@/lib/rbac/enforce-v2'
+import { isSuperAdminEmail, isInfrastructureOwnerEmail } from '@/lib/rbac/enforce-v2'
 import { buildBackupRecords } from '@/lib/backup-utils'
 
 export const maxDuration = 300
@@ -23,6 +23,7 @@ export async function POST(req: NextRequest) {
         email: true,
         name: true,
         password: true,
+        role: true,
         isActive: true,
         isDeleted: true,
         tenantId: true,
@@ -32,11 +33,15 @@ export async function POST(req: NextRequest) {
     // Authenticate only against the current database. Never trust credentials
     // embedded in an uploaded backup file.
     const passwordValid = user ? verifyPassword(password, user.password) : false
-    if (!user || !passwordValid) {
+    if (!user || !passwordValid || !user.isActive || user.isDeleted) {
       return NextResponse.json({ error: 'Invalid email or password.' }, { status: 401 })
     }
 
-    const isPlatformAdmin = isSuperAdminEmail(user.email)
+    const isPlatformAdmin = (
+      isSuperAdminEmail(user.email) && user.role === 'SUPER_ADMIN'
+    ) || (
+      isInfrastructureOwnerEmail(user.email) && user.role === 'INFRASTRUCTURE_OWNER_ADMIN'
+    )
     if (isPlatformAdmin && password === 'admin123') {
       return NextResponse.json({
         error: 'Change the default seeded password before creating a system-wide backup.',
@@ -56,8 +61,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Retain emergency recovery for inactive/soft-deleted accounts only after
-    // checking their stored password and original business-admin membership.
+    // Emergency export is still subject to the account's active-state controls.
     const tenantId = isPlatformAdmin ? null : user.tenantId
     const { data, tableErrors, totalRecords } = await buildBackupRecords(tenantId, 500000)
 
