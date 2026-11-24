@@ -416,7 +416,12 @@ export async function POST(req: NextRequest) {
 
       // Build the INV-01 payload (reuses existing logic from generate-payload)
       // For brevity, we'll call the internal helper — in a refactor this would be extracted
-      const items = JSON.parse(sale.items || '[]')
+      let items: any[]
+      try {
+        items = JSON.parse(sale.items || '[]')
+      } catch {
+        return NextResponse.json({ error: 'Invoice item data is invalid. Reopen and save the invoice before generating an IRN.' }, { status: 400 })
+      }
       const buyerGstin = sale.partyGst || ''
       const sellerValidation = validateGSTIN(tenant.gstNumber)
       const buyerValidation = validateGSTIN(buyerGstin)
@@ -428,8 +433,18 @@ export async function POST(req: NextRequest) {
       const buyerPin = extractPinCode(sale.partyAddress)
       if (!sellerPin || !buyerPin) return NextResponse.json({ error: 'Valid six-digit PIN codes are required in both seller and buyer addresses before IRN generation.' }, { status: 400 })
       for (let i = 0; i < items.length; i++) {
-        const validation = validateHSN(String(items[i]?.hsn || ''), true)
+        const item = items[i]
+        const validation = validateHSN(String(item?.hsn || ''), true)
         if (!validation.valid) return NextResponse.json({ error: `Item ${i + 1}: ${validation.error}` }, { status: 400 })
+        const qty = Number(item?.qty)
+        const rate = Number(item?.rate)
+        const gstRate = getItemGstRate(item)
+        const discount = Number(item?.discount || 0)
+        if (!Number.isFinite(qty) || qty <= 0 || !Number.isFinite(rate) || rate < 0 ||
+            !Number.isFinite(gstRate) || gstRate < 0 || gstRate > 100 ||
+            !Number.isFinite(discount) || discount < 0 || discount > qty * rate) {
+          return NextResponse.json({ error: `Item ${i + 1} has invalid quantity, rate, GST rate, or discount.` }, { status: 400 })
+        }
       }
 
       const interState = isInterStateSupply(tenant.gstNumber, buyerGstin)
@@ -495,9 +510,12 @@ export async function POST(req: NextRequest) {
           CgstVal: totals.cgstVal,
           SgstVal: totals.sgstVal,
           IgstVal: totals.igstVal,
-          CesVal: 0,
-          RndOffAmt: 0,
-          TotInvVal: roundTo2(sale.totalAmount),
+          CesVal: totals.cesVal,
+          StCesVal: totals.stCesVal,
+          Discount: totals.discount,
+          OthChrg: totals.othChrg,
+          RndOffAmt: totals.rndOffAmt,
+          TotInvVal: totals.totInvVal,
         },
         PayDtls: { CrDay: 0, PaidAmt: roundTo2(sale.amountReceived || 0), PaymtDue: roundTo2(sale.totalAmount - (sale.amountReceived || 0)) },
       }
