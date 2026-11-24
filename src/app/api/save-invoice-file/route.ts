@@ -16,14 +16,44 @@ const MIME_EXTENSIONS: Record<string, string> = {
   'image/webp': 'webp',
 }
 
+async function readLimitedJson(req: NextRequest): Promise<any> {
+  const reader = req.body?.getReader()
+  if (!reader) throw new Error('EMPTY_REQUEST_BODY')
+
+  const chunks: Uint8Array[] = []
+  let totalBytes = 0
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    if (!value) continue
+    totalBytes += value.byteLength
+    if (totalBytes > MAX_REQUEST_BYTES) {
+      await reader.cancel()
+      throw new RangeError('REQUEST_TOO_LARGE')
+    }
+    chunks.push(value)
+  }
+
+  return JSON.parse(Buffer.concat(chunks).toString('utf8'))
+}
+
 export async function POST(req: NextRequest) {
+  const contentLength = Number(req.headers.get('content-length') || 0)
+  if (contentLength > MAX_REQUEST_BYTES) {
+    return NextResponse.json({ error: 'Invoice upload is too large. Maximum file size is 10 MB.' }, { status: 413 })
+  }
+
+  let body: any
   try {
-    const contentLength = Number(req.headers.get('content-length') || 0)
-    if (contentLength > MAX_REQUEST_BYTES) {
+    body = await readLimitedJson(req)
+  } catch (error) {
+    if (error instanceof RangeError) {
       return NextResponse.json({ error: 'Invoice upload is too large. Maximum file size is 10 MB.' }, { status: 413 })
     }
+    return NextResponse.json({ error: 'Invalid or missing JSON request body.' }, { status: 400 })
+  }
 
-    const body = await req.json().catch(() => null)
+  try {
     if (!body || typeof body.tenantId !== 'string' || typeof body.fileData !== 'string') {
       return NextResponse.json({ error: 'Business ID and invoice file data are required.' }, { status: 400 })
     }
@@ -43,9 +73,11 @@ export async function POST(req: NextRequest) {
     }
 
     const buffer = Buffer.from(base64, 'base64')
-    if (!buffer.length || buffer.length > MAX_FILE_BYTES ||
-        buffer.toString('base64').replace(/=+$/, '') !== base64.replace(/=+$/, '')) {
-      return NextResponse.json({ error: 'Invoice file is empty, invalid, or exceeds the 10 MB limit.' }, { status: 413 })
+    if (!buffer.length || buffer.toString('base64').replace(/=+$/, '') !== base64.replace(/=+$/, '')) {
+      return NextResponse.json({ error: 'Invalid or empty invoice file.' }, { status: 400 })
+    }
+    if (buffer.length > MAX_FILE_BYTES) {
+      return NextResponse.json({ error: 'Invoice file exceeds the 10 MB limit.' }, { status: 413 })
     }
 
     // The tenant comes from the authenticated membership check. Filenames are
