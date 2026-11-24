@@ -39,6 +39,7 @@ interface AnalysisResult {
   }
   warnings: string[]
   suggestions: string[]
+  partialExtraction?: boolean
 }
 
 interface FileEntry {
@@ -60,8 +61,12 @@ async function fetchWithRetry(url: string, options: RequestInit, retries = MAX_R
     try {
       const controller = new AbortController()
       const timeout = setTimeout(() => controller.abort(), 300000) // 5 min timeout for AI analysis
-      const response = await fetch(url, { ...options, signal: controller.signal })
-      clearTimeout(timeout)
+      let response: Response
+      try {
+        response = await fetch(url, { ...options, signal: controller.signal })
+      } finally {
+        clearTimeout(timeout)
+      }
       if (response.status >= 500 && attempt < retries) {
         console.warn(`[AI-Import] Server error ${response.status}, retry ${attempt + 1}/${retries}...`)
         await new Promise(r => setTimeout(r, RETRY_DELAYS[attempt] || 10000))
@@ -235,6 +240,7 @@ export function AIImportPage() {
   const [mergingFiles, setMergingFiles] = useState(false)
   const [mergedAnalysis, setMergedAnalysis] = useState<AnalysisResult | null>(null)
   const [exportingExcel, setExportingExcel] = useState(false)
+  const [acknowledgePartialExtraction, setAcknowledgePartialExtraction] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   // v6.19: Preferences dialog — ask user how to categorize each file BEFORE AI analysis
@@ -274,6 +280,7 @@ export function AIImportPage() {
     setFileQueue(prev => [...prev, ...newEntries])
     setMergedAnalysis(null)
     setImportResults(null)
+    setAcknowledgePartialExtraction(false)
     setPendingFiles([])
 
     for (const entry of newEntries) {
@@ -358,6 +365,7 @@ export function AIImportPage() {
       detectedGSTIN: successful.find(f => f.analysis?.detectedGSTIN)?.analysis?.detectedGSTIN,
       importData: { sales: [], purchases: [], expenses: [], products: [], parties: [], staff: [], bankTransactions: [] },
       warnings: [], suggestions: [],
+      partialExtraction: successful.some(f => f.analysis?.partialExtraction === true),
     }
 
     const modules = ['sales', 'purchases', 'expenses', 'products', 'parties', 'staff', 'bankTransactions'] as const
@@ -384,6 +392,7 @@ export function AIImportPage() {
     }
 
     setMergedAnalysis(merged)
+    setAcknowledgePartialExtraction(false)
     const modulesWith = new Set<string>()
     for (const mod of modules) { if ((merged.importData[mod] as any[])?.length > 0) modulesWith.add(mod) }
 
@@ -412,6 +421,10 @@ export function AIImportPage() {
 
   const handleImport = async () => {
     if (!tenant || !mergedAnalysis) return
+    if (mergedAnalysis.partialExtraction && !acknowledgePartialExtraction) {
+      toast({ title: 'Review the partial preview first', description: 'Acknowledge that some spreadsheet rows were not analyzed before importing this sample.', variant: 'destructive' })
+      return
+    }
     setImporting(true)
     try {
       const filteredData: any = {}
@@ -420,7 +433,7 @@ export function AIImportPage() {
       formData.append('action', 'apply')
       formData.append('tenantId', tenant.id)
       formData.append('importData', JSON.stringify(filteredData))
-      const res = await fetchWithRetry('/api/ai-import', { method: 'POST', body: formData })
+      const res = await fetchWithRetry('/api/ai-import', { method: 'POST', body: formData }, 0)
       const data = await safeParseJson(res)
       if (res.ok && data.success) {
         setImportResults(data.results)
@@ -439,6 +452,10 @@ export function AIImportPage() {
   /** Export merged analysis to Excel and download to physical drive */
   const handleExportExcel = async () => {
     if (!tenant || !mergedAnalysis) return
+    if (mergedAnalysis.partialExtraction && !acknowledgePartialExtraction) {
+      toast({ title: 'Review the partial preview first', description: 'Acknowledge that the Excel export contains only the analyzed sample.', variant: 'destructive' })
+      return
+    }
     setExportingExcel(true)
     try {
       const filteredData: any = {}
@@ -839,6 +856,22 @@ export function AIImportPage() {
                   </div>
                 )}
 
+                {mergedAnalysis.partialExtraction && (
+                  <div role="alert" className="rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-800 p-3 space-y-2">
+                    <div className="flex items-start gap-2">
+                      <AlertTriangle className="h-4 w-4 mt-0.5 text-amber-700 flex-shrink-0" />
+                      <div>
+                        <p className="text-sm font-semibold text-amber-800 dark:text-amber-200">Partial spreadsheet analysis — not a complete import</p>
+                        <p className="text-xs text-amber-800 dark:text-amber-200">Only the first 30 rows per sheet were sent to the AI. Rows beyond that are not in this preview. Split the original spreadsheet into smaller batches and analyze them separately for a complete migration.</p>
+                      </div>
+                    </div>
+                    <label className="flex items-start gap-2 text-xs font-medium text-amber-900 dark:text-amber-100">
+                      <Checkbox checked={acknowledgePartialExtraction} onCheckedChange={(checked) => setAcknowledgePartialExtraction(checked === true)} />
+                      <span>I understand this preview/export contains only the analyzed sample and may omit source rows.</span>
+                    </label>
+                  </div>
+                )}
+
                 {mergedAnalysis.warnings.length > 0 && (
                   <div className="space-y-1">
                     {mergedAnalysis.warnings.slice(0, 5).map((w, i) => (
@@ -906,11 +939,11 @@ export function AIImportPage() {
 
                 {/* Action buttons */}
                 <div className="flex flex-col sm:flex-row gap-2 pt-2">
-                  <Button className="bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700 px-8" disabled={selectedRecords === 0 || importing} onClick={() => setShowConfirm(true)}>
+                  <Button className="bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700 px-8" disabled={selectedRecords === 0 || importing || (mergedAnalysis.partialExtraction === true && !acknowledgePartialExtraction)} onClick={() => setShowConfirm(true)}>
                     <Zap className="h-4 w-4 mr-2" />
                     Import {selectedRecords} Records to BizBook Pro
                   </Button>
-                  <Button variant="outline" className="px-6" disabled={selectedRecords === 0 || exportingExcel} onClick={handleExportExcel}>
+                  <Button variant="outline" className="px-6" disabled={selectedRecords === 0 || exportingExcel || (mergedAnalysis.partialExtraction === true && !acknowledgePartialExtraction)} onClick={handleExportExcel}>
                     {exportingExcel ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
                     Export {selectedRecords} Records to Excel
                   </Button>
