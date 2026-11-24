@@ -96,6 +96,7 @@ const SUPER_ADMIN_EMAILS = [
   'admin@bizbook.pro',
   'pranjalgoswamighy86@gmail.com',
   (process.env.ADMIN_EMAIL || '').toLowerCase(),
+  (process.env.INFRA_OWNER_EMAIL || '').toLowerCase(),
   (process.env.INFRASTRUCTURE_OWNER_EMAIL || '').toLowerCase(),
 ].filter(Boolean);
 
