@@ -211,7 +211,7 @@ export async function POST(req: NextRequest) {
             }, { status: 503 })
           }
 
-          // Non-production (dev/staging) OR explicit OTP_BYPASS_ALLOWED=true: emergency fallback
+          // Non-production only: emergency fallback for local development and staging
           console.warn(`[REG-OTP] ⚠️ OTP delivery not configured (NODE_ENV=${process.env.NODE_ENV}) — returning OTP directly for emergency registration`)
           console.warn(`[REG-OTP] ⚠️ OTP for ${email}: ${otp}`)
           return NextResponse.json({
@@ -1374,7 +1374,7 @@ export async function POST(req: NextRequest) {
         const reason = otpResult.fallbackReason || ''
         if (reason.includes('NOT_CONFIGURED') || reason.includes('not configured')) {
           // v4.155: OTP bypass gated behind non-production environments (same as registration)
-          if (process.env.NODE_ENV === 'production' && process.env.OTP_BYPASS_ALLOWED !== 'true') {
+          if (process.env.NODE_ENV === 'production') {
             console.error(`[RESET-OTP] 🔒 Production mode + no OTP provider — refusing reset for ${targetUser.email}`)
             return NextResponse.json({
               sent: false,
@@ -1382,7 +1382,7 @@ export async function POST(req: NextRequest) {
               hint: 'Contact your administrator to enable email/SMS OTP delivery.',
             }, { status: 503 })
           }
-          // Non-production OR explicit OTP_BYPASS_ALLOWED=true: emergency fallback
+          // Non-production only: emergency fallback for local development and staging
           console.warn(`[RESET-OTP] ⚠️ OTP delivery not configured (NODE_ENV=${process.env.NODE_ENV}) — returning OTP directly for emergency reset`)
           console.warn(`[RESET-OTP] ⚠️ OTP for ${targetUser.email}: ${otp}`)
           message = 'OTP delivery service is not configured. Your verification code is shown below.'
