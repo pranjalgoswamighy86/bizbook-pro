@@ -1,10 +1,32 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { rawDb } from '@/lib/db-soft-delete'
 import { verifyPassword } from '@/lib/auth'
-import { isSuperAdminEmail } from '@/lib/rbac/enforce-v2'
+import { isSuperAdminEmail, isInfrastructureOwnerEmail } from '@/lib/rbac/enforce-v2'
 
 export const maxDuration = 600
 export const dynamic = 'force-dynamic'
+
+const MAX_RESTORE_REQUEST_BYTES = 100 * 1024 * 1024
+
+async function readLimitedJson(req: NextRequest): Promise<any> {
+  const reader = req.body?.getReader()
+  if (!reader) throw new Error('EMPTY_REQUEST_BODY')
+
+  const chunks: Uint8Array[] = []
+  let totalBytes = 0
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    if (!value) continue
+    totalBytes += value.byteLength
+    if (totalBytes > MAX_RESTORE_REQUEST_BYTES) {
+      await reader.cancel()
+      throw new RangeError('REQUEST_TOO_LARGE')
+    }
+    chunks.push(value)
+  }
+  return JSON.parse(Buffer.concat(chunks).toString('utf8'))
+}
 
 const TABLE_ORDER: Array<[string, string]> = [
   ['Tenant', 'tenant'],
@@ -153,7 +175,19 @@ function cleanRecord(record: Record<string, any>) {
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json().catch(() => null)
+    const contentLength = Number(req.headers.get('content-length') || 0)
+    if (contentLength > MAX_RESTORE_REQUEST_BYTES) {
+      return NextResponse.json({ error: 'Backup file exceeds the 100 MB restore limit.' }, { status: 413 })
+    }
+    let body: any
+    try {
+      body = await readLimitedJson(req)
+    } catch (error) {
+      if (error instanceof RangeError) {
+        return NextResponse.json({ error: 'Backup file exceeds the 100 MB restore limit.' }, { status: 413 })
+      }
+      return NextResponse.json({ error: 'Invalid or missing backup request body.' }, { status: 400 })
+    }
     if (!body || typeof body.email !== 'string' || typeof body.password !== 'string' || !body.email.trim() || !body.password || !body.backupData) {
       return NextResponse.json({ error: 'Email, password, and backupData are required.' }, { status: 400 })
     }
@@ -186,7 +220,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Invalid email/password or inactive account.' }, { status: 401 })
     }
 
-    const isPlatformAdmin = isSuperAdminEmail(currentUser.email)
+    const isPlatformAdmin = (
+      isSuperAdminEmail(currentUser.email) && currentUser.role === 'SUPER_ADMIN'
+    ) || (
+      isInfrastructureOwnerEmail(currentUser.email) && currentUser.role === 'INFRASTRUCTURE_OWNER_ADMIN'
+    )
     if (isPlatformAdmin && password === 'admin123') {
       return NextResponse.json({
         error: 'Change the default seeded password before restoring a system-wide backup.',
