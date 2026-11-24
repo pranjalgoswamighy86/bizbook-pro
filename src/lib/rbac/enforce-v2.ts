@@ -91,7 +91,7 @@ const PERMISSION_MATRIX: Record<Role, Record<Action, boolean>> = {
 };
 
 // ---------- Tier identification ----------
-// SUPER_ADMIN and INFRA_OWNER share the same email list — both have full bypass
+// System administrator permissions are granted only to configured deployment identities.
 const SUPER_ADMIN_EMAILS = [
   process.env.ADMIN_EMAIL || '',
   process.env.INFRA_OWNER_EMAIL || '',
