@@ -20,6 +20,7 @@ import { generateInvoiceHtml } from '@/lib/invoice-templates'
 import { Plus, Pencil, Trash2, Eye, ChevronDown, X, Loader2, CheckCircle2, Printer, Package, FileCheck, Sparkles, Truck } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import { PartySuggest } from '@/components/app/party-suggest'
+import { GstinInput } from '@/components/app/gstin-input'
 import { ItemSuggest } from '@/components/app/item-suggest'
 import { triggerBackupDownload } from '@/hooks/use-excel-backup'
 import { authFetch } from '@/lib/auth-fetch'
@@ -1102,7 +1103,7 @@ export function SaleRegister() {
                   partyType="CUSTOMER"
                 />
                 <div><Label>Customer Address</Label><Input value={form.partyAddress} onChange={(e) => setForm({ ...form, partyAddress: e.target.value })} placeholder="Full address" /></div>
-                <div><Label>Customer GST</Label><Input value={form.partyGst} onChange={(e) => setForm({ ...form, partyGst: e.target.value })} placeholder="Optional" /></div>
+                <GstinInput label="Customer GSTIN" value={form.partyGst} onChange={(value) => setForm((prev) => ({ ...prev, partyGst: value }))} placeholder="Optional · 15-character GSTIN" />
               </div>
 
               {/* AI Smart Import hint */}
