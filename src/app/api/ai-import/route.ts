@@ -796,13 +796,24 @@ function requireImportNumber(value: unknown, label: string, minimum = 0): number
   return roundTo2(number)
 }
 
+function requireImportQuantity(value: unknown, label: string, allowZero = false): number {
+  if (value === null || value === undefined || value === '') {
+    throw new Error(`${label} is missing. Review the AI preview before importing.`)
+  }
+  const quantity = Number(value)
+  if (!Number.isFinite(quantity) || (allowZero ? quantity < 0 : quantity <= 0)) {
+    throw new Error(`${label} must be a valid ${allowZero ? 'non-negative' : 'positive'} quantity.`)
+  }
+  return quantity
+}
+
 function validateImportItems(raw: unknown, label: string): any[] {
   const items = normalizeItems(raw)
   if (items.length === 0) throw new Error(`${label} has no line items.`)
   return items.map((item, index) => {
     if (!item || typeof item !== 'object') throw new Error(`${label} item ${index + 1} is invalid.`)
     const name = requireImportText(item.name, `${label} item ${index + 1} name`)
-    const qty = requireImportNumber(item.qty, `${label} item ${index + 1} quantity`, Number.EPSILON)
+    const qty = requireImportQuantity(item.qty, `${label} item ${index + 1} quantity`)
     const rate = requireImportNumber(item.rate ?? item.price, `${label} item ${index + 1} rate`, 0)
     return { ...item, name, qty, rate }
   })
@@ -1237,9 +1248,9 @@ async function handleApplyImport(req: NextRequest, formData: FormData, tenantId:
         purchasePrice: requireImportNumber(p.purchasePrice ?? 0, 'Product purchase price'),
         salePrice: requireImportNumber(p.salePrice ?? 0, 'Product sale price'),
         mrp: requireImportNumber(p.mrp ?? 0, 'Product MRP'),
-        currentStock: requireImportNumber(p.currentStock ?? 0, 'Product current stock'),
+        currentStock: requireImportQuantity(p.currentStock ?? 0, 'Product current stock', true),
         gstRate: requireImportNumber(p.gstRate ?? 0, 'Product GST rate'),
-        value: roundTo2(requireImportNumber(p.currentStock ?? 0, 'Product current stock') * requireImportNumber(p.purchasePrice ?? 0, 'Product purchase price')),
+        value: roundTo2(requireImportQuantity(p.currentStock ?? 0, 'Product current stock', true) * requireImportNumber(p.purchasePrice ?? 0, 'Product purchase price')),
         createdBy: uid,
       }), (row: any) => db.inventoryItem.findFirst({ where: { tenantId: tid, name: row.name, isDeleted: false }, select: { id: true } }))
     }
@@ -1276,7 +1287,7 @@ async function handleApplyImport(req: NextRequest, formData: FormData, tenantId:
         where: {
           tenantId: tid,
           isDeleted: false,
-          OR: row.phone ? [{ phone: row.phone }, { name: row.name }] : [{ name: row.name }],
+          OR: row.phone ? [{ phone: row.phone }] : [{ name: row.name }],
         },
         select: { id: true },
       }))
