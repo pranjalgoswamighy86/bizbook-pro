@@ -221,11 +221,11 @@ export async function POST(req: NextRequest) {
         totalRecords,
         tableErrors: tableErrors.length,
         instructions:
-          'To restore this backup:\\n' +
-          '1. Set up a new PostgreSQL database (e.g., on Railway, Render, or locally)\\n' +
-          '2. Deploy BizBook Pro and set DATABASE_URL to your new database\\n' +
-          '3. Configure ADMIN_EMAIL or INFRASTRUCTURE_OWNER_EMAIL, register that verified address, and sign in\\n' +
-          '4. From the signed-in browser, POST this backup to /api/backup/restore with the current admin password and active session cookie\\n' +
+          'To restore this backup:\n' +
+          '1. Set up a new PostgreSQL database (e.g., on Railway, Render, or locally)\n' +
+          '2. Deploy BizBook Pro and set DATABASE_URL to your new database\n' +
+          '3. Configure ADMIN_EMAIL or INFRASTRUCTURE_OWNER_EMAIL, register that verified address, and sign in\n' +
+          '4. From the signed-in browser, POST this backup to /api/backup/restore with the current admin password and active session cookie\n' +
           '5. Keep the backup private: it contains every tenant and user record',
         schemaNote:
           'Tables that failed to export are listed in tableErrors array. ' +
