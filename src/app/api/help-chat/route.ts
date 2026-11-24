@@ -93,10 +93,10 @@ function buildHelpKnowledgeContext(message: string): string {
 
   return [
     'Relevant in-app FAQs:',
-    ...relevantFaqs.map(({ faq }) => `Q: ${faq.q}\\nA: ${faq.a}`),
+    ...relevantFaqs.map(({ faq }) => `Q: ${faq.q}\nA: ${faq.a}`),
     'Relevant step-by-step guides:',
     ...relevantGuides.map(({ guide }) => `${guide.title}: ${guide.steps.map((step, index) => `${index + 1}. ${step}`).join(' ')}`),
-  ].join('\\n\\n')
+  ].join('\n\n')
 }
 
 const HUMAN_REVIEW_KEYWORDS = [
@@ -192,7 +192,7 @@ export async function POST(req: NextRequest) {
       `Customer question: ${message}`,
       '',
       'Answer directly and concisely. If a human must investigate, say so explicitly.',
-    ].join('\\n')
+    ].join('\n')
 
     let provider = 'fallback'
     let response = 'Your question has been received by the support team. A team member may need to review it. Please do not share passwords or OTPs in chat.'
