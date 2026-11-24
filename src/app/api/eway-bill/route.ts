@@ -129,6 +129,16 @@ export async function POST(req: NextRequest) {
       if (sale.einvoiceIrn && sale.einvoiceStatus === 'GENERATED') {
         const result = await generateEwbByIrn(sale.einvoiceIrn, transporter)
         if (result.mode === 'MANUAL') {
+          await db.sale.update({
+            where: { id: saleId },
+            data: {
+              transporterId: transporter.transporterId || null,
+              transporterName: transporter.transporterName || null,
+              vehicleNo: transporter.vehicleNo || null,
+              modeOfTransport: transporter.modeOfTransport || null,
+              distanceKm: transporter.distanceKm || null,
+            },
+          })
           return NextResponse.json({
             mode: 'MANUAL',
             payload: result.ewbPayload,
@@ -235,6 +245,16 @@ export async function POST(req: NextRequest) {
       const result = await generateEwbDirect(saleData, transporter)
 
       if (result.mode === 'MANUAL') {
+        await db.sale.update({
+          where: { id: saleId },
+          data: {
+            transporterId: transporter.transporterId || null,
+            transporterName: transporter.transporterName || null,
+            vehicleNo: transporter.vehicleNo || null,
+            modeOfTransport: transporter.modeOfTransport || null,
+            distanceKm: transporter.distanceKm || null,
+          },
+        })
         return NextResponse.json({
           mode: 'MANUAL',
           payload: result.ewbPayload,
