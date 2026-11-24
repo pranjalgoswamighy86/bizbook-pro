@@ -1,9 +1,15 @@
 import axios from 'axios';
 
+export interface AIRequestOptions {
+  jsonMode?: boolean
+  maxTokens?: number
+  temperature?: number
+}
+
 interface AIProvider {
   name: string;
-  analyze: (prompt: string, context?: string) => Promise<string>;
-  analyzeVision?: (imageBase64: string, prompt: string) => Promise<string>;
+  analyze: (prompt: string, context?: string, options?: AIRequestOptions) => Promise<string>;
+  analyzeVision?: (imageBase64: string, prompt: string, options?: AIRequestOptions) => Promise<string>;
 }
 
 // v6.27.5: Helper — parses a `data:<mime>;base64,<payload>` string into
@@ -30,7 +36,7 @@ class DeepSeekProvider implements AIProvider {
     if (!this.apiKey) console.warn('[DeepSeek] No API key set – provider will fail.');
   }
 
-  async analyze(prompt: string, context?: string): Promise<string> {
+  async analyze(prompt: string, context?: string, options: AIRequestOptions = {}): Promise<string> {
     if (!this.apiKey) throw new Error('DeepSeek API key missing');
     const url = 'https://api.deepseek.com/v1/chat/completions';
     const messages = [
@@ -39,10 +45,11 @@ class DeepSeekProvider implements AIProvider {
     ];
     try {
       const res = await axios.post(url, {
-        model: 'deepseek-chat',
+        model: process.env.DEEPSEEK_MODEL || 'deepseek-chat',
         messages,
-        temperature: 0.3,
-        max_tokens: 2000,
+        temperature: options.temperature ?? 0.3,
+        max_tokens: options.maxTokens ?? 2000,
+        ...(options.jsonMode ? { response_format: { type: 'json_object' } } : {}),
       }, {
         headers: { 'Authorization': `Bearer ${this.apiKey}` },
         timeout: 30000,
@@ -68,7 +75,7 @@ class OpenAIProvider implements AIProvider {
     this.apiKey = process.env.OPENAI_API_KEY || '';
   }
 
-  async analyze(prompt: string, context?: string): Promise<string> {
+  async analyze(prompt: string, context?: string, options: AIRequestOptions = {}): Promise<string> {
     if (!this.apiKey) throw new Error('OpenAI API key missing');
     const url = 'https://api.openai.com/v1/chat/completions';
     const messages = [
@@ -76,10 +83,11 @@ class OpenAIProvider implements AIProvider {
       { role: 'user', content: context ? `Context: ${context}\n\n${prompt}` : prompt }
     ];
     const res = await axios.post(url, {
-      model: 'gpt-4o-mini',
+      model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
       messages,
-      temperature: 0.3,
-      max_tokens: 2000,
+      temperature: options.temperature ?? 0.3,
+      max_tokens: options.maxTokens ?? 2000,
+      ...(options.jsonMode ? { response_format: { type: 'json_object' } } : {}),
     }, {
       headers: { 'Authorization': `Bearer ${this.apiKey}` },
       timeout: 30000,
@@ -87,7 +95,7 @@ class OpenAIProvider implements AIProvider {
     return res.data.choices[0].message.content;
   }
 
-  async analyzeVision(imageBase64: string, prompt: string): Promise<string> {
+  async analyzeVision(imageBase64: string, prompt: string, options: AIRequestOptions = {}): Promise<string> {
     if (!this.apiKey) throw new Error('OpenAI API key missing');
     // v6.27.5: strip data-URL prefix if present and use the real MIME type.
     // Previously this hardcoded `data:image/jpeg;base64,${imageBase64}` which
@@ -95,14 +103,16 @@ class OpenAIProvider implements AIProvider {
     const { mimeType, rawBase64 } = parseImageDataUrl(imageBase64)
     const url = 'https://api.openai.com/v1/chat/completions';
     const res = await axios.post(url, {
-      model: 'gpt-4o-mini',
+      model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
       messages: [
         { role: 'user', content: [
           { type: 'text', text: prompt },
           { type: 'image_url', image_url: { url: `data:${mimeType};base64,${rawBase64}` } }
         ]}
       ],
-      max_tokens: 2000,
+      max_tokens: options.maxTokens ?? 2000,
+      temperature: options.temperature ?? 0.3,
+      ...(options.jsonMode ? { response_format: { type: 'json_object' } } : {}),
     }, {
       headers: { 'Authorization': `Bearer ${this.apiKey}` },
       timeout: 45000,
@@ -120,7 +130,7 @@ class GeminiProvider implements AIProvider {
     this.apiKey = process.env.GEMINI_API_KEY || '';
   }
 
-  async analyze(prompt: string, context?: string): Promise<string> {
+  async analyze(prompt: string, context?: string, options: AIRequestOptions = {}): Promise<string> {
     if (!this.apiKey) throw new Error('Gemini API key missing');
     const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${this.apiKey}`;
     const res = await axios.post(url, {
@@ -131,20 +141,26 @@ class GeminiProvider implements AIProvider {
     return res.data.candidates[0].content.parts[0].text;
   }
 
-  async analyzeVision(imageBase64: string, prompt: string): Promise<string> {
+  async analyzeVision(imageBase64: string, prompt: string, options: AIRequestOptions = {}): Promise<string> {
     if (!this.apiKey) throw new Error('Gemini API key missing');
     // v6.27.5: Gemini expects raw base64 in inline_data.data — NOT a data URL.
     // Previously the entire `data:image/jpeg;base64,...` string was passed,
     // which Gemini rejected.
     const { mimeType, rawBase64 } = parseImageDataUrl(imageBase64)
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${this.apiKey}`;
+    const model = process.env.GEMINI_MODEL || 'gemini-3.5-flash'
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${this.apiKey}`;
     const res = await axios.post(url, {
       contents: [{
         parts: [
           { text: prompt },
           { inline_data: { mime_type: mimeType, data: rawBase64 } }
         ]
-      }]
+      }],
+      generationConfig: {
+        temperature: options.temperature ?? 0.3,
+        maxOutputTokens: options.maxTokens ?? 2000,
+        ...(options.jsonMode ? { responseMimeType: 'application/json' } : {}),
+      },
     }, { timeout: 45000 });
     return res.data.candidates[0].content.parts[0].text;
   }
@@ -159,12 +175,12 @@ class ClaudeProvider implements AIProvider {
     this.apiKey = process.env.ANTHROPIC_API_KEY || '';
   }
 
-  async analyze(prompt: string, context?: string): Promise<string> {
+  async analyze(prompt: string, context?: string, options: AIRequestOptions = {}): Promise<string> {
     if (!this.apiKey) throw new Error('Claude API key missing');
     const url = 'https://api.anthropic.com/v1/messages';
     const res = await axios.post(url, {
-      model: 'claude-3-5-haiku-20241022',
-      max_tokens: 2000,
+      model: process.env.ANTHROPIC_MODEL || 'claude-3-5-haiku-20241022',
+      max_tokens: options.maxTokens ?? 2000,
       messages: [{ role: 'user', content: context ? `Context: ${context}\n\n${prompt}` : prompt }]
     }, {
       headers: {
@@ -182,7 +198,8 @@ class ClaudeProvider implements AIProvider {
 export async function analyzeWithAI(
   prompt: string,
   context?: string,
-  imageBase64?: string
+  imageBase64?: string,
+  options: AIRequestOptions = {}
 ): Promise<{ provider: string; result: string }> {
   const providers: AIProvider[] = [];
 
@@ -234,9 +251,9 @@ export async function analyzeWithAI(
     try {
       let result: string;
       if (imageBase64 && provider.analyzeVision) {
-        result = await provider.analyzeVision(imageBase64, prompt);
+        result = await provider.analyzeVision(imageBase64, prompt, options);
       } else {
-        result = await provider.analyze(prompt, context);
+        result = await provider.analyze(prompt, context, options);
       }
       return { provider: provider.name, result };
     } catch (err: any) {
