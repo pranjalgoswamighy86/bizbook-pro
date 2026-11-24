@@ -109,10 +109,20 @@ export async function POST(req: NextRequest) {
       // Determine supply type
       const supplierState = getStateCode(tenant.gstNumber)
       const buyerState = getStateCode(sale.partyGst)
-      const supplierPin = extractPinCode(tenant.address)
-      const buyerPin = extractPinCode(sale.partyAddress)
-      if (!supplierPin || !buyerPin) {
-        return NextResponse.json({ error: 'Valid six-digit PIN codes are required in both seller and buyer addresses before generating an e-invoice.' }, { status: 400 })
+      const suppliedSellerPin = typeof body.sellerPinCode === 'string' ? body.sellerPinCode.trim() : ''
+      const suppliedBuyerPin = typeof body.buyerPinCode === 'string' ? body.buyerPinCode.trim() : ''
+      const supplierPin = extractPinCode(tenant.address) || (/^[1-9]\\d{5}$/.test(suppliedSellerPin) ? Number(suppliedSellerPin) : null)
+      const buyerPin = extractPinCode(sale.partyAddress) || (/^[1-9]\\d{5}$/.test(suppliedBuyerPin) ? Number(suppliedBuyerPin) : null)
+      const missingPins = [
+        ...(!supplierPin ? ['seller'] : []),
+        ...(!buyerPin ? ['buyer'] : []),
+      ]
+      if (missingPins.length) {
+        return NextResponse.json({
+          code: 'PIN_CODE_REQUIRED',
+          missingPins,
+          error: `A valid six-digit PIN code is missing for the ${missingPins.join(' and ')} address. Enter the PIN shown on the registered business/customer address to continue.`,
+        }, { status: 400 })
       }
       const isInterState = isInterStateSupply(tenant.gstNumber, sale.partyGst)
 
@@ -429,9 +439,21 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: `Valid seller and buyer GSTINs are required. ${!sellerValidation.valid ? `Seller: ${sellerValidation.error}` : `Buyer: ${buyerValidation.error}`}` }, { status: 400 })
       }
       if (!Array.isArray(items) || items.length === 0) return NextResponse.json({ error: 'Invoice must contain at least one item.' }, { status: 400 })
-      const sellerPin = extractPinCode(tenant.address)
-      const buyerPin = extractPinCode(sale.partyAddress)
-      if (!sellerPin || !buyerPin) return NextResponse.json({ error: 'Valid six-digit PIN codes are required in both seller and buyer addresses before IRN generation.' }, { status: 400 })
+      const suppliedSellerPin = typeof body.sellerPinCode === 'string' ? body.sellerPinCode.trim() : ''
+      const suppliedBuyerPin = typeof body.buyerPinCode === 'string' ? body.buyerPinCode.trim() : ''
+      const sellerPin = extractPinCode(tenant.address) || (/^[1-9]\\d{5}$/.test(suppliedSellerPin) ? Number(suppliedSellerPin) : null)
+      const buyerPin = extractPinCode(sale.partyAddress) || (/^[1-9]\\d{5}$/.test(suppliedBuyerPin) ? Number(suppliedBuyerPin) : null)
+      const missingPins = [
+        ...(!sellerPin ? ['seller'] : []),
+        ...(!buyerPin ? ['buyer'] : []),
+      ]
+      if (missingPins.length) {
+        return NextResponse.json({
+          code: 'PIN_CODE_REQUIRED',
+          missingPins,
+          error: `A valid six-digit PIN code is missing for the ${missingPins.join(' and ')} address. Enter the PIN shown on the registered business/customer address to continue.`,
+        }, { status: 400 })
+      }
       for (let i = 0; i < items.length; i++) {
         const item = items[i]
         const validation = validateHSN(String(item?.hsn || ''), true)
