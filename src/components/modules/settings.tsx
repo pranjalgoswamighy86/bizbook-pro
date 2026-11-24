@@ -61,6 +61,8 @@ export function SettingsPage() {
   useEffect(() => {
     if (!tenant?.id) return
     let active = true
+    setGspForm({ gspCode: '', gspClientId: '', gspClientSecret: '', gspUsername: '', gspPassword: '' })
+    setGspConfigured(false)
     setGspLoading(true)
     authFetch(`/api/settings/gsp-config?tenantId=${encodeURIComponent(tenant.id)}`)
       .then(async (res) => {
