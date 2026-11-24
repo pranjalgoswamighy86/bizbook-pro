@@ -6,7 +6,11 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db-soft-delete'
 import { requireAuth } from '@/lib/api-helpers'
 
-const SUPER_ADMIN_EMAILS = ['admin@bizbook.pro', 'pranjalgoswamighy86@gmail.com']
+const SUPER_ADMIN_EMAILS = [
+  process.env.ADMIN_EMAIL || '',
+  process.env.INFRA_OWNER_EMAIL || '',
+  process.env.INFRASTRUCTURE_OWNER_EMAIL || '',
+].map(value => value.toLowerCase().trim()).filter(Boolean)
 
 export async function POST(req: NextRequest) {
   try {
