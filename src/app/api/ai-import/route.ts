@@ -301,9 +301,9 @@ async function handleFileUpload(req: NextRequest) {
         }
       } catch (pdfErr: any) {
         console.error('[AI-Import] pdf-parse failed:', pdfErr)
-        // Last-resort fallback: send raw bytes info to AI
-        parsedData = { content: `[PDF file: ${file.name}, ${fileSize} bytes. Text extraction failed: ${pdfErr.message}]`, note: 'PDF text extraction failed. Try converting to Excel/CSV.' }
-        dataType = 'pdf'
+        return NextResponse.json({
+          error: 'BizBook Pro could not extract text from this PDF. If it is scanned, convert it to a searchable PDF or upload the pages as images before trying again.',
+        }, { status: 422 })
       }
     } else if (['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp'].includes(ext)) {
       // v6.27.5: Image file — convert to base64 data URL for vision analysis.
@@ -332,8 +332,9 @@ async function handleFileUpload(req: NextRequest) {
         console.log(`[AI-Import] Parsed DOCX: ${result.value?.length || 0} chars`)
       } catch (docErr: any) {
         console.error('[AI-Import] mammoth failed:', docErr)
-        parsedData = { content: `[Word document: ${file.name}, ${fileSize} bytes. Extraction failed: ${docErr.message}]`, note: 'Word document parsing failed.' }
-        dataType = 'doc'
+        return NextResponse.json({
+          error: 'BizBook Pro could not extract text from this DOCX file. Re-save it as a valid .docx document or convert it to PDF before uploading.',
+        }, { status: 422 })
       }
     } else {
       return NextResponse.json({
