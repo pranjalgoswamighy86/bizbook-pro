@@ -770,6 +770,44 @@ function normalizeItems(raw: unknown): any[] {
   return []
 }
 
+function requireImportText(value: unknown, label: string): string {
+  const text = typeof value === 'string' ? value.trim() : ''
+  if (!text) throw new Error(`${label} is missing. Review the AI preview and correct the source data.`)
+  return text
+}
+
+function requireImportDate(value: unknown, label: string): Date {
+  if (typeof value !== 'string' && !(value instanceof Date)) {
+    throw new Error(`${label} is missing. Review the AI preview before importing.`)
+  }
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) throw new Error(`${label} is invalid. Use a valid date.`)
+  return date
+}
+
+function requireImportNumber(value: unknown, label: string, minimum = 0): number {
+  if (value === null || value === undefined || value === '') {
+    throw new Error(`${label} is missing. Review the AI preview before importing.`)
+  }
+  const number = Number(value)
+  if (!Number.isFinite(number) || number < minimum) {
+    throw new Error(`${label} must be a valid number greater than or equal to ${minimum}.`)
+  }
+  return roundTo2(number)
+}
+
+function validateImportItems(raw: unknown, label: string): any[] {
+  const items = normalizeItems(raw)
+  if (items.length === 0) throw new Error(`${label} has no line items.`)
+  return items.map((item, index) => {
+    if (!item || typeof item !== 'object') throw new Error(`${label} item ${index + 1} is invalid.`)
+    const name = requireImportText(item.name, `${label} item ${index + 1} name`)
+    const qty = requireImportNumber(item.qty, `${label} item ${index + 1} quantity`, Number.EPSILON)
+    const rate = requireImportNumber(item.rate ?? item.price, `${label} item ${index + 1} rate`, 0)
+    return { ...item, name, qty, rate }
+  })
+}
+
 async function syncInventoryForImportedSale(tx: any, tenantId: string, items: any[]): Promise<number> {
   let adjusted = 0
   for (const item of items) {
@@ -944,6 +982,13 @@ async function handleApplyImport(req: NextRequest, formData: FormData, tenantId:
       for (const s of sales) {
         try {
           const invoiceNumber = (s.invoiceNumber && String(s.invoiceNumber).trim()) || nextImpNumber('IMP-SALE')
+          const saleDate = requireImportDate(s.date, 'Sale date')
+          const partyName = requireImportText(s.partyName, 'Sale customer name')
+          const saleItems = validateImportItems(s.items, 'Sale')
+          const subtotal = requireImportNumber(s.subtotal, 'Sale subtotal')
+          const gstAmount = requireImportNumber(s.gstAmount ?? 0, 'Sale GST amount')
+          const totalAmount = requireImportNumber(s.totalAmount, 'Sale total')
+          const amountReceived = requireImportNumber(s.amountReceived ?? s.amountPaid ?? 0, 'Sale amount received')
           // v6.29.0: dedup — skip if (tenantId, invoiceNumber) already exists
           const existing = await db.sale.findFirst({
             where: { tenantId: tid, invoiceNumber, isDeleted: false },
@@ -956,18 +1001,14 @@ async function handleApplyImport(req: NextRequest, formData: FormData, tenantId:
           }
 
           const sale = await db.$transaction(async (tx) => {
-            const subtotal = roundTo2(Number(s.subtotal || 0))
-            const gstAmount = roundTo2(Number(s.gstAmount || 0))
-            const totalAmount = roundTo2(Number(s.totalAmount || 0))
-            const amountReceived = roundTo2(Number(s.amountReceived || s.amountPaid || 0))
             const created = await tx.sale.create({
               data: {
                 invoiceNumber,
-                date: s.date ? new Date(s.date) : new Date(),
-                partyName: s.partyName || 'Unknown',
+                date: saleDate,
+                partyName,
                 partyAddress: s.partyAddress || null,
                 partyGst: s.partyGst || null,
-                items: JSON.stringify(s.items || []),
+                items: JSON.stringify(saleItems),
                 subtotal,
                 gstAmount,
                 totalAmount,
@@ -1002,7 +1043,7 @@ async function handleApplyImport(req: NextRequest, formData: FormData, tenantId:
             // imported sales never decreased stock). Throws on insufficient stock →
             // the whole record (Sale + JE + stock moves) rolls back and is
             // reported in results.sales.errors.
-            await syncInventoryForImportedSale(tx, tid, normalizeItems(s.items))
+            await syncInventoryForImportedSale(tx, tid, saleItems)
             return created
           })
           results.sales.created++
@@ -1024,6 +1065,13 @@ async function handleApplyImport(req: NextRequest, formData: FormData, tenantId:
       for (const p of purchases) {
         try {
           const invoiceNumber = (p.invoiceNumber && String(p.invoiceNumber).trim()) || nextImpNumber('IMP-PUR')
+          const purchaseDate = requireImportDate(p.date, 'Purchase date')
+          const partyName = requireImportText(p.partyName, 'Purchase supplier name')
+          const purchaseItems = validateImportItems(p.items, 'Purchase')
+          const subtotal = requireImportNumber(p.subtotal, 'Purchase subtotal')
+          const gstAmount = requireImportNumber(p.gstAmount ?? 0, 'Purchase GST amount')
+          const totalAmount = requireImportNumber(p.totalAmount, 'Purchase total')
+          const amountPaid = requireImportNumber(p.amountPaid ?? 0, 'Purchase amount paid')
           const existing = await db.purchase.findFirst({
             where: { tenantId: tid, invoiceNumber, isDeleted: false },
             select: { id: true },
@@ -1035,18 +1083,14 @@ async function handleApplyImport(req: NextRequest, formData: FormData, tenantId:
           }
 
           const purchase = await db.$transaction(async (tx) => {
-            const subtotal = roundTo2(Number(p.subtotal || 0))
-            const gstAmount = roundTo2(Number(p.gstAmount || 0))
-            const totalAmount = roundTo2(Number(p.totalAmount || 0))
-            const amountPaid = roundTo2(Number(p.amountPaid || 0))
             const created = await tx.purchase.create({
               data: {
                 invoiceNumber,
-                date: p.date ? new Date(p.date) : new Date(),
-                partyName: p.partyName || 'Unknown',
+                date: purchaseDate,
+                partyName,
                 partyAddress: p.partyAddress || null,
                 partyGst: p.partyGst || null,
-                items: JSON.stringify(p.items || []),
+                items: JSON.stringify(purchaseItems),
                 subtotal,
                 gstAmount,
                 totalAmount,
@@ -1072,7 +1116,7 @@ async function handleApplyImport(req: NextRequest, formData: FormData, tenantId:
             })
             // v6.30.9: synchronize inventory stock in the same tx (was missing —
             // imported purchases never increased stock or created items).
-            await syncInventoryForImportedPurchase(tx, tid, normalizeItems(p.items))
+            await syncInventoryForImportedPurchase(tx, tid, purchaseItems)
             return created
           })
           results.purchases.created++
@@ -1093,9 +1137,9 @@ async function handleApplyImport(req: NextRequest, formData: FormData, tenantId:
       initResult('expenses', expenses.length)
       for (const e of expenses) {
         try {
-          const description = e.description || 'Imported expense'
-          const amount = roundTo2(Number(e.amount || 0))
-          const date = e.date ? new Date(e.date) : new Date()
+          const description = requireImportText(e.description, 'Expense description')
+          const amount = requireImportNumber(e.amount, 'Expense amount', Number.EPSILON)
+          const date = requireImportDate(e.date, 'Expense date')
           // v6.29.0: dedup — skip if (tenantId, description, date, amount) already exists
           const existing = await db.expense.findFirst({
             where: { tenantId: tid, description, date, amount, isDeleted: false },
@@ -1163,24 +1207,28 @@ async function handleApplyImport(req: NextRequest, formData: FormData, tenantId:
 
     if (Array.isArray(importData.products) && importData.products.length > 0) {
       await bulkCreateSimple('products', db.inventoryItem, importData.products, (p: any) => ({
-        name: p.name || 'Unnamed Product',
+        name: requireImportText(p.name, 'Product name'),
         hsnCode: p.hsnCode || null,
         category: p.category || null,
         unit: p.unit || 'PCS',
-        purchasePrice: Number(p.purchasePrice || 0),
-        salePrice: Number(p.salePrice || 0),
-        mrp: Number(p.mrp || 0),
-        currentStock: Number(p.currentStock || 0),
-        gstRate: Number(p.gstRate || 0),
-        value: Number(p.currentStock || 0) * Number(p.purchasePrice || 0),
+        purchasePrice: requireImportNumber(p.purchasePrice ?? 0, 'Product purchase price'),
+        salePrice: requireImportNumber(p.salePrice ?? 0, 'Product sale price'),
+        mrp: requireImportNumber(p.mrp ?? 0, 'Product MRP'),
+        currentStock: requireImportNumber(p.currentStock ?? 0, 'Product current stock'),
+        gstRate: requireImportNumber(p.gstRate ?? 0, 'Product GST rate'),
+        value: roundTo2(requireImportNumber(p.currentStock ?? 0, 'Product current stock') * requireImportNumber(p.purchasePrice ?? 0, 'Product purchase price')),
         createdBy: uid,
       }))
     }
 
     if (Array.isArray(importData.parties) && importData.parties.length > 0) {
       await bulkCreateSimple('parties', db.party, importData.parties, (p: any) => ({
-        name: p.name || 'Unnamed Party',
-        type: p.type || 'CUSTOMER',
+        name: requireImportText(p.name, 'Party name'),
+        type: (() => {
+          const partyType = String(p.type || 'CUSTOMER').toUpperCase()
+          if (!['CUSTOMER', 'SUPPLIER'].includes(partyType)) throw new Error('Party type must be CUSTOMER or SUPPLIER.')
+          return partyType
+        })(),
         address: p.address || null,
         phone: p.phone || null,
         gstNumber: p.gstNumber || null,
@@ -1190,20 +1238,20 @@ async function handleApplyImport(req: NextRequest, formData: FormData, tenantId:
 
     if (Array.isArray(importData.staff) && importData.staff.length > 0) {
       await bulkCreateSimple('staff', db.staff, importData.staff, (s: any) => ({
-        name: s.name || 'Unnamed Staff',
+        name: requireImportText(s.name, 'Staff name'),
         role: s.role || 'Staff',
-        salary: Number(s.salary || 0),
+        salary: requireImportNumber(s.salary ?? 0, 'Staff salary'),
         phone: s.phone || null,
       }))
     }
 
     if (Array.isArray(importData.bankTransactions) && importData.bankTransactions.length > 0) {
       await bulkCreateSimple('bankTransactions', db.bankTransaction, importData.bankTransactions, (b: any) => ({
-        date: b.date ? new Date(b.date) : new Date(),
-        description: b.description || 'Imported transaction',
-        deposit: Number(b.deposit || 0),
-        withdrawal: Number(b.withdrawal || 0),
-        balance: Number(b.balance || 0),
+        date: requireImportDate(b.date, 'Bank transaction date'),
+        description: requireImportText(b.description, 'Bank transaction description'),
+        deposit: requireImportNumber(b.deposit ?? 0, 'Bank deposit'),
+        withdrawal: requireImportNumber(b.withdrawal ?? 0, 'Bank withdrawal'),
+        balance: requireImportNumber(b.balance ?? 0, 'Bank balance', -Number.MAX_SAFE_INTEGER),
         category: b.category || null,
         bankName: b.bankName || null,
       }))
