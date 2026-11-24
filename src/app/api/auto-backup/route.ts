@@ -13,6 +13,28 @@ import { requireAuthAndTenant, requireAuthAndRole } from '@/lib/api-helpers'
 
 const MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 const MAX_MULTIPART_REQUEST_BYTES = MAX_UPLOAD_BYTES + 1024 * 1024
+const MAX_JSON_RESTORE_BYTES = 100 * 1024 * 1024
+
+async function readLimitedJson(req: NextRequest): Promise<any> {
+  const reader = req.body?.getReader()
+  if (!reader) throw new Error('EMPTY_REQUEST_BODY')
+
+  const chunks: Uint8Array[] = []
+  let totalBytes = 0
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    if (!value) continue
+    totalBytes += value.byteLength
+    if (totalBytes > MAX_JSON_RESTORE_BYTES) {
+      await reader.cancel()
+      throw new RangeError('REQUEST_TOO_LARGE')
+    }
+    chunks.push(value)
+  }
+  return JSON.parse(Buffer.concat(chunks).toString('utf8'))
+}
+
 
 async function readLimitedFormData(req: NextRequest): Promise<FormData> {
   const reader = req.body?.getReader()
@@ -52,7 +74,19 @@ export async function POST(req: NextRequest) {
     return handleFileUpload(req)
   }
 
-  const body = await req.json().catch(() => null)
+  const contentLength = Number(req.headers.get('content-length') || 0)
+  if (contentLength > MAX_JSON_RESTORE_BYTES) {
+    return NextResponse.json({ error: 'Backup restore exceeds the 100 MB request limit.' }, { status: 413 })
+  }
+  let body: any
+  try {
+    body = await readLimitedJson(req)
+  } catch (error) {
+    if (error instanceof RangeError) {
+      return NextResponse.json({ error: 'Backup restore exceeds the 100 MB request limit.' }, { status: 413 })
+    }
+    return NextResponse.json({ error: 'Invalid or missing backup request body.' }, { status: 400 })
+  }
   if (!body || typeof body.tenantId !== 'string' || !body.tenantId.trim()) {
     return NextResponse.json({ error: 'Company ID is required.' }, { status: 400 })
   }
