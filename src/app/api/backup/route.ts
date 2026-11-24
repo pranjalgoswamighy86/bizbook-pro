@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db-soft-delete'
 import { requireAuthAndRole } from '@/lib/api-helpers'
+import { buildBackupRecords } from '@/lib/backup-utils'
 
 /**
  * Data Backup & Export API
@@ -34,52 +35,30 @@ export async function POST(req: NextRequest) {
     // JSON Backup — Full company data for BizBook Pro restore
     // ============================================================
     if (action === 'json') {
-      // Full backup includes ALL records (including soft-deleted) for complete data preservation
-      const [sales, purchases, expenses, inventory, bankTransactions, staff, salaryPayments, payments, receipts, debtors, creditors] = await Promise.all([
-        db.sale.findMany({ where: { tenantId: authorizedTenantId } }),
-        db.purchase.findMany({ where: { tenantId: authorizedTenantId } }),
-        db.expense.findMany({ where: { tenantId: authorizedTenantId } }),
-        db.inventoryItem.findMany({ where: { tenantId: authorizedTenantId } }),
-        db.bankTransaction.findMany({ where: { tenantId: authorizedTenantId } }),
-        db.staff.findMany({ where: { tenantId: authorizedTenantId } }),
-        db.salaryPayment.findMany({ where: { tenantId: authorizedTenantId } }),
-        db.payment.findMany({ where: { tenantId: authorizedTenantId } }),
-        db.receipt.findMany({ where: { tenantId: authorizedTenantId } }),
-        db.debtor.findMany({ where: { tenantId: authorizedTenantId } }),
-        db.creditor.findMany({ where: { tenantId: authorizedTenantId } }),
-      ])
-
+      const { data, tableErrors, totalRecords } = await buildBackupRecords(authorizedTenantId)
       const backup = {
-        _meta: {
-          version: '1.0',
-          app: 'BizBook Pro',
-          exportedAt: new Date().toISOString(),
-          company: tenant.name,
+        _metadata: {
+          software: 'BizBook Pro',
+          version: 'v6.31.0',
+          exportDate: new Date().toISOString(),
+          exportedBy: access.email,
+          exportMethod: 'authenticated',
+          scope: 'tenant',
+          tenantId: authorizedTenantId,
+          tenantName: tenant.name,
+          tableCount: Object.keys(data).length,
+          totalRecords,
+          tableErrors: tableErrors.length,
+          instructions: 'Restore this backup using an active MAIN_ADMIN account in the destination business. User credentials and role memberships are intentionally excluded from business backups.',
+          schemaNote: 'Password reset OTPs and account credential records are intentionally excluded from tenant backups.',
         },
-        tenant: {
-          name: tenant.name,
-          address: tenant.address,
-          phone: tenant.phone,
-          email: tenant.email,
-          gstNumber: tenant.gstNumber,
-          panNumber: tenant.panNumber,
-          currency: tenant.currency,
-          plan: tenant.plan,
-        },
-        sales,
-        purchases,
-        expenses,
-        inventory,
-        bankTransactions,
-        staff,
-        salaryPayments,
-        payments,
-        receipts,
-        debtors,
-        creditors,
+        tableErrors: tableErrors.length > 0 ? tableErrors : undefined,
+        data,
       }
 
-      return NextResponse.json(backup)
+      return NextResponse.json(backup, {
+        headers: { 'Cache-Control': 'no-store, no-cache, must-revalidate' },
+      })
     }
 
     // ============================================================
