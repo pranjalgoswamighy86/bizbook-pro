@@ -608,14 +608,14 @@ export async function POST(req: NextRequest) {
       const access = await requireAuthAndRole(req, tenantId, ['MAIN_ADMIN'])
       if (access instanceof NextResponse) return access
 
-      // Restrict to admin@bizbook.pro or pranjalgoswamighy86@gmail.com (per Spec Part 9)
-      const ADMIN_BYPASS_EMAILS = [
+      // Authorization is restricted to deployment-configured system administrators.
+      const SYSTEM_ADMIN_EMAILS = [
   process.env.ADMIN_EMAIL || '',
   process.env.INFRA_OWNER_EMAIL || '',
   process.env.INFRASTRUCTURE_OWNER_EMAIL || '',
 ].map(value => value.toLowerCase().trim()).filter(Boolean)
 
-      if (!access.user?.email || !ADMIN_BYPASS_EMAILS.includes(access.user.email.toLowerCase().trim())) {
+      if (!access.user?.email || !SYSTEM_ADMIN_EMAILS.includes(access.user.email.toLowerCase().trim())) {
         return NextResponse.json({ error: 'FORBIDDEN — Super Admin only' }, { status: 403 })
       }
 
@@ -723,8 +723,8 @@ export async function POST(req: NextRequest) {
       const access = await requireAuthAndRole(req, tenantId, ['MAIN_ADMIN'])
       if (access instanceof NextResponse) return access
 
-      // Restrict to admin@bizbook.pro or pranjalgoswamighy86@gmail.com (per Spec Part 9)
-      const ADMIN_BYPASS_EMAILS = [
+      // Authorization is restricted to deployment-configured system administrators.
+      const SYSTEM_ADMIN_EMAILS = [
         process.env.ADMIN_EMAIL || '',
         process.env.INFRA_OWNER_EMAIL || '',
         process.env.INFRASTRUCTURE_OWNER_EMAIL || '',
