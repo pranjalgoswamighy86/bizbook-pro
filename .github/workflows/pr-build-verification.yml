@@ -48,6 +48,11 @@ jobs:
       - name: Build application
         run: npm run build
 
+      - name: TypeScript type check
+        run: npx tsc --noEmit
+        env:
+          DATABASE_URL: postgresql://placeholder:placeholder@localhost:5432/placeholder
+          NODE_ENV: production
 
       - name: Lint changed application files
         run: |
@@ -59,14 +64,9 @@ jobs:
             src/app/api/db-admin/route.ts \
             src/components/modules/backup.tsx \
             src/lib/excel-backup.ts \
+            src/lib/master-mobile.ts \
             src/lib/rbac/enforce-v2.ts
 
       - name: Repository lint baseline (informational)
         run: npm run lint
         continue-on-error: true
-
-      - name: TypeScript type check
-        run: npx tsc --noEmit
-        env:
-          DATABASE_URL: postgresql://placeholder:placeholder@localhost:5432/placeholder
-          NODE_ENV: production
