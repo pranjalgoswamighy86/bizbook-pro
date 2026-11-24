@@ -561,6 +561,7 @@ Provide a structured analysis with:
         _rawResponse: result,
         importData: { sales: [], purchases: [], expenses: [], products: [], parties: [], staff: [], bankTransactions: [] },
         warnings: ['AI response could not be parsed as JSON. Showing raw summary.', ...spreadsheetTruncationWarnings],
+        partialExtraction: spreadsheetTruncationWarnings.length > 0,
         suggestions: [],
       }
     }
@@ -578,6 +579,7 @@ Provide a structured analysis with:
       summary: `File parsed (${dataType}) but AI analysis failed: ${aiError.message}. You can review the raw data below and try again.`,
       importData: { sales: [], purchases: [], expenses: [], products: [], parties: [], staff: [], bankTransactions: [] },
       warnings: [`AI analysis failed: ${aiError.message}`, ...spreadsheetTruncationWarnings],
+      partialExtraction: spreadsheetTruncationWarnings.length > 0,
       suggestions: ['Try uploading a clearer file, or convert to Excel/CSV for better results.'],
       _aiError: aiError.message,
       _parsedData: true,
