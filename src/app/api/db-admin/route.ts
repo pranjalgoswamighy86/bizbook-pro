@@ -8,10 +8,9 @@ import { requireAuthAndRole, requireAuth } from '@/lib/api-helpers'
 const BACKUP_DIR = path.join(process.cwd(), 'db', 'backups')
 
 const SYSTEM_ADMIN_EMAILS = new Set([
-  'admin@bizbook.pro',
-  'pranjalgoswamighy86@gmail.com',
   process.env.ADMIN_EMAIL || '',
-  process.env.INFRA_OWNER_EMAIL || process.env.INFRASTRUCTURE_OWNER_EMAIL || '',
+  process.env.INFRA_OWNER_EMAIL || '',
+  process.env.INFRASTRUCTURE_OWNER_EMAIL || '',
 ].map(value => value.toLowerCase().trim()).filter(Boolean))
 
 async function requireSystemAdmin(req: NextRequest) {
