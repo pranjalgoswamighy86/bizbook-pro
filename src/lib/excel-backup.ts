@@ -524,6 +524,7 @@ export async function restoreFromExcelData(
   userRole?: string
 ): Promise<{
   success: boolean
+  partial: boolean
   restoredCount: number
   errors: string[]
   details: Record<string, number>
@@ -531,7 +532,7 @@ export async function restoreFromExcelData(
   // A restore can overwrite existing records. Only a server-verified tenant
   // MAIN_ADMIN may call this helper; never trust a client-supplied role.
   if (userRole !== 'MAIN_ADMIN') {
-    return { success: false, restoredCount: 0, errors: ['Only a tenant MAIN_ADMIN can restore data'], details: {} }
+    return { success: false, partial: false, restoredCount: 0, errors: ['Only a tenant MAIN_ADMIN can restore data'], details: {} }
   }
 
   const errors: string[] = []
@@ -705,6 +706,7 @@ export async function restoreFromExcelData(
     const message = error instanceof Error ? error.message : String(error)
     return {
       success: false,
+      partial: false,
       restoredCount: 0,
       errors: [`Backup ownership validation failed; no records were restored. ${message}`],
       details: {},
