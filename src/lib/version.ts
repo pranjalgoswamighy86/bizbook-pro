@@ -19,5 +19,14 @@
 // type" errors). GSTIN validator verified correct against official GSTN
 // format (10-char PAN at positions 3-12, entity at 13, Z at 14, checksum
 // at 15). Help-chat frontend/backend contract verified aligned.
-export const APP_VERSION = 'v6.30.10'
+// v6.30.11: E-invoice manual workflow UI completion — purchase register
+// now has a "Record IRN" button to enter supplier-issued IRN +
+// acknowledgement details (buyer never generates purchase IRN; the
+// supplier does). Inventory item type dropdown now includes "Service"
+// alongside Raw Material and Finished Product, so service businesses can
+// mark SAC-coded items correctly (IsServc=Y in INV-01 payload). Sale
+// register's "Record IRN" button (added in v6.30.10 via PR #8) completes
+// the B2B manual IRP handoff: generate payload → submit on IRIS portal →
+// paste back IRN/AckNo/AckDate.
+export const APP_VERSION = 'v6.30.11'
 export const APP_BUILD_DATE = '2026-11-24'
