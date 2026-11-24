@@ -25,6 +25,10 @@ export async function POST(req: NextRequest) {
     const body = await req.json()
     const { action } = body
 
+    if (action === 'access') {
+      return NextResponse.json({ success: true, allowed: true })
+    }
+
     if (action === 'list') {
       const tickets = await db.helpSupportTicket.findMany({
         orderBy: { createdAt: 'desc' },

@@ -30,9 +30,6 @@ const nextConfig: NextConfig = {
   // v6.20.0: Suppress X-Powered-By header (was leaking "Next.js" to attackers)
   poweredByHeader: false,
 
-  typescript: {
-    ignoreBuildErrors: true,
-  },
   // v6.21.0: Removed deprecated `eslint: { ignoreDuringBuilds: true }` key
   // Next.js 16 no longer recognizes this key — it was producing build warnings:
   //   ⚠ `eslint` configuration in next.config.ts is no longer supported.
