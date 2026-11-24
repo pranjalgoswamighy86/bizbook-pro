@@ -85,9 +85,14 @@ export async function POST(req: NextRequest) {
           }
         }
       }
+      if (data.currentStock !== undefined && Number(data.currentStock) < 0) {
+        return NextResponse.json({ error: 'Stock cannot be negative. Use a valid stock adjustment instead.' }, { status: 400 })
+      }
       if (data.currentStock !== undefined || data.purchasePrice !== undefined) {
-        const stock = Number(data.currentStock) ?? existing.currentStock
-        const price = Number(data.purchasePrice) ?? existing.purchasePrice
+        // Number(undefined) is NaN (and NaN ?? fallback remains NaN). Preserve
+        // the persisted value for whichever field was not included in this patch.
+        const stock = data.currentStock !== undefined ? Number(data.currentStock) : existing.currentStock
+        const price = data.purchasePrice !== undefined ? Number(data.purchasePrice) : existing.purchasePrice
         data.value = stock * price
       }
       const item = await db.inventoryItem.update({ where: { id }, data: data as any })
