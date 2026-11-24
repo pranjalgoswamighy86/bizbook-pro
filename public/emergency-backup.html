@@ -431,9 +431,6 @@
 
         if (!response.ok) {
           let errMsg = result.error || 'Restore failed (HTTP ' + response.status + ')';
-          if (result.backupUsers) {
-            errMsg += '<br><br>Users in the backup file: ' + result.backupUsers.join(', ');
-          }
           setRestoreStatus('error', '⚠️ ' + errMsg);
           restoreBtn.disabled = false;
           restoreBtnText.textContent = '🔄 Restore Database';
