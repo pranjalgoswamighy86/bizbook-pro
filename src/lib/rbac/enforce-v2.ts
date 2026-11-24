@@ -4,7 +4,7 @@
  * UPGRADE FROM v1: Adds SUPER_ADMIN tier above MAIN_ADMIN
  *
  * Hierarchy (per Spec Part 1):
- *   Tier 0: SUPER_ADMIN              — admin@bizbook.pro (system owner)
+ *   Tier 0: SUPER_ADMIN              — configured ADMIN_EMAIL / INFRA_OWNER_EMAIL identities
  *   Tier 1: INFRASTRUCTURE_OWNER     — PRANJALGOSWAMIGHY86@GMAIL.COM (external owner)
  *   Tier 2: MAIN_ADMIN / TENANT      — Business owner (full control within tenant)
  *   Tier 3: JUNIOR_ADMIN             — Sub-user (data mutation: edit/delete)
