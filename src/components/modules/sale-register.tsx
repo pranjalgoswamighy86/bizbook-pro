@@ -705,8 +705,8 @@ export function SaleRegister() {
     const distanceInput = window.prompt('Enter approximate transport distance in kilometres:')
     if (!distanceInput) return
     const distanceKm = Number(distanceInput)
-    if (!Number.isFinite(distanceKm) || distanceKm <= 0) {
-      toast({ title: 'Invalid distance', description: 'Enter a positive distance in kilometres.', variant: 'destructive' })
+    if (!Number.isInteger(distanceKm) || distanceKm <= 0) {
+      toast({ title: 'Invalid distance', description: 'Enter a positive whole-number distance in kilometres.', variant: 'destructive' })
       return
     }
     const transporterId = window.prompt('Transporter GSTIN (optional; leave blank if not applicable):') || ''
