@@ -29,7 +29,7 @@ async function main() {
         address: 'Demo Address',
         phone: '9999999999',
         email,
-        gstNumber: ''
+        gstNumber: '',
         plan: 'free',
       },
     })
