@@ -9,31 +9,67 @@ import { randomUUID } from 'crypto'
 import { execFile } from 'child_process'
 import { requireAuthAndTenant, requireAuthAndRole, requireAuth, writeAuditLog } from '@/lib/api-helpers'
 
-const UPLOAD_DIR = join(process.cwd(), 'uploaded-invoices')
+const MAX_INVOICE_BYTES = 10 * 1024 * 1024
+const MAX_REQUEST_BYTES = 14 * 1024 * 1024
+const UPLOAD_ROOT = process.env.BIZBOOK_UPLOAD_DIR ||
+  (process.env.NODE_ENV === 'production' ? '/app/data/uploaded-invoices' : join(process.cwd(), 'uploaded-invoices'))
 
-// Ensure upload directory exists
-async function ensureUploadDir() {
-  await mkdir(UPLOAD_DIR, { recursive: true })
+const MIME_EXTENSIONS: Record<string, string> = {
+  'application/pdf': 'pdf',
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/webp': 'webp',
 }
 
-// Save base64 file to disk and return the file path
-async function saveInvoiceFile(base64DataUrl: string, invoiceNumber?: string): Promise<string> {
-  await ensureUploadDir()
-  const match = base64DataUrl.match(/^data:([^;]+);base64,(.+)$/)
-  if (!match) throw new Error('Invalid data URL format')
+async function readLimitedJson(req: NextRequest): Promise<any> {
+  const reader = req.body?.getReader()
+  if (!reader) throw new Error('EMPTY_REQUEST_BODY')
+
+  const chunks: Uint8Array[] = []
+  let totalBytes = 0
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    if (!value) continue
+    totalBytes += value.byteLength
+    if (totalBytes > MAX_REQUEST_BYTES) {
+      await reader.cancel()
+      throw new RangeError('REQUEST_TOO_LARGE')
+    }
+    chunks.push(value)
+  }
+  return JSON.parse(Buffer.concat(chunks).toString('utf8'))
+}
+
+function hasExpectedFileSignature(buffer: Buffer, mimeType: string): boolean {
+  if (mimeType === 'application/pdf') return buffer.subarray(0, 5).toString('ascii') === '%PDF-'
+  if (mimeType === 'image/jpeg') return buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff
+  if (mimeType === 'image/png') return buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
+  if (mimeType === 'image/webp') return buffer.subarray(0, 4).toString('ascii') === 'RIFF' && buffer.subarray(8, 12).toString('ascii') === 'WEBP'
+  return false
+}
+
+// Store original invoice files in a persistent, tenant-specific folder.
+async function saveInvoiceFile(base64DataUrl: string, tenantId: string): Promise<string> {
+  const match = base64DataUrl.match(/^data:(application\/pdf|image\/jpeg|image\/png|image\/webp);base64,([A-Za-z0-9+/]+={0,2})$/)
+  if (!match) throw new Error('Unsupported invoice file format')
 
   const mimeType = match[1]
   const base64 = match[2]
-  const isPdf = mimeType === 'application/pdf'
-  const ext = isPdf ? 'pdf' : (mimeType.split('/')[1] || 'png')
-  const prefix = invoiceNumber ? invoiceNumber.replace(/[^a-zA-Z0-9]/g, '_') : 'INV'
-  const fileName = `${prefix}_${Date.now()}.${ext}`
-  const filePath = join(UPLOAD_DIR, fileName)
-
   const buffer = Buffer.from(base64, 'base64')
-  await writeFile(filePath, buffer)
+  if (!buffer.length || buffer.length > MAX_INVOICE_BYTES ||
+      buffer.toString('base64').replace(/=+$/, '') !== base64.replace(/=+$/, '') ||
+      !hasExpectedFileSignature(buffer, mimeType)) {
+    throw new Error('Invoice file is invalid or exceeds the 10 MB size limit')
+  }
 
-  return fileName
+  const safeTenantId = tenantId.replace(/[^a-zA-Z0-9_-]/g, '')
+  if (!safeTenantId) throw new Error('Invalid business ID')
+  const tenantDirectory = join(UPLOAD_ROOT, safeTenantId)
+  await mkdir(tenantDirectory, { recursive: true })
+  const fileName = `${randomUUID()}.${MIME_EXTENSIONS[mimeType]}`
+  await writeFile(join(tenantDirectory, fileName), buffer, { flag: 'wx' })
+  return `${safeTenantId}/${fileName}`
 }
 
 // Convert PDF to PNG images using pdftoppm
@@ -90,8 +126,20 @@ async function convertPdfToImages(pdfBase64: string): Promise<string[]> {
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json()
-    const { invoiceImage, tenantId, autoSave, fileType } = body
+    const contentLength = Number(req.headers.get('content-length') || 0)
+    if (contentLength > MAX_REQUEST_BYTES) {
+      return NextResponse.json({ error: 'Invoice file exceeds the 10 MB upload limit.' }, { status: 413 })
+    }
+    let body: any
+    try {
+      body = await readLimitedJson(req)
+    } catch (error) {
+      if (error instanceof RangeError) {
+        return NextResponse.json({ error: 'Invoice file exceeds the 10 MB upload limit.' }, { status: 413 })
+      }
+      return NextResponse.json({ error: 'Invalid or missing invoice request body.' }, { status: 400 })
+    }
+    const { invoiceImage, tenantId, autoSave } = body
 
     if (!invoiceImage) {
       return NextResponse.json({ error: 'No invoice file provided' }, { status: 400 })
@@ -104,8 +152,21 @@ export async function POST(req: NextRequest) {
     const auth = await requireAuthAndTenant(req, tenantId)
     if (auth instanceof NextResponse) return auth
     const authorizedTenantId = auth.tenantId
+    if (typeof invoiceImage !== 'string') {
+      return NextResponse.json({ error: 'Invalid invoice file data.' }, { status: 400 })
+    }
+    const invoiceMatch = invoiceImage.match(/^data:(application\/pdf|image\/jpeg|image\/png|image\/webp);base64,([A-Za-z0-9+/]+={0,2})$/)
+    if (!invoiceMatch || invoiceMatch[2].length % 4 === 1) {
+      return NextResponse.json({ error: 'Only valid PDF, JPEG, PNG, or WebP invoice files are accepted.' }, { status: 415 })
+    }
+    const invoiceBuffer = Buffer.from(invoiceMatch[2], 'base64')
+    if (!invoiceBuffer.length || invoiceBuffer.length > MAX_INVOICE_BYTES ||
+        invoiceBuffer.toString('base64').replace(/=+$/, '') !== invoiceMatch[2].replace(/=+$/, '') ||
+        !hasExpectedFileSignature(invoiceBuffer, invoiceMatch[1])) {
+      return NextResponse.json({ error: 'Invoice file is invalid or exceeds the 10 MB size limit.' }, { status: 413 })
+    }
 
-    const isPdf = invoiceImage.startsWith('data:application/pdf') || fileType === 'pdf'
+    const isPdf = invoiceMatch[1] === 'application/pdf'
     // v4.50: Use getZaiClient() for Railway fallback config
     const zai = await getZaiClient()
 
@@ -407,7 +468,7 @@ Return ONLY the JSON. No markdown, no code blocks, no explanation.`
     // Save invoice file to disk
     let invoiceFileName: string | null = null
     try {
-      invoiceFileName = await saveInvoiceFile(invoiceImage, analysis.invoiceNumber || undefined)
+      invoiceFileName = await saveInvoiceFile(invoiceImage, authorizedTenantId)
       console.log('[analyze-invoice] Saved invoice file:', invoiceFileName)
     } catch (saveFileError) {
       console.error('[analyze-invoice] Failed to save invoice file to disk:', saveFileError)
