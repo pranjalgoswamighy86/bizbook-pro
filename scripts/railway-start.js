@@ -16,7 +16,8 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto'); // v6.30.3: for random SESSION_SECRET generation
 
-console.log('=== BizBook Pro Startup (v6.30.6 — PostgreSQL + Direct Server + Rate-Limited) ===');
+// Keep the startup banner version-neutral; the UI and support prompt read APP_VERSION from src/lib/version.ts.
+console.log('=== BizBook Pro Startup (PostgreSQL + Direct Server + Rate-Limited) ===');
 
 // CRITICAL: Delete HOSTNAME so Next.js binds to 0.0.0.0 (fixes Railway 502)
 delete process.env.HOSTNAME;
