@@ -65,7 +65,14 @@ jobs:
             src/app/api/backup/restore/route.ts \
             src/app/api/db-admin/route.ts \
             src/app/api/debug-env/route.ts \
+            src/app/api/ai-import/route.ts \
+            src/app/api/help-chat/route.ts \
             src/app/api/help-tickets/route.ts \
+            src/components/app/help-modal.tsx \
+            src/components/modules/ai-import.tsx \
+            src/lib/help-knowledge.ts \
+            src/lib/multi-ai.ts \
+            next.config.ts \
             src/app/api/payment-proof/review/route.ts \
             src/app/api/payment-proof/route.ts \
             src/app/api/subscription/route.ts \
