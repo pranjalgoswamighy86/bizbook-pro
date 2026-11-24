@@ -31,7 +31,9 @@
  *   - EWB number format: 12-digit numeric
  */
 
+import crypto from 'crypto'
 import { getIrpBaseUrl, isIrpConfigured } from './irp-integration'
+import type { TenantGspConfig } from './gsp-credentials'
 
 // EWB API endpoints (on the same GSP/IRP base URL as e-invoice)
 const EWB_GENERATE_BY_IRN = '/einvoice/api/v1/ewaybill/irn'
@@ -108,9 +110,10 @@ export interface EwbResult {
  */
 export async function generateEwbByIrn(
   irn: string,
-  transporter: TransporterDetails
+  transporter: TransporterDetails,
+  config: TenantGspConfig | null
 ): Promise<EwbResult> {
-  if (!isIrpConfigured()) {
+  if (!config || !isIrpConfigured(config)) {
     return {
       success: false,
       mode: 'MANUAL',
@@ -122,22 +125,22 @@ export async function generateEwbByIrn(
   const payload = buildEwbByIrnPayload(irn, transporter)
 
   try {
-    const token = await getEwbAuthToken()
-    const baseUrl = getIrpBaseUrl()
+    const token = await getEwbAuthToken(config)
+    const baseUrl = getIrpBaseUrl(config)
 
     const res = await fetch(`${baseUrl}${EWB_GENERATE_BY_IRN}`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json',
-        'gsp-code': process.env.IRP_GSP_CODE!,
+        'gsp-code': config.gspCode,
       },
       body: JSON.stringify(payload),
       signal: AbortSignal.timeout(20000),
     })
 
     if (!res.ok) {
-      const errText = await res.text()
+      const errText = `HTTP ${res.status}`
       return {
         success: false,
         mode: 'LIVE',
@@ -204,9 +207,10 @@ export async function generateEwbDirect(
       gstRate: number
     }>
   },
-  transporter: TransporterDetails
+  transporter: TransporterDetails,
+  config: TenantGspConfig | null
 ): Promise<EwbResult> {
-  if (!isIrpConfigured()) {
+  if (!config || !isIrpConfigured(config)) {
     return {
       success: false,
       mode: 'MANUAL',
@@ -218,22 +222,22 @@ export async function generateEwbDirect(
   const payload = buildEwbDirectPayload(saleData, transporter)
 
   try {
-    const token = await getEwbAuthToken()
-    const baseUrl = getIrpBaseUrl()
+    const token = await getEwbAuthToken(config)
+    const baseUrl = getIrpBaseUrl(config)
 
     const res = await fetch(`${baseUrl}${EWB_GENERATE_DIRECT}`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json',
-        'gsp-code': process.env.IRP_GSP_CODE!,
+        'gsp-code': config.gspCode,
       },
       body: JSON.stringify(payload),
       signal: AbortSignal.timeout(20000),
     })
 
     if (!res.ok) {
-      const errText = await res.text()
+      const errText = `HTTP ${res.status}`
       return {
         success: false,
         mode: 'LIVE',
@@ -275,9 +279,10 @@ export async function generateEwbDirect(
 export async function cancelEwb(
   ewbNo: string,
   cancelReason: string,   // 1-5 per NIC spec
-  cancelRemark: string
+  cancelRemark: string,
+  config: TenantGspConfig | null
 ): Promise<EwbResult> {
-  if (!isIrpConfigured()) {
+  if (!config || !isIrpConfigured(config)) {
     return {
       success: false,
       mode: 'MANUAL',
@@ -286,15 +291,15 @@ export async function cancelEwb(
   }
 
   try {
-    const token = await getEwbAuthToken()
-    const baseUrl = getIrpBaseUrl()
+    const token = await getEwbAuthToken(config)
+    const baseUrl = getIrpBaseUrl(config)
 
     const res = await fetch(`${baseUrl}${EWB_CANCEL}`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json',
-        'gsp-code': process.env.IRP_GSP_CODE!,
+        'gsp-code': config.gspCode,
       },
       body: JSON.stringify({
         ewbNo,
@@ -305,7 +310,7 @@ export async function cancelEwb(
     })
 
     if (!res.ok) {
-      const errText = await res.text()
+      const errText = `HTTP ${res.status}`
       return {
         success: false,
         mode: 'LIVE',
@@ -342,7 +347,7 @@ export async function extendEwb(
   ewbNo: string,
   transporter: TransporterDetails
 ): Promise<EwbResult> {
-  if (!isIrpConfigured()) {
+  if (!config || !isIrpConfigured(config)) {
     return {
       success: false,
       mode: 'MANUAL',
@@ -351,15 +356,15 @@ export async function extendEwb(
   }
 
   try {
-    const token = await getEwbAuthToken()
-    const baseUrl = getIrpBaseUrl()
+    const token = await getEwbAuthToken(config)
+    const baseUrl = getIrpBaseUrl(config)
 
     const res = await fetch(`${baseUrl}${EWB_EXTEND}`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json',
-        'gsp-code': process.env.IRP_GSP_CODE!,
+        'gsp-code': config.gspCode,
       },
       body: JSON.stringify({
         ewbNo,
@@ -374,7 +379,7 @@ export async function extendEwb(
     })
 
     if (!res.ok) {
-      const errText = await res.text()
+      const errText = `HTTP ${res.status}`
       return {
         success: false,
         mode: 'LIVE',
@@ -509,45 +514,36 @@ function buildEwbDirectPayload(
   }
 }
 
-// Standalone GSP auth for EWB (shares credentials with IRP)
-let cachedEwbToken: { token: string; expiresAt: number } | null = null
+// Tenant-scoped EWB token cache. Credentials are never shared between tenants.
+const ewbTokenCache = new Map<string, { token: string; expiresAt: number; fingerprint: string }>()
 
-async function getEwbAuthToken(): Promise<string> {
-  if (cachedEwbToken && Date.now() < cachedEwbToken.expiresAt - 5 * 60 * 1000) {
-    return cachedEwbToken.token
-  }
+async function getEwbAuthToken(config: TenantGspConfig): Promise<string> {
+  const fingerprint = crypto.createHash('sha256').update([
+    config.gspCode, config.gspClientId, config.gspClientSecret,
+    config.gspUsername, config.gspPassword, config.irpEnv,
+  ].join('\\0')).digest('hex')
+  const cached = ewbTokenCache.get(config.tenantId)
+  if (cached && cached.fingerprint === fingerprint && Date.now() < cached.expiresAt - 5 * 60 * 1000) return cached.token
 
-  const baseUrl = getIrpBaseUrl()
-  const authPayload = {
-    Username: process.env.IRP_GSP_USERNAME,
-    Password: process.env.IRP_GSP_PASSWORD,
-    ClientId: process.env.IRP_GSP_CLIENT_ID,
-    ClientSecret: process.env.IRP_GSP_CLIENT_SECRET,
-    GrantType: 'password',
-  }
-
+  const baseUrl = getIrpBaseUrl(config)
   const authRes = await fetch(`${baseUrl}/ein-v1/registration/authenticate`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'gsp-code': process.env.IRP_GSP_CODE!,
-    },
-    body: JSON.stringify(authPayload),
+    headers: { 'Content-Type': 'application/json', 'gsp-code': config.gspCode },
+    body: JSON.stringify({
+      Username: config.gspUsername, Password: config.gspPassword,
+      ClientId: config.gspClientId, ClientSecret: config.gspClientSecret, GrantType: 'password',
+    }),
     signal: AbortSignal.timeout(15000),
   })
-
-  if (!authRes.ok) {
-    const errText = await authRes.text()
-    throw new Error(`GSP auth failed (HTTP ${authRes.status}): ${errText}`)
-  }
-
+  if (!authRes.ok) throw new Error(`GSP authentication failed (HTTP ${authRes.status}).`)
   const authData = await authRes.json()
-  cachedEwbToken = {
-    token: authData.access_token,
-    expiresAt: Date.now() + authData.expires_in * 1000,
+  if (!authData.access_token || !Number.isFinite(authData.expires_in) || authData.expires_in <= 0) {
+    throw new Error('GSP authentication returned an invalid token response.')
   }
-
-  return cachedEwbToken.token
+  ewbTokenCache.set(config.tenantId, {
+    token: authData.access_token, expiresAt: Date.now() + authData.expires_in * 1000, fingerprint,
+  })
+  return authData.access_token
 }
 
 /**
