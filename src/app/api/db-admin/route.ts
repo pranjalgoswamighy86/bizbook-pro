@@ -45,10 +45,10 @@ export async function POST(req: NextRequest) {
     const { action, tenantId } = body // v4.50: Fix — tenantId was not destructured (caused ReferenceError)
 
     if (action === 'stats') {
-      // ---- SECURITY PATCH v1: auth + tenant access ----
-      const access = await requireAuthAndRole(req, tenantId, ['MAIN_ADMIN'])
-      if (access instanceof NextResponse) return access
-      // --------------------------------------------------
+      // This reports database-wide counts, not just the requested tenant.
+      // Treat it as a system-admin operation to avoid leaking cross-tenant metadata.
+      const auth = await requireSystemAdmin(req)
+      if (auth instanceof NextResponse) return auth
 
       const stats = await getDatabaseStats(db)
       return NextResponse.json({ stats, timestamp: new Date().toISOString() })
