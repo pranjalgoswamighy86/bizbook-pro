@@ -282,14 +282,25 @@ export function isInfrastructureOwnerEmail(email: string | undefined): boolean {
   return INFRA_OWNER_EMAILS.includes(email.toLowerCase());
 }
 
-// ---------- Master Mobile bypass (Rule 1.1) ----------
-// Super Admin's mobile (9101555075) can be associated with infinite tenant/user IDs
-// This bypasses the standard Rule 1.2 uniqueness check
+// ---------- Explicitly configured shared business phone ----------
+/**
+ * This is a narrow registration uniqueness exception only. It does not grant
+ * system-admin permissions or bypass OTP. Without an explicit environment
+ * setting the exception is disabled.
+ */
 export function isMasterMobile(mobile: string): boolean {
-  const masterMobile = process.env.MASTER_MOBILE_NUMBER || '9101555075';
   const normalized = mobile.replace(/\D/g, '');
-  const normalizedMaster = masterMobile.replace(/\D/g, '');
-  return normalized === normalizedMaster;
+  const normalizedMaster = (process.env.MASTER_MOBILE_NUMBER || '').replace(/\D/g, '');
+  if (!normalizedMaster || !normalized) return false;
+
+  const toTenDigits = (value: string) => {
+    if (value.length === 12 && value.startsWith('91')) return value.slice(2);
+    if (value.length === 11 && value.startsWith('0')) return value.slice(1);
+    return value;
+  };
+
+  const master = toTenDigits(normalizedMaster);
+  return master.length === 10 && toTenDigits(normalized) === master;
 }
 
 /*
