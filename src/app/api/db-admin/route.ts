@@ -1,101 +1,96 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { db } from '@/lib/db-soft-delete'
-import { backupDatabase, getDatabaseStats } from '@/lib/db-protection'
 import fs from 'fs'
 import path from 'path'
-import { requireAuthAndTenant, requireAuthAndRole, requireAuth, writeAuditLog } from '@/lib/api-helpers'
+import { requireAuth } from '@/lib/api-helpers'
+import { isSuperAdminEmail } from '@/lib/rbac/enforce-v2'
 
 const BACKUP_DIR = path.join(process.cwd(), 'db', 'backups')
 
 /**
- * Database Administration API
- *
- * Actions:
- * - stats: Get database record counts (for monitoring data integrity)
- * - backup: Create a manual backup
- * - list-backups: List all backup files with metadata
- * - delete-backup: Delete a specific backup file
- *
- * SECURITY: This endpoint does NOT support any destructive operations.
- * Database restore must be done manually via scripts/db-backup.sh restore
+ * Legacy platform database administration endpoint. The stats and legacy
+ * backup-file operations are global, so they are restricted to an
+ * allowlisted platform administrator rather than trusting a tenantId field.
  */
 export async function POST(req: NextRequest) {
+  const auth = await requireAuth(req)
+  if (auth instanceof NextResponse) return auth
+  if (!isSuperAdminEmail(auth.email)) {
+    return NextResponse.json({ error: 'Platform administrator access is required.' }, { status: 403 })
+  }
+
+  const body = await req.json().catch(() => null)
+  if (!body || typeof body.action !== 'string') {
+    return NextResponse.json({ error: 'A valid database admin action is required.' }, { status: 400 })
+  }
+
   try {
-    const body = await req.json()
-    const { action, tenantId } = body // v4.50: Fix — tenantId was not destructured (caused ReferenceError)
-
-    if (action === 'stats') {
-      // ---- SECURITY PATCH v1: auth + tenant access ----
-      const access = await requireAuthAndRole(req, tenantId, ['MAIN_ADMIN'])
-      if (access instanceof NextResponse) return access
-      // --------------------------------------------------
-
-      const stats = await getDatabaseStats(db)
-      return NextResponse.json({ stats, timestamp: new Date().toISOString() })
-    }
-
-    if (action === 'backup') {
-      // ---- SECURITY PATCH v1: auth + tenant access ----
-      const access = await requireAuthAndRole(req, tenantId, ['MAIN_ADMIN'])
-      if (access instanceof NextResponse) return access
-      // --------------------------------------------------
-
-      const result = backupDatabase('manual')
-      return NextResponse.json(result)
-    }
-
-    if (action === 'list-backups') {
-      if (!fs.existsSync(BACKUP_DIR)) {
-        return NextResponse.json({ backups: [], autoConfig: { enabled: true, frequency: 'startup', lastRun: null } })
+    switch (body.action) {
+      case 'stats': {
+        const counts = await Promise.all([
+          import('@/lib/db-soft-delete').then(({ rawDb }) => Promise.all([
+            rawDb.user.count(),
+            rawDb.tenant.count(),
+            rawDb.sale.count(),
+            rawDb.purchase.count(),
+            rawDb.inventoryItem.count(),
+            rawDb.expense.count(),
+            rawDb.staff.count(),
+            rawDb.debtor.count(),
+            rawDb.creditor.count(),
+            rawDb.payment.count(),
+            rawDb.receipt.count(),
+          ])),
+        ])
+        const [users, tenants, sales, purchases, inventory, expenses, staff, debtors, creditors, payments, receipts] = counts[0]
+        return NextResponse.json({
+          stats: { users, tenants, sales, purchases, inventory, expenses, staff, debtors, creditors, payments, receipts },
+          timestamp: new Date().toISOString(),
+        }, { headers: { 'Cache-Control': 'no-store' } })
       }
 
-      const files = fs.readdirSync(BACKUP_DIR)
-        .filter(f => f.startsWith('bizbook_backup_') && f.endsWith('.db'))
-        .map(f => {
-          const filePath = path.join(BACKUP_DIR, f)
-          const stat = fs.statSync(filePath)
-          // Parse reason from filename: bizbook_backup_2024-01-01_12-00-00_reason.db
-          const parts = f.replace('bizbook_backup_', '').replace('.db', '').split('_')
-          const reason = parts.length >= 3 ? parts.slice(2).join('_') : 'unknown'
-          return {
-            name: f,
-            size: stat.size,
-            created: stat.mtime.toISOString(),
-            reason,
-          }
-        })
-        .sort((a, b) => new Date(b.created).getTime() - new Date(a.created).getTime())
+      case 'backup':
+        return NextResponse.json({
+          error: 'PostgreSQL backups are managed by Railway. Use the authorized business backup export for portable JSON or Excel files.',
+          backupProvider: 'Railway-managed PostgreSQL backups',
+        }, { status: 409 })
 
-      return NextResponse.json({
-        backups: files,
-        autoConfig: {
-          enabled: true,
-          frequency: 'startup',
-          lastRun: files.length > 0 ? files[0].created : null,
-        },
-      })
+      case 'list-backups': {
+        if (!fs.existsSync(BACKUP_DIR)) {
+          return NextResponse.json({ backups: [], autoConfig: { enabled: false, frequency: 'managed', lastRun: null } })
+        }
+
+        const files = fs.readdirSync(BACKUP_DIR)
+          .filter(file => /^bizbook_backup_[A-Za-z0-9_-]+\.db$/.test(file))
+          .map(file => {
+            const filePath = path.join(BACKUP_DIR, file)
+            const stat = fs.statSync(filePath)
+            const reason = file.replace(/^bizbook_backup_/, '').replace(/\.db$/, '').split('_').slice(2).join('_') || 'unknown'
+            return { name: file, size: stat.size, created: stat.mtime.toISOString(), reason }
+          })
+          .sort((a, b) => new Date(b.created).getTime() - new Date(a.created).getTime())
+
+        return NextResponse.json({
+          backups: files,
+          autoConfig: { enabled: false, frequency: 'managed', lastRun: files[0]?.created || null },
+        }, { headers: { 'Cache-Control': 'no-store' } })
+      }
+
+      case 'delete-backup': {
+        const filename = body.filename
+        if (typeof filename !== 'string' || !/^bizbook_backup_[A-Za-z0-9_-]+\.db$/.test(filename)) {
+          return NextResponse.json({ error: 'Invalid backup filename.' }, { status: 400 })
+        }
+        const filePath = path.join(BACKUP_DIR, filename)
+        if (!fs.existsSync(filePath)) return NextResponse.json({ error: 'Backup file not found.' }, { status: 404 })
+        fs.unlinkSync(filePath)
+        return NextResponse.json({ success: true })
+      }
+
+      default:
+        return NextResponse.json({ error: 'Invalid database admin action.' }, { status: 400 })
     }
-
-    if (action === 'delete-backup') {
-      const { filename } = body
-      if (!filename) {
-        return NextResponse.json({ error: 'Filename is required' }, { status: 400 })
-      }
-      // Security: only allow deleting backup files
-      if (!filename.startsWith('bizbook_backup_') || !filename.endsWith('.db')) {
-        return NextResponse.json({ error: 'Invalid backup filename' }, { status: 400 })
-      }
-      const filePath = path.join(BACKUP_DIR, filename)
-      if (!fs.existsSync(filePath)) {
-        return NextResponse.json({ error: 'Backup file not found' }, { status: 404 })
-      }
-      fs.unlinkSync(filePath)
-      return NextResponse.json({ success: true })
-    }
-
-    return NextResponse.json({ error: 'Invalid action. Use: stats, backup, list-backups, delete-backup' }, { status: 400 })
   } catch (error) {
-    console.error('DB admin error:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    console.error('[DB-ADMIN] Operation failed:', error)
+    return NextResponse.json({ error: 'Database admin operation failed.' }, { status: 500 })
   }
 }
