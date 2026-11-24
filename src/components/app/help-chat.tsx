@@ -29,7 +29,7 @@ interface ChatMessage {
   provider?: string  // v4.151: which AI provider answered
 }
 
-export function HelpChatTab({ userEmail, tenantName }: { userEmail?: string; tenantName?: string }) {
+export function HelpChatTab({ tenantId }: { tenantId?: string }) {
   const { toast } = useToast()
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
@@ -63,10 +63,9 @@ export function HelpChatTab({ userEmail, tenantName }: { userEmail?: string; ten
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          tenantId,
           message: input.trim(),
-          userEmail,
-          tenantName,
-          history: messages.slice(-5), // last 5 messages for context
+          history: messages.slice(-8).map(({ role, content }) => ({ role, content })),
         }),
       })
 
