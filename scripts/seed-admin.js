@@ -11,6 +11,12 @@ function hashPassword(password) {
 }
 
 async function main() {
+  const email = String(process.env.ADMIN_EMAIL || '').trim().toLowerCase()
+  const password = process.env.ADMIN_PASSWORD || ''
+  if (!email || password.length < 12) {
+    throw new Error('Set ADMIN_EMAIL and a unique ADMIN_PASSWORD (at least 12 characters) before running this seed script.')
+  }
+
   const prisma = new PrismaClient({
     datasources: { db: { url: 'file:' + process.cwd() + '/db/custom.db' } },
   })
@@ -22,8 +28,8 @@ async function main() {
         name: 'BizBook Pro Demo',
         address: 'Demo Address',
         phone: '9999999999',
-        email: 'admin@bizbook.pro',
-        gstNumber: '',
+        email,
+        gstNumber: ''
         plan: 'free',
       },
     })
@@ -33,8 +39,8 @@ async function main() {
     const user = await prisma.user.create({
       data: {
         name: 'Admin',
-        email: 'admin@bizbook.pro',
-        password: hashPassword('admin123'),
+        email,
+        password: hashPassword(password),
         role: 'MAIN_ADMIN',
         tenantId: tenant.id,
       },
@@ -54,8 +60,8 @@ async function main() {
     console.log('')
     console.log('============================================')
     console.log('  Admin credentials:')
-    console.log('  Email:    admin@bizbook.pro')
-    console.log('  Password: admin123')
+    console.log('  Email:', email)
+    console.log('  Password: [set from ADMIN_PASSWORD]')
     console.log('============================================')
     console.log('  Tenant ID:', tenant.id)
     console.log('============================================')
