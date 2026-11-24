@@ -100,10 +100,10 @@ function buildHelpKnowledgeContext(message: string): string {
 
   return [
     'Relevant in-app FAQs:',
-    ...faqsToInclude.map(({ faq }) => `Q: ${faq.q}\\nA: ${faq.a}`),
+    ...faqsToInclude.map(({ faq }) => `Q: ${faq.q}\nA: ${faq.a}`),
     'Relevant step-by-step guides:',
     ...guidesToInclude.map(({ guide }) => `${guide.title}: ${guide.steps.map((step, index) => `${index + 1}. ${step}`).join(' ')}`),
-  ].join('\\n\\n')
+  ].join('\n\n')
 }
 
 const HUMAN_REVIEW_KEYWORDS = [

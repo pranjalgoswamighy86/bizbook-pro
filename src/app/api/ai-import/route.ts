@@ -389,12 +389,12 @@ async function handleFileUpload(req: NextRequest) {
           sourceTruncationWarnings.push(`Sheet "${name}": only the first ${MAX_ROWS_PER_SHEET} of ${rows.length} rows were analyzed; ${rows.length - MAX_ROWS_PER_SHEET} rows were not sent to the AI and are NOT included in the import preview.`)
         }
         const truncatedNote = rows.length > MAX_ROWS_PER_SHEET
-          ? `\\nIMPORTANT: ONLY the first ${MAX_ROWS_PER_SHEET} rows are included below. The remaining ${rows.length - MAX_ROWS_PER_SHEET} rows were not analyzed.`
+          ? `\nIMPORTANT: ONLY the first ${MAX_ROWS_PER_SHEET} rows are included below. The remaining ${rows.length - MAX_ROWS_PER_SHEET} rows were not analyzed.`
           : ''
         return `Sheet "${name}": ${rows.length} rows, columns: ${headers.join(', ')}${truncatedNote}
 Rows supplied to the model (${sampleRows.length}):
 ${JSON.stringify(sampleRows, null, 2)}`
-      }).join('\\n\\n')
+      }).join('\n\n')
       if (completeSheetSummary.length > MAX_TOTAL_CHARS) {
         sourceTruncationWarnings.push(`Spreadsheet preview text exceeded ${MAX_TOTAL_CHARS} characters; the AI received only the first ${MAX_TOTAL_CHARS} characters. The remaining content was not analyzed.`)
       }
