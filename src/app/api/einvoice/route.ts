@@ -16,6 +16,19 @@ import {
 // v4.152: IRP direct integration
 import { submitToIrp, cancelIrn, isIrpConfigured, getIrpBaseUrl } from '@/lib/irp-integration'
 
+// Sale items may store GST as one GST entry (18%) or split CGST + SGST
+// entries (9% + 9%). IRP needs the combined GST rate.
+function getItemGstRate(item: Record<string, any>): number {
+  const taxes = Array.isArray(item.taxes) ? item.taxes : []
+  const gstTaxes = taxes.filter((tax: any) =>
+    ['GST', 'CGST', 'SGST', 'IGST'].includes(String(tax?.name || '').trim().toUpperCase())
+  )
+  if (gstTaxes.length > 0) {
+    return gstTaxes.reduce((sum: number, tax: any) => sum + Number(tax?.percent || 0), 0)
+  }
+  return Number(item.gstRate || 0)
+}
+
 // ============================================================
 // GST E-Invoice API
 // Generates INV-01 compliant JSON payload for IRP submission
@@ -114,7 +127,7 @@ export async function POST(req: NextRequest) {
         const qty = Number(item.qty) || 0
         const rate = Number(item.rate) || 0
         const discount = Number(item.discount || 0)
-        const gstRt = Number(item.taxes?.[0]?.percent || item.gstRate || 0)
+        const gstRt = getItemGstRate(item)
 
         // BUG FIX: Calculate GST from assessable value and rate, not from pre-calculated totalTax
         // This ensures correct tax computation and proper CGST/SGST/IGST split
@@ -191,12 +204,23 @@ export async function POST(req: NextRequest) {
           Stcd: buyerState,
         },
         ItemList: calculatedItems,
-        ValDtls: invoiceTotals,
+        ValDtls: {
+          AssVal: invoiceTotals.assVal,
+          CgstVal: invoiceTotals.cgstVal,
+          SgstVal: invoiceTotals.sgstVal,
+          IgstVal: invoiceTotals.igstVal,
+          CesVal: invoiceTotals.cesVal,
+          StCesVal: invoiceTotals.stCesVal,
+          Discount: invoiceTotals.discount,
+          OthChrg: invoiceTotals.othChrg,
+          RndOffAmt: invoiceTotals.rndOffAmt,
+          TotInvVal: invoiceTotals.totInvVal,
+        },
         PayDtls: {
           Nm: sale.partyName,
           Mode: sale.paymentStatus === 'RECEIVED' ? 'Cash' : 'Credit',
           PayTerm: sale.paymentStatus === 'RECEIVED' ? 'Immediate' : 'Credit',
-          PayDue: sale.paymentStatus === 'RECEIVED' ? 0 : sale.totalAmount - (sale.amountReceived || 0),
+          PaymtDue: sale.paymentStatus === 'RECEIVED' ? 0 : sale.totalAmount - (sale.amountReceived || 0),
         },
       }
 
@@ -307,7 +331,7 @@ export async function POST(req: NextRequest) {
         einvoiceAckNo?: string | null
         einvoiceAckDate?: string | null
         einvoiceQrCodeText?: string | null
-      } = { einvoiceStatus: status || 'GENERATED' } // v6.30.2: FIX TS2322 — was Record<string, unknown>
+      } = { einvoiceStatus: 'GENERATED' }
       updateData.einvoiceIrn = irn.trim().toUpperCase()
       if (ackNo) updateData.einvoiceAckNo = ackNo
       if (ackDate) updateData.einvoiceAckDate = ackDate
@@ -404,7 +428,7 @@ export async function POST(req: NextRequest) {
         const gst = calculateItemGST(
           Number(item.qty || 0),
           Number(item.rate || 0),
-          Number(item.gstRate || 0),
+          getItemGstRate(item),
           Number(item.discount || 0),
           interState
         )
