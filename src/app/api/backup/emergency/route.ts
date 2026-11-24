@@ -71,10 +71,9 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // Use rawDb to bypass soft-delete filter — the designated system administrator
-    // must still be able to retrieve a backup if their account was soft-deleted.
-    // the user even if their account was soft-deleted, so they can
-    // still get their data out.
+    // Use rawDb to bypass soft-delete filtering so the designated system
+    // administrator can retrieve an emergency backup if their account is inactive
+    // or soft-deleted. The configured email allowlist still applies.
     const user = await rawDb.user.findFirst({
       where: { email: { equals: email, mode: 'insensitive' } },
       select: {
