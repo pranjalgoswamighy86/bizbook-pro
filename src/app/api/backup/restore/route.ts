@@ -100,7 +100,7 @@ export async function POST(req: NextRequest) {
       'admin@bizbook.pro',
       'pranjalgoswamighy86@gmail.com',
       process.env.ADMIN_EMAIL || '',
-      process.env.INFRASTRUCTURE_OWNER_EMAIL || '',
+      process.env.INFRA_OWNER_EMAIL || process.env.INFRASTRUCTURE_OWNER_EMAIL || '',
     ].map(value => value.toLowerCase().trim()).filter(Boolean))
 
     if (!systemAdminEmails.has(sessionEmail)) {
