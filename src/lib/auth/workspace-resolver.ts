@@ -8,7 +8,7 @@
  * PLACE AT: lib/auth/workspace-resolver.ts
  */
 
-import { prisma } from '@/lib/db';
+import { db as prisma } from '@/lib/db';
 
 // ---------- Types ----------
 export interface ResolvedWorkspace {
