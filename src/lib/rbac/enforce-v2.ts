@@ -5,7 +5,7 @@
  *
  * Hierarchy (per Spec Part 1):
  *   Tier 0: SUPER_ADMIN              — configured ADMIN_EMAIL / INFRA_OWNER_EMAIL identities
- *   Tier 1: INFRASTRUCTURE_OWNER     — PRANJALGOSWAMIGHY86@GMAIL.COM (external owner)
+ *   Tier 1: INFRASTRUCTURE_OWNER     — deployment-configured owner identity
  *   Tier 2: MAIN_ADMIN / TENANT      — Business owner (full control within tenant)
  *   Tier 3: JUNIOR_ADMIN             — Sub-user (data mutation: edit/delete)
  *   Tier 4: DATA_ENTRY               — Sub-user (create only)
@@ -93,14 +93,17 @@ const PERMISSION_MATRIX: Record<Role, Record<Action, boolean>> = {
 // ---------- Tier identification ----------
 // SUPER_ADMIN and INFRA_OWNER share the same email list — both have full bypass
 const SUPER_ADMIN_EMAILS = [
-  'admin@bizbook.pro',
-  'pranjalgoswamighy86@gmail.com',
-  (process.env.ADMIN_EMAIL || '').toLowerCase(),
-  (process.env.INFRA_OWNER_EMAIL || '').toLowerCase(),
-  (process.env.INFRASTRUCTURE_OWNER_EMAIL || '').toLowerCase(),
-].filter(Boolean);
+  process.env.ADMIN_EMAIL || '',
+  process.env.INFRA_OWNER_EMAIL || '',
+  process.env.INFRASTRUCTURE_OWNER_EMAIL || '',
+].map(value => value.toLowerCase().trim()).filter(Boolean);
 
-const INFRA_OWNER_EMAILS = SUPER_ADMIN_EMAILS;
+// Infrastructure-owner permissions are granted only to explicitly configured
+// deployment identities; no public or personal email is privileged by default.
+const INFRA_OWNER_EMAILS = [
+  process.env.INFRA_OWNER_EMAIL || '',
+  process.env.INFRASTRUCTURE_OWNER_EMAIL || '',
+].map(value => value.toLowerCase().trim()).filter(Boolean);
 
 // ---------- Main permission checker ----------
 export async function requirePermission(
