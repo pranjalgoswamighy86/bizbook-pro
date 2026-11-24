@@ -285,6 +285,7 @@ export async function POST(req: NextRequest) {
             // A crafted backup must not overwrite a record already owned by
             // another business, even if its payload changes the tenant fields.
             skipped++
+            totalSkipped++
             continue
           }
 
