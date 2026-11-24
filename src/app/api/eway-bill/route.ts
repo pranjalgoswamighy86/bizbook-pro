@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireAuthAndTenant, writeAuditLog } from '@/lib/api-helpers'
+import { requireAuthAndTenant, requireTenantRole, writeAuditLog } from '@/lib/api-helpers'
 import { db } from '@/lib/db-soft-delete'
 import {
   validateGSTIN,
@@ -51,6 +51,12 @@ export async function POST(req: NextRequest) {
     const requestAccess = await requireAuthAndTenant(req, requestedTenantId)
     if (requestAccess instanceof NextResponse) return requestAccess
     const tenantId = requestAccess.tenantId
+
+    const writeActions = ['generate-payload', 'update-status', 'cancel', 'extend']
+    if (writeActions.includes(action)) {
+      const roleAccess = await requireTenantRole(requestAccess.userId, tenantId, ['DATA_ENTRY', 'JUNIOR_ADMIN', 'MAIN_ADMIN'])
+      if (roleAccess instanceof NextResponse) return roleAccess
+    }
 
     // ============================================================
     // Action: ewb-status — check if GSP is configured
