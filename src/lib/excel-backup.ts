@@ -99,13 +99,13 @@ const SHEET_CONFIGS: SheetConfig[] = [
   },
   {
     name: 'Sales',
-    header: ['id', 'invoiceNumber', 'date', 'partyName', 'partyAddress', 'partyGst', 'items', 'subtotal', 'gstAmount', 'totalAmount', 'invoiceType', 'invoiceStatus', 'paymentStatus', 'amountReceived', 'amountPaid', 'notes', 'einvoiceIrn', 'einvoiceAckNo', 'einvoiceAckDate', 'einvoiceStatus', 'isDeleted', 'deletedAt', 'createdAt', 'updatedAt'],
+    header: ['id', 'invoiceNumber', 'date', 'partyName', 'partyAddress', 'partyGst', 'items', 'subtotal', 'gstAmount', 'totalAmount', 'invoiceStatus', 'paymentStatus', 'amountReceived', 'amountPaid', 'notes', 'einvoiceIrn', 'einvoiceAckNo', 'einvoiceAckDate', 'einvoiceStatus', 'isDeleted', 'deletedAt', 'createdAt', 'updatedAt'],
     getData: (tid) => db.sale.findMany({ where: { tenantId: tid } }),
     mapRow: (r) => ({
       id: r.id, invoiceNumber: r.invoiceNumber, date: fmtDate(r.date), partyName: r.partyName,
       partyAddress: r.partyAddress || '', partyGst: r.partyGst || '', items: r.items,
       subtotal: r.subtotal, gstAmount: r.gstAmount, totalAmount: r.totalAmount,
-      invoiceType: r.invoiceType, invoiceStatus: r.invoiceStatus, paymentStatus: r.paymentStatus,
+      invoiceStatus: r.invoiceStatus, paymentStatus: r.paymentStatus,
       amountReceived: r.amountReceived, amountPaid: r.amountPaid, notes: r.notes || '',
       einvoiceIrn: r.einvoiceIrn || '', einvoiceAckNo: r.einvoiceAckNo || '',
       einvoiceAckDate: r.einvoiceAckDate || '', einvoiceStatus: r.einvoiceStatus,
@@ -219,13 +219,12 @@ const SHEET_CONFIGS: SheetConfig[] = [
   },
   {
     name: 'Creditors',
-    header: ['id', 'name', 'phone', 'email', 'address', 'gstNumber', 'openingBalance', 'currentBalance', 'sourceType', 'sourceId', 'isDeleted', 'deletedAt', 'createdAt', 'updatedAt'],
+    header: ['id', 'name', 'phone', 'email', 'address', 'gstNumber', 'openingBalance', 'currentBalance', 'isDeleted', 'deletedAt', 'createdAt', 'updatedAt'],
     getData: (tid) => db.creditor.findMany({ where: { tenantId: tid } }),
     mapRow: (r) => ({
       id: r.id, name: r.name, phone: r.phone || '', email: r.email || '',
       address: r.address || '', gstNumber: r.gstNumber || '',
       openingBalance: r.openingBalance, currentBalance: r.currentBalance,
-      sourceType: r.sourceType, sourceId: r.sourceId || '',
       isDeleted: r.isDeleted ? 'Yes' : 'No', deletedAt: fmtDate(r.deletedAt),
       createdAt: fmtDate(r.createdAt), updatedAt: fmtDate(r.updatedAt),
     }),
@@ -269,7 +268,7 @@ const SHEET_CONFIGS: SheetConfig[] = [
   },
   {
     name: 'Batches',
-    header: ['id', 'inventoryItemId', 'itemNme', 'batchNumber', 'manufacturingDate', 'expiryDate', 'quantity', 'supplier', 'notes', 'isActive', 'createdAt', 'updatedAt'],
+    header: ['id', 'inventoryItemId', 'itemName', 'batchNumber', 'manufacturingDate', 'expiryDate', 'quantity', 'supplier', 'notes', 'isActive', 'createdAt', 'updatedAt'],
     getData: (tid) => db.batch.findMany({
       where: { tenantId: tid },
       include: { inventoryItem: { select: { name: true } } }
