@@ -221,13 +221,12 @@ export async function POST(req: NextRequest) {
         totalRecords,
         tableErrors: tableErrors.length,
         instructions:
-          'To restore this backup:\n' +
-          '1. Set up a new PostgreSQL database (e.g., on Railway, Render, or locally)\n' +
-          '2. Deploy BizBook Pro and set DATABASE_URL to your new database\n' +
-          '3. The app will auto-create all tables on first startup via prisma db push\n' +
-          '4. Use the /api/db-admin endpoint with action "restore" to import this JSON\n' +
-          '   (or use psql to import the data manually)\n' +
-          '5. After restore, log in with your email + password — all data will be there',
+          'To restore this backup:\\n' +
+          '1. Set up a new PostgreSQL database (e.g., on Railway, Render, or locally)\\n' +
+          '2. Deploy BizBook Pro and set DATABASE_URL to your new database\\n' +
+          '3. Configure ADMIN_EMAIL or INFRASTRUCTURE_OWNER_EMAIL, register that verified address, and sign in\\n' +
+          '4. From the signed-in browser, POST this backup to /api/backup/restore with the current admin password and active session cookie\\n' +
+          '5. Keep the backup private: it contains every tenant and user record',
         schemaNote:
           'Tables that failed to export are listed in tableErrors array. ' +
           'This is usually because the table is empty or has a schema mismatch. ' +
