@@ -1,110 +1,106 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/db';
-import { analyzeWithAI } from '@/lib/multi-ai';
-import { requireAuthAndTenant } from '@/lib/api-helpers';
+import { NextRequest, NextResponse } from 'next/server'
+import { db } from '@/lib/db'
+import { analyzeWithAI } from '@/lib/multi-ai'
+import { requireAuthAndTenant } from '@/lib/api-helpers'
 
-export async function POST(req: NextRequest) { // v6.30.1: was `Request` (missing cookies/nextUrl props that requireAuthAndTenant expects)
+type ChatHistoryMessage = {
+  role: 'user' | 'ai'
+  content: string
+}
+
+export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
-    const { tenantId, query, searchResults } = body;
+    const body = await req.json()
+    const tenantId = typeof body?.tenantId === 'string' ? body.tenantId : ''
+    const message = typeof body?.message === 'string' ? body.message.trim() : ''
 
-    const auth = await requireAuthAndTenant(req, tenantId);
-    if (auth instanceof NextResponse) return auth;
-
-    if (!query) {
-      return NextResponse.json({ error: 'No search query provided' }, { status: 400 });
+    if (!message || message.length > 4000) {
+      return NextResponse.json(
+        { error: 'Message is required and must be 4,000 characters or fewer' },
+        { status: 400 }
+      )
     }
 
-    // Search across modules
-    const results: any[] = [];
+    // The client may identify the currently selected tenant, but access is
+    // always checked against the authenticated session before any data write.
+    const auth = await requireAuthAndTenant(req, tenantId)
+    if (auth instanceof NextResponse) return auth
 
-    // Search sales
-    if (!searchResults || searchResults.includes('sales')) {
-      const sales = await db.sale.findMany({
-        where: {
-          tenantId,
-          OR: [
-            { invoiceNumber: { contains: query, mode: 'insensitive' } },
-            { partyName: { contains: query, mode: 'insensitive' } },
-          ],
-        },
-        take: 5,
-        select: { id: true, invoiceNumber: true, partyName: true, totalAmount: true, createdAt: true },
-      });
-      results.push(...sales.map(s => ({ ...s, type: 'sale' })));
+    const tenant = await db.tenant.findUnique({
+      where: { id: auth.tenantId },
+      select: { name: true },
+    })
+    if (!tenant) {
+      return NextResponse.json({ error: 'Selected business was not found' }, { status: 404 })
     }
 
-    // Search purchases
-    if (!searchResults || searchResults.includes('purchases')) {
-      const purchases = await db.purchase.findMany({
-        where: {
-          tenantId,
-          OR: [
-            { invoiceNumber: { contains: query, mode: 'insensitive' } },
-            { partyName: { contains: query, mode: 'insensitive' } },
-          ],
-        },
-        take: 5,
-        select: { id: true, invoiceNumber: true, partyName: true, totalAmount: true, createdAt: true },
-      });
-      results.push(...purchases.map(p => ({ ...p, type: 'purchase' })));
-    }
+    const history: ChatHistoryMessage[] = Array.isArray(body?.history)
+      ? body.history
+          .filter((item: any) =>
+            item &&
+            (item.role === 'user' || item.role === 'ai') &&
+            typeof item.content === 'string'
+          )
+          .slice(-8)
+          .map((item: any) => ({
+            role: item.role,
+            content: item.content.slice(0, 2000),
+          }))
+      : []
 
-    // Search inventory
-    if (!searchResults || searchResults.includes('inventory')) {
-      const items = await db.inventoryItem.findMany({
-        where: {
-          tenantId,
-          name: { contains: query, mode: 'insensitive' },
-        },
-        take: 5,
-        select: { id: true, name: true, sku: true, currentStock: true, salePrice: true },
-      });
-      results.push(...items.map(i => ({ ...i, type: 'inventory' })));
-    }
+    const prompt = [
+      'You are BizBook Pro customer support assistant for Indian small businesses.',
+      'Answer clearly and practically. Do not claim to have accessed or changed account data.',
+      'For account-specific actions, payment verification, tax filing, or unresolved technical issues, advise the user that the support team must review the case.',
+      'Never ask for passwords, OTPs, API keys, or payment card details.',
+      '',
+      'Recent conversation:',
+      ...history.map(item => `${item.role === 'user' ? 'Customer' : 'Assistant'}: ${item.content}`),
+      '',
+      `Customer's latest question: ${message}`,
+      '',
+      'Provide a concise, helpful answer. If the issue needs a human to investigate, say so explicitly.',
+    ].join('\n')
 
-    // Search parties
-    if (!searchResults || searchResults.includes('parties')) {
-      const parties = await db.party.findMany({
-        where: {
-          tenantId,
-          name: { contains: query, mode: 'insensitive' },
-        },
-        take: 5,
-        select: { id: true, name: true, phone: true, gstNumber: true }, // v6.30.1: FIX — was `gst` (non-existent field); Prisma silently ignored it so GST was always undefined
-      });
-      results.push(...parties.map(p => ({ ...p, type: 'party' })));
-    }
-
-    // AI Summary
-    const prompt = `Search query: "${query}"
-    Found these results:
-    ${JSON.stringify(results.slice(0, 10), null, 2)}
-    
-    Provide a concise summary (2-3 sentences) of what was found.`;
+    let provider = 'fallback'
+    let response = 'Your question has been received by the support team. A team member may need to review it. Please do not share passwords or OTPs in chat.'
+    let aiFailed = false
 
     try {
-      const { provider, result } = await analyzeWithAI(prompt, undefined, undefined);
-
-      return NextResponse.json({
-        success: true,
-        provider,
-        summary: result,
-        results: results.slice(0, 10),
-        total: results.length,
-      });
-    } catch (aiError: any) {
-      console.error('[AI-Smart-Search] AI failed:', aiError);
-      return NextResponse.json({
-        success: true,
-        provider: 'fallback',
-        summary: `Found ${results.length} results for "${query}"`,
-        results: results.slice(0, 10),
-        total: results.length,
-      });
+      const result = await analyzeWithAI(prompt, undefined, undefined)
+      provider = result.provider || 'unknown'
+      response = typeof result.result === 'string' && result.result.trim()
+        ? result.result.trim()
+        : response
+    } catch (aiError) {
+      aiFailed = true
+      console.error('[HelpChat] AI response failed:', aiError)
     }
-  } catch (error: any) {
-    console.error('[AI-Smart-Search] Error:', error);
-    return NextResponse.json({ error: error.message || 'Internal server error' }, { status: 500 });
+
+    // Persist the question and response for the admin support queue.
+    await db.helpSupportTicket.create({
+      data: {
+        userId: auth.userId,
+        userEmail: auth.email,
+        tenantName: tenant.name,
+        userQuery: message,
+        optimizedQuery: message,
+        aiResponse: response,
+        category: 'General',
+        needsHumanSupport: true,
+        status: 'OPEN',
+      },
+    })
+
+    return NextResponse.json({
+      success: true,
+      response,
+      provider,
+      ticketCreated: true,
+      aiFallback: aiFailed,
+    })
+  } catch (error) {
+    console.error('[HelpChat] Request failed:', error)
+    return NextResponse.json({ error: 'Unable to send your support message right now' }, { status: 500 })
   }
 }
