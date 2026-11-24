@@ -73,17 +73,17 @@ const OWNERSHIP_SELECT: Record<string, Record<string, boolean>> = {
   sale: { tenantId: true },
   purchase: { tenantId: true },
   expense: { tenantId: true },
-  bankTransaction: { tenantId: true },
+  bankTransaction: { tenantId: true, matchedSaleId: true, matchedPurchaseId: true },
   bankStatementUpload: { tenantId: true },
   staff: { tenantId: true },
-  salaryPayment: { tenantId: true },
+  salaryPayment: { tenantId: true, staffId: true, creditorId: true, accrualJEId: true, disbursementJEId: true },
   staffAttendance: { tenantId: true, staffId: true },
   payment: { tenantId: true },
   receipt: { tenantId: true },
   debtor: { tenantId: true },
   creditor: { tenantId: true },
   account: { tenantId: true },
-  journalEntry: { tenantId: true },
+  journalEntry: { tenantId: true, sourceType: true, sourceId: true },
   journalEntryLine: { entryId: true, accountId: true },
   batch: { tenantId: true },
   priceList: { tenantId: true },
@@ -119,10 +119,43 @@ async function recordBelongsToTenant(model: string, row: any, tenantId: string):
   if (!row || typeof row !== 'object') return false
   if (model === 'tenant') return row.id === tenantId
 
+  if (model === 'staffAttendance') {
+    return row.tenantId === tenantId &&
+      parentBelongsToTenant('staff', row.staffId, tenantId)
+  }
+  if (model === 'salaryPayment') {
+    const checks = await Promise.all([
+      parentBelongsToTenant('staff', row.staffId, tenantId),
+      row.creditorId ? parentBelongsToTenant('creditor', row.creditorId, tenantId) : Promise.resolve(true),
+      row.accrualJEId ? parentBelongsToTenant('journalEntry', row.accrualJEId, tenantId) : Promise.resolve(true),
+      row.disbursementJEId ? parentBelongsToTenant('journalEntry', row.disbursementJEId, tenantId) : Promise.resolve(true),
+    ])
+    return row.tenantId === tenantId && checks.every(Boolean)
+  }
+  if (model === 'bankTransaction') {
+    const checks = await Promise.all([
+      row.matchedSaleId ? parentBelongsToTenant('sale', row.matchedSaleId, tenantId) : Promise.resolve(true),
+      row.matchedPurchaseId ? parentBelongsToTenant('purchase', row.matchedPurchaseId, tenantId) : Promise.resolve(true),
+    ])
+    return row.tenantId === tenantId && checks.every(Boolean)
+  }
+  if (model === 'journalEntry' && row.sourceId) {
+    const sourceModelByType: Record<string, string> = {
+      SALE: 'sale',
+      PURCHASE: 'purchase',
+      EXPENSE: 'expense',
+      PAYMENT: 'payment',
+      RECEIPT: 'receipt',
+    }
+    const sourceModel = sourceModelByType[String(row.sourceType || '').toUpperCase()]
+    return row.tenantId === tenantId && (
+      sourceModel ? parentBelongsToTenant(sourceModel, row.sourceId, tenantId) : String(row.sourceType || '').toUpperCase() === 'MANUAL'
+    )
+  }
+
   const directTenantModels = new Set([
     'user', 'userTenant', 'party', 'product', 'inventoryItem', 'sale', 'purchase',
-    'expense', 'bankTransaction', 'bankStatementUpload', 'staff', 'salaryPayment',
-    'staffAttendance', 'payment', 'receipt', 'debtor', 'creditor', 'account', 'journalEntry', 'batch',
+    'expense', 'bankStatementUpload', 'staff', 'payment', 'receipt', 'debtor', 'creditor', 'account', 'journalEntry', 'batch',
     'priceList', 'subscription', 'subscriptionQueue', 'auditLog',
   ])
   if (directTenantModels.has(model)) return row.tenantId === tenantId
