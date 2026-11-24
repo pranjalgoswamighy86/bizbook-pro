@@ -96,7 +96,7 @@ export function useOfflineMode(tenantId?: string) {
   // ============================================================
   // Sync pending writes to server
   // ============================================================
-  const syncPendingWrites = useCallback(async (tid: string) => {
+  async function syncPendingWrites(tid: string) {
     setState(s => ({ ...s, syncing: true }))
     try {
       const pending = await getPendingWrites(tid)
@@ -137,7 +137,7 @@ export function useOfflineMode(tenantId?: string) {
       console.error('[OfflineMode] syncPendingWrites failed:', err)
       setState(s => ({ ...s, syncing: false }))
     }
-  }, [])
+  }
 
   // ============================================================
   // Clear cache
