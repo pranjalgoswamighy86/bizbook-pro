@@ -676,6 +676,171 @@ async function handleSearchQuery(req: NextRequest) {
 // Returns { success, results, message } where results is a per-module
 // breakdown of { total, created, failed, skipped, errors[] }.
 // ============================================================
+
+// ============================================================
+// v6.30.9: Inventory synchronization for imported Sales / Purchases
+// ============================================================
+// PREVIOUS BUG: the AI-import path created Sale/Purchase rows + posted their
+// GL Journal Entries, but NEVER touched InventoryItem stock. The live
+// sales/route.ts and purchases/route.ts both adjust stock inside their
+// create transactions (anti-negative guard, BOM deduction, auto-create).
+// So the two entry paths disagreed: an imported purchase did not increase
+// stock and an imported sale did not decrease it — Inventory Register
+// drifted away from the Sale/Purchase Registers.
+//
+// FIX: these helpers replicate the live-route behavior INSIDE the same
+// per-record transaction as the Sale/Purchase row + JE. If stock cannot go
+// negative the helper throws, rolling back the whole record (row + JE +
+// partial stock moves) and the record is reported in results[module].errors.
+//
+//   SALE   — SERVICE items skipped; qty<=0 skipped; item matched by name
+//            (or HSN); FINISHED_PRODUCT BOM ingredients deducted first;
+//            insufficient stock throws; unknown items auto-created at 0
+//            stock (matches the live sales route — no negative stock).
+//   PURCHASE — matched item stock increased + purchase price refreshed;
+//            unknown items created with the imported qty as currentStock.
+// ============================================================
+function normalizeItems(raw: unknown): any[] {
+  if (Array.isArray(raw)) return raw
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw)
+      return Array.isArray(parsed) ? parsed : []
+    } catch {
+      return []
+    }
+  }
+  return []
+}
+
+async function syncInventoryForImportedSale(tx: any, tenantId: string, items: any[]): Promise<number> {
+  let adjusted = 0
+  for (const item of items) {
+    if (item.saleItemType === 'SERVICE') continue
+    if (!item.name || !item.qty || Number(item.qty) <= 0) continue
+    const qty = Number(item.qty)
+    const existingItem = await tx.inventoryItem.findFirst({
+      where: {
+        tenantId,
+        OR: [{ name: { equals: item.name } }, ...(item.hsn ? [{ hsnCode: item.hsn }] : [])],
+        isDeleted: false,
+      },
+    })
+    if (existingItem) {
+      // BOM: deduct raw-material ingredients for FINISHED_PRODUCT items
+      if (existingItem.itemType === 'FINISHED_PRODUCT') {
+        const product = await tx.product.findFirst({
+          where: { name: { equals: existingItem.name }, tenantId },
+          include: { ingredients: true },
+        })
+        if (product && product.ingredients.length > 0) {
+          for (const ingredient of product.ingredients) {
+            const rawItem = await tx.inventoryItem.findUnique({ where: { id: ingredient.inventoryItemId } })
+            if (rawItem) {
+              const qtyNeeded = ingredient.quantity * qty
+              if (rawItem.currentStock < qtyNeeded) {
+                throw new Error(`INSUFFICIENT_STOCK: BOM ingredient "${rawItem.name}". Required: ${qtyNeeded}, Available: ${rawItem.currentStock}. Record aborted — stock cannot go negative.`)
+              }
+              const newRawStock = rawItem.currentStock - qtyNeeded
+              await tx.inventoryItem.update({
+                where: { id: rawItem.id },
+                data: { currentStock: newRawStock, value: roundTo2(newRawStock * rawItem.purchasePrice) },
+              })
+            }
+          }
+        }
+      }
+      if (existingItem.currentStock < qty) {
+        throw new Error(`INSUFFICIENT_STOCK: "${existingItem.name}". Required: ${qty}, Available: ${existingItem.currentStock}. Record aborted — stock cannot go negative. Increase stock via Purchase/Adjust first.`)
+      }
+      const newStock = existingItem.currentStock - qty
+      await tx.inventoryItem.update({
+        where: { id: existingItem.id },
+        data: {
+          currentStock: newStock,
+          value: roundTo2(newStock * existingItem.purchasePrice),
+          ...(item.rate && Number(item.rate) > 0 ? { salePrice: roundTo2(Number(item.rate)) } : {}),
+        },
+      })
+      adjusted++
+    } else {
+      // Unknown item — auto-create at 0 stock (matches the live sales route;
+      // stock is NOT deducted so it never goes negative)
+      await tx.inventoryItem.create({
+        data: {
+          tenantId,
+          name: item.name,
+          category: item.category || null,
+          hsnCode: item.hsn || null,
+          unit: item.unit || 'PCS',
+          itemType: 'FINISHED_PRODUCT',
+          purchasePrice: 0,
+          salePrice: roundTo2(Number(item.rate || 0)),
+          mrp: item.mrp || null,
+          openingStock: 0,
+          currentStock: 0,
+          minStock: 0,
+          gstRate: Array.isArray(item.taxes) && item.taxes.length > 0 ? Number(item.taxes[0].percent || 0) : 0,
+          value: 0,
+        },
+      })
+      adjusted++
+    }
+  }
+  return adjusted
+}
+
+async function syncInventoryForImportedPurchase(tx: any, tenantId: string, items: any[]): Promise<number> {
+  let adjusted = 0
+  for (const item of items) {
+    if (!item.name || !item.qty || Number(item.qty) <= 0) continue
+    const qty = Number(item.qty)
+    const rate = Number(item.rate || 0)
+    const existingItem = await tx.inventoryItem.findFirst({
+      where: {
+        tenantId,
+        OR: [{ name: { equals: item.name } }, ...(item.hsn ? [{ hsnCode: item.hsn }] : [])],
+        isDeleted: false,
+      },
+    })
+    if (existingItem) {
+      const newStock = existingItem.currentStock + qty
+      const effPrice = rate > 0 ? rate : existingItem.purchasePrice
+      await tx.inventoryItem.update({
+        where: { id: existingItem.id },
+        data: {
+          currentStock: newStock,
+          value: roundTo2(newStock * effPrice),
+          ...(rate > 0 ? { purchasePrice: rate } : {}),
+          ...(item.hsn && !existingItem.hsnCode ? { hsnCode: item.hsn } : {}),
+          ...(item.category && !existingItem.category ? { category: item.category } : {}),
+        },
+      })
+    } else {
+      await tx.inventoryItem.create({
+        data: {
+          tenantId,
+          name: item.name,
+          category: item.category || null,
+          hsnCode: item.hsn || null,
+          unit: item.unit || 'PCS',
+          itemType: 'FINISHED_PRODUCT',
+          purchasePrice: rate,
+          salePrice: roundTo2(Number(item.salePrice || 0)),
+          mrp: item.mrp || null,
+          openingStock: 0,
+          currentStock: qty,
+          minStock: 0,
+          gstRate: Array.isArray(item.taxes) && item.taxes.length > 0 ? Number(item.taxes[0].percent || 0) : Number(item.gstPercent || 0),
+          value: roundTo2(qty * rate),
+        },
+      })
+    }
+    adjusted++
+  }
+  return adjusted
+}
+
 async function handleApplyImport(req: NextRequest, formData: FormData, tenantId: string) {
   if (!tenantId) {
     return NextResponse.json({ error: 'No tenant ID provided' }, { status: 400 })
@@ -776,6 +941,11 @@ async function handleApplyImport(req: NextRequest, formData: FormData, tenantId:
               paymentMode: created.paymentMode,
               discountPercent: 0,
             })
+            // v6.30.9: synchronize inventory stock in the same tx (was missing —
+            // imported sales never decreased stock). Throws on insufficient stock →
+            // the whole record (Sale + JE + stock moves) rolls back and is
+            // reported in results.sales.errors.
+            await syncInventoryForImportedSale(tx, tid, normalizeItems(s.items))
             return created
           })
           results.sales.created++
@@ -843,6 +1013,9 @@ async function handleApplyImport(req: NextRequest, formData: FormData, tenantId:
               paymentStatus: created.paymentStatus,
               paymentMode: created.paymentMode,
             })
+            // v6.30.9: synchronize inventory stock in the same tx (was missing —
+            // imported purchases never increased stock or created items).
+            await syncInventoryForImportedPurchase(tx, tid, normalizeItems(p.items))
             return created
           })
           results.purchases.created++
