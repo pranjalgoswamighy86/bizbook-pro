@@ -20,10 +20,10 @@
  *
  * If GSP credentials are not configured, all functions return MANUAL mode —
  * the caller generates the EWB JSON payload, submits it manually on
- * ewaybillgst.gov.in, then pastes back the 12-digit EWB number.
+ * the selected E-Way Bill portal, then pastes back the 12-digit EWB number.
  *
  * References:
- *   - EWB portal: https://ewaybillgst.gov.in
+ *   - EWB portal: use the portal or service selected by the tenant
  *   - EWB API: https://ewayapi.nic.in/api/v1/ewaybill/
  *   - Validity: 1 day per 200 km (min 1 day, max 30 days)
  *   - Cancellation: within validity period (not extendable after expiry)
@@ -97,7 +97,7 @@ export interface EwbResult {
   ewbDate?: string            // ISO date string
   ewbValidUpto?: string       // ISO date string
   errorMessage?: string
-  // For MANUAL mode: the JSON payload to submit on ewaybillgst.gov.in
+  // For MANUAL mode: the JSON payload to submit on the selected E-Way Bill portal
   ewbPayload?: Record<string, unknown>
 }
 
@@ -117,7 +117,7 @@ export async function generateEwbByIrn(
     return {
       success: false,
       mode: 'MANUAL',
-      errorMessage: 'GSP not configured. Submit the EWB payload manually on ewaybillgst.gov.in, then record the 12-digit EWB number.',
+      errorMessage: 'GSP not configured. Submit the EWB payload manually on the selected E-Way Bill portal, then record the 12-digit EWB number.',
       ewbPayload: buildEwbByIrnPayload(irn, transporter),
     }
   }
@@ -214,7 +214,7 @@ export async function generateEwbDirect(
     return {
       success: false,
       mode: 'MANUAL',
-      errorMessage: 'GSP not configured. Submit the EWB payload manually on ewaybillgst.gov.in, then record the 12-digit EWB number.',
+      errorMessage: 'GSP not configured. Submit the EWB payload manually on the selected E-Way Bill portal, then record the 12-digit EWB number.',
       ewbPayload: buildEwbDirectPayload(saleData, transporter),
     }
   }
@@ -286,7 +286,7 @@ export async function cancelEwb(
     return {
       success: false,
       mode: 'MANUAL',
-      errorMessage: 'GSP not configured. Cancel the EWB manually on ewaybillgst.gov.in.',
+      errorMessage: 'GSP not configured. Cancel the EWB manually on the selected E-Way Bill portal.',
     }
   }
 
@@ -352,7 +352,7 @@ export async function extendEwb(
     return {
       success: false,
       mode: 'MANUAL',
-      errorMessage: 'GSP not configured. Extend the EWB manually on ewaybillgst.gov.in.',
+      errorMessage: 'GSP not configured. Extend the EWB manually on the selected E-Way Bill portal.',
     }
   }
 

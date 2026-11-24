@@ -15,7 +15,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { formatCurrency, formatDate, getDateFilterRange } from '@/lib/formulas'
-import { isInterStateSupply, roundTo2 } from '@/lib/gst-utils'
+import { isInterStateSupply, roundTo2, validateGSTIN } from '@/lib/gst-utils'
 import { generateInvoiceHtml } from '@/lib/invoice-templates'
 import { Plus, Pencil, Trash2, Eye, ChevronDown, X, Loader2, CheckCircle2, Printer, Package, FileCheck, Sparkles, Truck } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
@@ -93,6 +93,27 @@ export function SaleRegister() {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [justSavedSale, setJustSavedSale] = useState<Sale | null>(null)
+  const [einvoiceSale, setEinvoiceSale] = useState<Sale | null>(null)
+  const [einvoicePayload, setEinvoicePayload] = useState<Record<string, unknown> | null>(null)
+  const [einvoiceBusy, setEinvoiceBusy] = useState(false)
+  const [einvoiceIrn, setEinvoiceIrn] = useState('')
+  const [einvoiceAckNo, setEinvoiceAckNo] = useState('')
+  const [einvoiceAckDate, setEinvoiceAckDate] = useState('')
+  const [sellerPinCode, setSellerPinCode] = useState('')
+  const [buyerPinCode, setBuyerPinCode] = useState('')
+  const [ewbSale, setEwbSale] = useState<Sale | null>(null)
+  const [ewbPayload, setEwbPayload] = useState<Record<string, unknown> | null>(null)
+  const [ewbBusy, setEwbBusy] = useState(false)
+  const [ewbVehicleNo, setEwbVehicleNo] = useState('')
+  const [ewbDistanceKm, setEwbDistanceKm] = useState('')
+  const [ewbTransporterId, setEwbTransporterId] = useState('')
+  const [ewbTransporterName, setEwbTransporterName] = useState('')
+  const [ewbModeOfTransport, setEwbModeOfTransport] = useState('2')
+  const [ewbTransDocNo, setEwbTransDocNo] = useState('')
+  const [ewbTransDocDate, setEwbTransDocDate] = useState('')
+  const [manualEwbNo, setManualEwbNo] = useState('')
+  const [manualEwbDate, setManualEwbDate] = useState('')
+  const [manualEwbValidUpto, setManualEwbValidUpto] = useState('')
   // Note: Invoice file upload has been moved to AI Smart Import module
   const [savedInvoiceFileRef, setSavedInvoiceFileRef] = useState<string | null>(null)
 
@@ -551,139 +572,121 @@ export function SaleRegister() {
 
 
 
-  // ===== PRINT INVOICE =====
-  const handleGenerateEinvoice = async (sale: Sale) => {
-    if (!tenant) return
-    // Open a tab immediately from the user's click so mobile/desktop popup
-    // blockers do not prevent the manual IRP hand-off after the API responds.
-    const irpWindow = window.open('about:blank', '_blank')
+  // ===== E-INVOICE WORKFLOW =====
+  const openEinvoiceDialog = (sale: Sale) => {
+    setEinvoiceSale(sale)
+    setEinvoicePayload(null)
+    setEinvoiceIrn('')
+    setEinvoiceAckNo('')
+    setEinvoiceAckDate('')
+    setSellerPinCode('')
+    setBuyerPinCode('')
+  }
+
+  const handlePrepareEinvoice = async () => {
+    if (!tenant || !einvoiceSale) return
+    if (sellerPinCode && !/^[1-9]\d{5}$/.test(sellerPinCode.trim())) {
+      toast({ title: 'Invalid seller PIN code', description: 'Enter a valid six-digit Indian PIN code.', variant: 'destructive' })
+      return
+    }
+    if (buyerPinCode && !/^[1-9]\d{5}$/.test(buyerPinCode.trim())) {
+      toast({ title: 'Invalid buyer PIN code', description: 'Enter a valid six-digit Indian PIN code.', variant: 'destructive' })
+      return
+    }
+
+    setEinvoiceBusy(true)
     try {
-      // v6.28.0: CRITICAL FIX — call the REAL IRP integration (submit-to-irp)
-      // instead of the fake-hash generate-payload flow. Previously this handler
-      // generated a SHA-256 hash locally, stored it as the "IRN", and marked the
-      // sale as 'GENERATED' — without ever contacting the IRP. The real IRP
-      // integration in irp-integration.ts was correctly implemented but never
-      // invoked from the frontend.
-      //
-      // Now we call submit-to-irp, which:
-      //   - If IRP credentials are configured (LIVE mode): submits to NIC,
-      //     persists the real IRN/AckNo/AckDate/SignedQR, and returns success.
-      //   - If IRP is NOT configured (MANUAL mode): returns the INV-01 payload
-      //     for the user to submit via their GSP portal manually.
-      //   - On LIVE error: returns the error message.
-      let pinCodes: { sellerPinCode?: string; buyerPinCode?: string } = {}
-      const sendEinvoiceRequest = (pins: { sellerPinCode?: string; buyerPinCode?: string }) => authFetch('/api/einvoice', {
+      const res = await authFetch('/api/einvoice', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'submit-to-irp', tenantId: tenant.id, saleId: sale.id, ...pins }),
+        body: JSON.stringify({
+          action: 'submit-to-irp',
+          tenantId: tenant.id,
+          saleId: einvoiceSale.id,
+          sellerPinCode: sellerPinCode.trim() || undefined,
+          buyerPinCode: buyerPinCode.trim() || undefined,
+        }),
       })
-      let res = await sendEinvoiceRequest(pinCodes)
-      let data = await res.json()
-
-      // If an address record has no PIN, ask for the exact PIN instead of
-      // leaving the user with a generic validation error. Never guess a PIN.
-      if (!res.ok && data.code === 'PIN_CODE_REQUIRED' && Array.isArray(data.missingPins)) {
-        const missingPins = data.missingPins as string[]
-        if (missingPins.includes('seller')) {
-          const value = window.prompt('Enter the 6-digit PIN code of this business registered address:')
-          if (!value) { if (irpWindow && !irpWindow.closed) irpWindow.close(); return }
-          if (!/^[1-9]\d{5}$/.test(value.trim())) {
-            if (irpWindow && !irpWindow.closed) irpWindow.close()
-            toast({ title: 'Invalid seller PIN code', description: 'Enter a valid six-digit Indian PIN code.', variant: 'destructive' })
-            return
-          }
-          pinCodes.sellerPinCode = value.trim()
-        }
-        if (missingPins.includes('buyer')) {
-          const value = window.prompt(`Enter the 6-digit PIN code for ${sale.partyName || 'the customer'}'s billing address:`)
-          if (!value) { if (irpWindow && !irpWindow.closed) irpWindow.close(); return }
-          if (!/^[1-9]\d{5}$/.test(value.trim())) {
-            if (irpWindow && !irpWindow.closed) irpWindow.close()
-            toast({ title: 'Invalid buyer PIN code', description: 'Enter a valid six-digit Indian PIN code.', variant: 'destructive' })
-            return
-          }
-          pinCodes.buyerPinCode = value.trim()
-        }
-        res = await sendEinvoiceRequest(pinCodes)
-        data = await res.json()
-      }
+      const data = await res.json().catch(() => ({}))
 
       if (res.ok && data.success && data.mode === 'LIVE') {
-        if (irpWindow && !irpWindow.closed) irpWindow.close()
-        // Real IRN generated — refresh the sales list to show the green checkmark
-        fetchSales()
+        setEinvoiceSale(null)
+        await fetchSales()
         toast({
-          title: 'E-Invoice Generated (LIVE)',
+          title: 'E-Invoice generated successfully',
           description: `IRN: ${data.irn?.slice(0, 24)}... | Ack No: ${data.ackNo || 'N/A'}`,
         })
         return
       }
 
       if (res.ok && data.mode === 'MANUAL' && data.inv01Payload) {
-        // No paid GSP subscription is required for this user-driven workflow.
-        // Download the prepared payload and send the user to the IRIS IRP portal.
-        const irpUrl = 'https://einvoice6.gst.gov.in/'
-        if (irpWindow) {
-          irpWindow.location.href = irpUrl
-        } else {
-          toast({
-            title: 'IRP portal pop-up blocked',
-            description: 'Allow pop-ups for BizBook Pro, then choose E-Invoice again to open the IRIS IRP portal.',
-            variant: 'destructive',
-          })
-        }
-
-        const payloadBlob = new Blob([JSON.stringify(data.inv01Payload, null, 2)], { type: 'application/json' })
-        const payloadUrl = URL.createObjectURL(payloadBlob)
-        const download = document.createElement('a')
-        const safeInvoiceNumber = String(sale.invoiceNumber || 'invoice').replace(/[^a-zA-Z0-9-_]/g, '_')
-        download.href = payloadUrl
-        download.download = `BizBook-Pro-EInvoice-${safeInvoiceNumber}.json`
-        document.body.appendChild(download)
-        download.click()
-        download.remove()
-        window.setTimeout(() => URL.revokeObjectURL(payloadUrl), 1000)
-
+        setEinvoicePayload(data.inv01Payload)
         toast({
-          title: 'IRIS IRP opened — manual e-invoice',
-          description: 'Your invoice JSON has been downloaded. Sign in with this business GSTIN, generate the IRN on IRIS, then return to BizBook Pro and save the IRN and acknowledgement details.',
-          duration: 9000,
+          title: 'GST INV-01 JSON is ready',
+          description: 'Download this file and upload it to the IRP selected by this business. No portal login or paid API is required by BizBook Pro.',
+          duration: 8000,
         })
         return
       }
 
-      // Live error or unexpected response
-      if (irpWindow && !irpWindow.closed) irpWindow.close()
+      if (data.code === 'PIN_CODE_REQUIRED') {
+        toast({
+          title: 'Address PIN code required',
+          description: data.error || 'Enter the exact six-digit PIN for the seller and buyer addresses above, then prepare again.',
+          variant: 'destructive',
+        })
+        return
+      }
+
       toast({
-        title: 'E-Invoice Error',
-        description: data.error || 'Failed to generate e-invoice. Check IRP credentials and try again.',
+        title: 'E-Invoice generation failed',
+        description: data.error || 'The configured IRP API did not generate an IRN. No manual fallback was attempted.',
         variant: 'destructive',
       })
     } catch {
-      if (irpWindow && !irpWindow.closed) irpWindow.close()
-      toast({ title: 'Error', description: 'Failed to generate e-invoice', variant: 'destructive' })
+      toast({ title: 'Network error', description: 'Could not connect to the e-invoice service. Please try again.', variant: 'destructive' })
+    } finally {
+      setEinvoiceBusy(false)
     }
   }
 
-  const handleRecordManualEinvoice = async (sale: Sale) => {
-    const irn = window.prompt('Paste the 64-character IRN generated by the IRP portal:')
-    if (!irn) return
-    const ackNo = window.prompt('Enter the IRP acknowledgement number:')
-    if (!ackNo) return
-    const ackDate = window.prompt('Enter the IRP acknowledgement date/time exactly as shown (for example: 2026-11-24 14:30:00):')
-    if (!ackDate) return
+  const downloadEinvoiceJson = () => {
+    if (!einvoicePayload || !einvoiceSale) return
+    const blob = new Blob([JSON.stringify(einvoicePayload, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    const safeInvoiceNumber = String(einvoiceSale.invoiceNumber || 'invoice').replace(/[^a-zA-Z0-9-_]/g, '_')
+    link.href = url
+    link.download = `BizBook-Pro-GST-INV-01-${safeInvoiceNumber}.json`
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+  }
 
+  const handleSaveManualEinvoice = async () => {
+    if (!tenant || !einvoiceSale) return
+    if (!/^[A-Fa-f0-9]{64}$/.test(einvoiceIrn.trim())) {
+      toast({ title: 'Invalid IRN', description: 'The IRN must contain exactly 64 hexadecimal characters.', variant: 'destructive' })
+      return
+    }
+    if (!einvoiceAckNo.trim() || !einvoiceAckDate || Number.isNaN(new Date(einvoiceAckDate).getTime())) {
+      toast({ title: 'Acknowledgement details required', description: 'Enter the acknowledgement number and a valid acknowledgement date/time from the IRP.', variant: 'destructive' })
+      return
+    }
+
+    setEinvoiceBusy(true)
     try {
       const res = await authFetch('/api/einvoice', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: 'update-status',
-          tenantId: tenant?.id,
-          saleId: sale.id,
-          irn: irn.trim(),
-          ackNo: ackNo.trim(),
-          ackDate: ackDate.trim(),
+          tenantId: tenant.id,
+          saleId: einvoiceSale.id,
+          irn: einvoiceIrn.trim(),
+          ackNo: einvoiceAckNo.trim(),
+          ackDate: new Date(einvoiceAckDate).toISOString(),
           status: 'GENERATED',
         }),
       })
@@ -692,96 +695,167 @@ export function SaleRegister() {
         toast({ title: 'Could not save IRP details', description: data.error || 'Please verify the IRN and acknowledgement details.', variant: 'destructive' })
         return
       }
+      const invoiceNumber = einvoiceSale.invoiceNumber
+      setEinvoiceSale(null)
       await fetchSales()
-      toast({ title: 'E-Invoice details saved', description: `IRN recorded for invoice ${sale.invoiceNumber}.` })
+      toast({ title: 'E-Invoice details saved', description: `IRN recorded for invoice ${invoiceNumber}.` })
     } catch {
       toast({ title: 'Network error', description: 'Could not save the IRP details. Please try again.', variant: 'destructive' })
+    } finally {
+      setEinvoiceBusy(false)
     }
   }
 
-  const handleGenerateEwb = async (sale: Sale) => {
-    if (!tenant) return
-    const vehicleNo = window.prompt('Enter vehicle number (for example WB12AB1234):')
-    if (!vehicleNo) return
-    const distanceInput = window.prompt('Enter approximate transport distance in kilometres:')
-    if (!distanceInput) return
-    const distanceKm = Number(distanceInput)
+  // ===== E-WAY BILL WORKFLOW =====
+  const openEwbDialog = (sale: Sale) => {
+    setEwbSale(sale)
+    setEwbPayload(null)
+    setEwbVehicleNo('')
+    setEwbDistanceKm('')
+    setEwbTransporterId('')
+    setEwbTransporterName('')
+    setEwbModeOfTransport('2')
+    setEwbTransDocNo('')
+    setEwbTransDocDate('')
+    setManualEwbNo('')
+    setManualEwbDate('')
+    setManualEwbValidUpto('')
+  }
+
+  const handlePrepareEwb = async () => {
+    if (!tenant || !ewbSale) return
+    const distanceKm = Number(ewbDistanceKm)
     if (!Number.isInteger(distanceKm) || distanceKm <= 0) {
-      toast({ title: 'Invalid distance', description: 'Enter a positive whole-number distance in kilometres.', variant: 'destructive' })
+      toast({ title: 'Invalid transport distance', description: 'Enter a positive whole-number distance in kilometres.', variant: 'destructive' })
       return
     }
-    const transporterId = window.prompt('Transporter GSTIN (optional; leave blank if not applicable):') || ''
-    const ewbWindow = window.open('about:blank', '_blank')
+    const vehicleNo = ewbVehicleNo.replace(/\s+/g, '').toUpperCase()
+    if (!vehicleNo && !ewbTransporterId.trim()) {
+      toast({ title: 'Transport details required', description: 'Enter a vehicle number or the registered transporter GSTIN.', variant: 'destructive' })
+      return
+    }
+    if (vehicleNo && !/^[A-Z]{2}\d{1,2}[A-Z]{1,2}\d{3,4}$/.test(vehicleNo)) {
+      toast({ title: 'Invalid vehicle number', description: 'Use the Indian vehicle number format, for example WB12AB1234.', variant: 'destructive' })
+      return
+    }
+    if (ewbTransporterId.trim() && !validateGSTIN(ewbTransporterId.trim()).valid) {
+      toast({ title: 'Invalid transporter GSTIN', description: 'Enter a valid 15-character transporter GSTIN or leave it blank.', variant: 'destructive' })
+      return
+    }
+    if (ewbModeOfTransport !== '2' && (!!ewbTransDocNo.trim() !== !!ewbTransDocDate)) {
+      toast({ title: 'Transport document details incomplete', description: 'Enter both the transport document number and date, or leave both blank.', variant: 'destructive' })
+      return
+    }
+
+    setEwbBusy(true)
     try {
       const res = await authFetch('/api/eway-bill', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          action: 'generate-payload', tenantId: tenant.id, saleId: sale.id,
-          vehicleNo: vehicleNo.trim().toUpperCase(), distanceKm, transporterId: transporterId.trim(),
-          modeOfTransport: '2',
+          action: 'generate-payload',
+          tenantId: tenant.id,
+          saleId: ewbSale.id,
+          vehicleNo,
+          distanceKm,
+          transporterId: ewbTransporterId.trim(),
+          transporterName: ewbTransporterName.trim(),
+          modeOfTransport: ewbModeOfTransport,
+          transDocNo: ewbTransDocNo.trim(),
+          transDocDate: ewbTransDocDate || undefined,
         }),
       })
       const data = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        if (ewbWindow && !ewbWindow.closed) ewbWindow.close()
-        toast({ title: 'E-Way Bill Error', description: data.error || 'Could not prepare the E-Way Bill.', variant: 'destructive' })
-        return
-      }
-      if (data.mode === 'LIVE' && data.success) {
-        if (ewbWindow && !ewbWindow.closed) ewbWindow.close()
+
+      if (res.ok && data.mode === 'LIVE' && data.success) {
+        const invoiceNumber = ewbSale.invoiceNumber
+        setEwbSale(null)
         await fetchSales()
-        toast({ title: 'E-Way Bill generated', description: `EWB No: ${data.ewbNo || 'Generated'}` })
+        toast({ title: 'E-Way Bill generated successfully', description: `EWB No: ${data.ewbNo || 'Generated'} | Invoice: ${invoiceNumber}` })
         return
       }
-      if (data.mode === 'MANUAL' && data.payload) {
-        if (ewbWindow) ewbWindow.location.href = 'https://ewaybillgst.gov.in/'
-        const blob = new Blob([JSON.stringify(data.payload, null, 2)], { type: 'application/json' })
-        const url = URL.createObjectURL(blob)
-        const link = document.createElement('a')
-        const invoice = String(sale.invoiceNumber || 'invoice').replace(/[^a-zA-Z0-9-_]/g, '_')
-        link.href = url
-        link.download = `BizBook-Pro-EWayBill-${invoice}.json`
-        document.body.appendChild(link)
-        link.click()
-        link.remove()
-        window.setTimeout(() => URL.revokeObjectURL(url), 1000)
-        toast({ title: 'E-Way Bill payload downloaded', description: 'Submit the JSON on the GST E-Way Bill portal, then use Record EWB to save the 12-digit number.', duration: 9000 })
+
+      if (res.ok && data.mode === 'MANUAL' && data.payload) {
+        setEwbPayload(data.payload)
+        toast({
+          title: 'E-Way Bill JSON is ready',
+          description: 'Download the payload and submit it through the E-Way Bill service selected by this business. BizBook Pro does not select a portal or provider.',
+          duration: 9000,
+        })
         return
       }
-      if (ewbWindow && !ewbWindow.closed) ewbWindow.close()
-      toast({ title: 'E-Way Bill Error', description: data.error || 'Unexpected response from the E-Way Bill service.', variant: 'destructive' })
+
+      toast({
+        title: 'E-Way Bill generation failed',
+        description: data.error || 'The configured GSP API did not generate an E-Way Bill. No manual fallback was attempted.',
+        variant: 'destructive',
+      })
     } catch {
-      if (ewbWindow && !ewbWindow.closed) ewbWindow.close()
-      toast({ title: 'Network error', description: 'Could not connect to the E-Way Bill service.', variant: 'destructive' })
+      toast({ title: 'Network error', description: 'Could not connect to the E-Way Bill service. Please try again.', variant: 'destructive' })
+    } finally {
+      setEwbBusy(false)
     }
   }
 
-  const handleRecordManualEwb = async (sale: Sale) => {
-    if (!tenant) return
-    const ewbNo = window.prompt('Enter the 12-digit E-Way Bill number returned by the GST portal:')
-    if (!ewbNo) return
-    if (!/^\d{12}$/.test(ewbNo.trim())) {
+  const downloadEwbJson = () => {
+    if (!ewbPayload || !ewbSale) return
+    const blob = new Blob([JSON.stringify(ewbPayload, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    const invoice = String(ewbSale.invoiceNumber || 'invoice').replace(/[^a-zA-Z0-9-_]/g, '_')
+    link.href = url
+    link.download = `BizBook-Pro-EWayBill-${invoice}.json`
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+  }
+
+  const handleSaveManualEwb = async () => {
+    if (!tenant || !ewbSale) return
+    if (!/^\d{12}$/.test(manualEwbNo.trim())) {
       toast({ title: 'Invalid EWB number', description: 'The E-Way Bill number must contain exactly 12 digits.', variant: 'destructive' })
       return
     }
-    const ewbDate = window.prompt('Enter EWB generation date (YYYY-MM-DD):', new Date().toISOString().slice(0, 10))
-    if (!ewbDate) return
+    const issuedAt = new Date(manualEwbDate)
+    const validUpto = new Date(manualEwbValidUpto)
+    if (!manualEwbDate || Number.isNaN(issuedAt.getTime()) || !manualEwbValidUpto || Number.isNaN(validUpto.getTime()) || validUpto <= issuedAt) {
+      toast({ title: 'EWB dates are required', description: 'Enter the generation date/time and a later validity date/time exactly as displayed by the E-Way Bill service.', variant: 'destructive' })
+      return
+    }
+
+    setEwbBusy(true)
     try {
       const res = await authFetch('/api/eway-bill', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'update-status', tenantId: tenant.id, saleId: sale.id, ewbNo: ewbNo.trim(), ewbDate, distanceKm: null }),
+        body: JSON.stringify({
+          action: 'update-status',
+          tenantId: tenant.id,
+          saleId: ewbSale.id,
+          ewbNo: manualEwbNo.trim(),
+          ewbDate: issuedAt.toISOString(),
+          ewbValidUpto: validUpto.toISOString(),
+          transporterId: ewbTransporterId.trim(),
+          transporterName: ewbTransporterName.trim(),
+          vehicleNo: ewbVehicleNo.replace(/\s+/g, '').toUpperCase(),
+          modeOfTransport: ewbModeOfTransport,
+          distanceKm: Number(ewbDistanceKm),
+        }),
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
-        toast({ title: 'Could not save EWB details', description: data.error || 'Verify the EWB number and date.', variant: 'destructive' })
+        toast({ title: 'Could not save E-Way Bill details', description: data.error || 'Verify the EWB number and dates.', variant: 'destructive' })
         return
       }
+      const invoiceNumber = ewbSale.invoiceNumber
+      setEwbSale(null)
       await fetchSales()
-      toast({ title: 'E-Way Bill recorded', description: `EWB ${ewbNo.trim()} saved for invoice ${sale.invoiceNumber}.` })
+      toast({ title: 'E-Way Bill recorded', description: `EWB ${manualEwbNo.trim()} saved for invoice ${invoiceNumber}.` })
     } catch {
-      toast({ title: 'Network error', description: 'Could not save the E-Way Bill details.', variant: 'destructive' })
+      toast({ title: 'Network error', description: 'Could not save the E-Way Bill details. Please try again.', variant: 'destructive' })
+    } finally {
+      setEwbBusy(false)
     }
   }
 
@@ -1003,23 +1077,13 @@ export function SaleRegister() {
                         <div className="flex justify-end gap-1">
                           <Button variant="ghost" size="icon" className="h-8 w-8" title="Print Invoice" onClick={() => handlePrintInvoice(s)}><Printer className="h-4 w-4" /></Button>
                           {s.partyGst && s.invoiceStatus !== 'QUOTATION' && (
-                            <Button variant="outline" size="sm" className="h-8 gap-1 px-2" title="Prepare e-invoice and open IRIS IRP" onClick={() => handleGenerateEinvoice(s)}>
+                            <Button variant="outline" size="sm" className="h-8 gap-1 px-2" title="Generate IRN or export GST INV-01 JSON" onClick={() => openEinvoiceDialog(s)}>
                               <FileCheck className="h-4 w-4" /><span className="text-xs">E-Invoice</span>
                             </Button>
                           )}
-                          {s.partyGst && s.invoiceStatus !== 'QUOTATION' && s.einvoiceStatus !== 'GENERATED' && (
-                            <Button variant="ghost" size="sm" className="h-8 px-2 text-xs" title="Record IRN and acknowledgement details from IRIS IRP" onClick={() => handleRecordManualEinvoice(s)}>
-                              Record IRN
-                            </Button>
-                          )}
                           {s.invoiceStatus !== 'QUOTATION' && s.totalAmount >= 50000 && !s.ewayBillNo && (
-                            <Button variant="outline" size="sm" className="h-8 gap-1 px-2" title="Prepare E-Way Bill JSON for GST portal" onClick={() => handleGenerateEwb(s)}>
+                            <Button variant="outline" size="sm" className="h-8 gap-1 px-2" title="Generate E-Way Bill or prepare JSON" onClick={() => openEwbDialog(s)}>
                               <Truck className="h-4 w-4" /><span className="text-xs">EWB</span>
-                            </Button>
-                          )}
-                          {s.invoiceStatus !== 'QUOTATION' && s.totalAmount >= 50000 && !s.ewayBillNo && (
-                            <Button variant="ghost" size="sm" className="h-8 px-2 text-xs" title="Record the 12-digit E-Way Bill number from the GST portal" onClick={() => handleRecordManualEwb(s)}>
-                              Record EWB
                             </Button>
                           )}
                           {s.ewayBillNo && <Badge variant="outline" className="h-8 gap-1 border-blue-300 text-blue-700"><Truck className="h-3 w-3" /> EWB</Badge>}
@@ -1677,6 +1741,155 @@ export function SaleRegister() {
         </Dialog>
 
         {/* ===== PRINT INVOICE DIALOG (after saving) ===== */}
+        <Dialog open={!!ewbSale} onOpenChange={(open) => { if (!open && !ewbBusy) setEwbSale(null) }}>
+          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Truck className="h-5 w-5" /> E-Way Bill — {ewbSale?.invoiceNumber}
+              </DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4 text-sm">
+              <p className="text-muted-foreground">
+                BizBook Pro can generate the E-Way Bill through this tenant&apos;s configured GSP credentials, or prepare JSON for the E-Way Bill service selected by the business. No provider or portal is forced.
+              </p>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-1">
+                  <Label htmlFor="ewb-vehicle-no">Vehicle number</Label>
+                  <Input id="ewb-vehicle-no" value={ewbVehicleNo} onChange={e => setEwbVehicleNo(e.target.value.toUpperCase().slice(0, 15))} placeholder="WB12AB1234" />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="ewb-distance">Transport distance (km)</Label>
+                  <Input id="ewb-distance" type="number" min="1" step="1" value={ewbDistanceKm} onChange={e => setEwbDistanceKm(e.target.value)} placeholder="e.g. 250" />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="ewb-transporter-gstin">Transporter GSTIN (optional)</Label>
+                  <Input id="ewb-transporter-gstin" value={ewbTransporterId} onChange={e => setEwbTransporterId(e.target.value.toUpperCase().slice(0, 15))} maxLength={15} placeholder="15-character GSTIN" />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="ewb-transporter-name">Transporter name (optional)</Label>
+                  <Input id="ewb-transporter-name" value={ewbTransporterName} onChange={e => setEwbTransporterName(e.target.value)} placeholder="Transporter name" />
+                </div>
+                <div className="space-y-1">
+                  <Label>Mode of transport</Label>
+                  <Select value={ewbModeOfTransport} onValueChange={setEwbModeOfTransport}>
+                    <SelectTrigger><SelectValue placeholder="Select transport mode" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="2">Road</SelectItem>
+                      <SelectItem value="1">Air</SelectItem>
+                      <SelectItem value="R">Rail</SelectItem>
+                      <SelectItem value="S">Ship</SelectItem>
+                      <SelectItem value="I">In transit</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="ewb-doc-no">Transport document number (optional)</Label>
+                  <Input id="ewb-doc-no" value={ewbTransDocNo} onChange={e => setEwbTransDocNo(e.target.value)} placeholder="LR / RR / AWB / Bill of Lading" />
+                </div>
+                <div className="space-y-1 sm:col-span-2">
+                  <Label htmlFor="ewb-doc-date">Transport document date (optional)</Label>
+                  <Input id="ewb-doc-date" type="date" value={ewbTransDocDate} onChange={e => setEwbTransDocDate(e.target.value)} />
+                </div>
+              </div>
+              <Button onClick={handlePrepareEwb} disabled={ewbBusy} className="w-full">
+                {ewbBusy ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Truck className="h-4 w-4 mr-2" />}
+                Generate E-Way Bill / Prepare JSON
+              </Button>
+              {ewbPayload && (
+                <div className="space-y-3 rounded-lg border p-3">
+                  <div className="font-medium text-emerald-700">E-Way Bill JSON prepared</div>
+                  <p className="text-muted-foreground">
+                    Download the payload and submit it through the E-Way Bill service used by this business. Copy the EWB number, generation date/time and validity shown by that service into the fields below.
+                  </p>
+                  <Button type="button" variant="outline" onClick={downloadEwbJson} className="w-full">
+                    <Truck className="h-4 w-4 mr-2" /> Download E-Way Bill JSON
+                  </Button>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="space-y-1">
+                      <Label htmlFor="manual-ewb-no">EWB number (12 digits)</Label>
+                      <Input id="manual-ewb-no" inputMode="numeric" maxLength={12} value={manualEwbNo} onChange={e => setManualEwbNo(e.target.value.replace(/\D/g, '').slice(0, 12))} placeholder="12-digit EWB number" />
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="manual-ewb-date">EWB generation date/time</Label>
+                      <Input id="manual-ewb-date" type="datetime-local" value={manualEwbDate} onChange={e => setManualEwbDate(e.target.value)} />
+                    </div>
+                    <div className="space-y-1 sm:col-span-2">
+                      <Label htmlFor="manual-ewb-validity">EWB valid until</Label>
+                      <Input id="manual-ewb-validity" type="datetime-local" value={manualEwbValidUpto} onChange={e => setManualEwbValidUpto(e.target.value)} />
+                    </div>
+                  </div>
+                  <Button onClick={handleSaveManualEwb} disabled={ewbBusy} className="w-full bg-emerald-600 hover:bg-emerald-700">
+                    {ewbBusy ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <CheckCircle2 className="h-4 w-4 mr-2" />}
+                    Save EWB details
+                  </Button>
+                </div>
+              )}
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setEwbSale(null)} disabled={ewbBusy}>Close</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={!!einvoiceSale} onOpenChange={(open) => { if (!open && !einvoiceBusy) setEinvoiceSale(null) }}>
+          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <FileCheck className="h-5 w-5" /> E-Invoice — {einvoiceSale?.invoiceNumber}
+              </DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4 text-sm">
+              <p className="text-muted-foreground">
+                BizBook Pro can generate the IRN through this tenant&apos;s configured GSP credentials, or prepare a GST INV-01 JSON file for upload to the IRP chosen by the business. It will not redirect you to a fixed IRP portal.
+              </p>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-1">
+                  <Label htmlFor="einvoice-seller-pin">Seller registered-address PIN (if missing above)</Label>
+                  <Input id="einvoice-seller-pin" inputMode="numeric" maxLength={6} value={sellerPinCode} onChange={e => setSellerPinCode(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="6-digit PIN" />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="einvoice-buyer-pin">Buyer billing-address PIN (if missing above)</Label>
+                  <Input id="einvoice-buyer-pin" inputMode="numeric" maxLength={6} value={buyerPinCode} onChange={e => setBuyerPinCode(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="6-digit PIN" />
+                </div>
+              </div>
+              <Button onClick={handlePrepareEinvoice} disabled={einvoiceBusy} className="w-full">
+                {einvoiceBusy ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <FileCheck className="h-4 w-4 mr-2" />}
+                Generate IRN / Prepare GST INV-01 JSON
+              </Button>
+              {einvoicePayload && (
+                <div className="space-y-2 rounded-lg border p-3">
+                  <div className="font-medium text-emerald-700">GST INV-01 JSON prepared</div>
+                  <p className="text-muted-foreground">Download the JSON and upload it through the IRP portal where this business is registered. The portal returns the IRN and acknowledgement details; BizBook Pro does not choose or assume an IRP for you.</p>
+                  <Button type="button" variant="outline" onClick={downloadEinvoiceJson} className="w-full">
+                    <FileCheck className="h-4 w-4 mr-2" /> Download GST INV-01 JSON
+                  </Button>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="space-y-1">
+                      <Label htmlFor="einvoice-irn">IRN (64 hexadecimal characters)</Label>
+                      <Input id="einvoice-irn" value={einvoiceIrn} onChange={e => setEinvoiceIrn(e.target.value.trim().toUpperCase().slice(0, 64))} maxLength={64} placeholder="Paste IRN returned by IRP" />
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="einvoice-ack-no">Acknowledgement number</Label>
+                      <Input id="einvoice-ack-no" value={einvoiceAckNo} onChange={e => setEinvoiceAckNo(e.target.value)} placeholder="Paste Ack No." />
+                    </div>
+                    <div className="space-y-1 sm:col-span-2">
+                      <Label htmlFor="einvoice-ack-date">Acknowledgement date and time</Label>
+                      <Input id="einvoice-ack-date" type="datetime-local" value={einvoiceAckDate} onChange={e => setEinvoiceAckDate(e.target.value)} />
+                    </div>
+                  </div>
+                  <Button onClick={handleSaveManualEinvoice} disabled={einvoiceBusy} className="w-full bg-emerald-600 hover:bg-emerald-700">
+                    {einvoiceBusy ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <CheckCircle2 className="h-4 w-4 mr-2" />}
+                    Save IRN and acknowledgement details
+                  </Button>
+                </div>
+              )}
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setEinvoiceSale(null)} disabled={einvoiceBusy}>Close</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
         <Dialog open={!!justSavedSale} onOpenChange={(open) => { if (!open) setJustSavedSale(null) }}>
           <DialogContent className="max-w-md">
             <DialogHeader>

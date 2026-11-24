@@ -111,6 +111,20 @@ export async function POST(req: NextRequest) {
         }, { status: 400 })
       }
 
+      if (transporter.transporterId && !validateGSTIN(String(transporter.transporterId)).valid) {
+        return NextResponse.json({ error: 'Transporter GSTIN is invalid. Enter a valid 15-character GSTIN or leave it blank.' }, { status: 400 })
+      }
+
+      const transportDistanceKm = Number(transporter.distanceKm ?? 0)
+      if (!Number.isInteger(transportDistanceKm) || transportDistanceKm <= 0) {
+        return NextResponse.json({ error: 'Enter a positive whole-number transport distance in kilometres.' }, { status: 400 })
+      }
+      transporter.distanceKm = transportDistanceKm
+
+      if (!Object.values(TRANSPORT_MODE).includes(transporter.modeOfTransport as any)) {
+        return NextResponse.json({ error: 'Select a supported mode of transport.' }, { status: 400 })
+      }
+
       if (transporter.vehicleNo && !/^[A-Z]{2}\d{1,2}[A-Z]{1,2}\d{3,4}$/.test(transporter.vehicleNo.replace(/\s+/g, '').toUpperCase())) {
         return NextResponse.json({
           error: 'Vehicle number must follow Indian format, e.g. WB12AB1234.',
@@ -143,7 +157,7 @@ export async function POST(req: NextRequest) {
           return NextResponse.json({
             mode: 'MANUAL',
             payload: result.ewbPayload,
-            instructions: 'Submit this payload on ewaybillgst.gov.in under "Generate EWB by IRN", then record the returned 12-digit EWB number.',
+            instructions: 'Submit this payload through the E-Way Bill service selected by the business, then record the returned EWB number.',
             irn: sale.einvoiceIrn,
             metadata: {
               saleId: sale.id,
@@ -259,7 +273,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({
           mode: 'MANUAL',
           payload: result.ewbPayload,
-          instructions: 'Submit this payload on ewaybillgst.gov.in under "Generate New EWB", then record the returned 12-digit EWB number.',
+          instructions: 'Submit this payload through the E-Way Bill service selected by the business, then record the returned EWB number.',
           metadata: {
             saleId: sale.id,
             invoiceNumber: sale.invoiceNumber,
@@ -311,7 +325,7 @@ export async function POST(req: NextRequest) {
 
     // ============================================================
     // Action: update-status — manually record an EWB number
-    // (after submitting on ewaybillgst.gov.in in MANUAL mode)
+    // (after manual submission through the business-selected E-Way Bill service)
     // ============================================================
     if (action === 'update-status') {
       const access = await requireAuthAndTenant(req, tenantId)
@@ -327,19 +341,24 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'Sale not found' }, { status: 404 })
       }
 
-      if (!isValidEwbNo(ewbNo)) {
+      if (typeof ewbNo !== 'string' || !isValidEwbNo(ewbNo)) {
         return NextResponse.json({
-          error: 'Enter the 12-digit numeric EWB number returned by the EWB portal.',
+          error: 'Enter the 12-digit numeric EWB number returned by the E-Way Bill service.',
         }, { status: 400 })
       }
 
-      if (!ewbDate || Number.isNaN(new Date(ewbDate).getTime())) {
+      if (typeof ewbDate !== 'string' || !ewbDate || Number.isNaN(new Date(ewbDate).getTime())) {
         return NextResponse.json({
           error: 'Valid EWB generation date is required (YYYY-MM-DD).',
         }, { status: 400 })
       }
 
-      // Calculate validity if not provided
+      if (ewbValidUpto && (typeof ewbValidUpto !== 'string' || Number.isNaN(new Date(ewbValidUpto).getTime()) || new Date(ewbValidUpto).getTime() <= new Date(ewbDate).getTime())) {
+        return NextResponse.json({ error: 'EWB validity date must be a valid date/time later than the generation date/time.' }, { status: 400 })
+      }
+
+      // Retain the legacy distance-based estimate only when an older client
+      // does not submit the exact validity timestamp returned by the portal.
       let validUpto = ewbValidUpto
       if (!validUpto && distanceKm) {
         const days = calculateEwbValidityDays(Number(distanceKm))
