@@ -29,6 +29,7 @@ jobs:
       - name: Validate startup and seed script syntax
         run: |
           node --check scripts/railway-start.js
+          node --check scripts/startup-backup.js
           node --check scripts/seed-admin.js
           node --check scripts/seed-dev-admin.js
           node --check scripts/migrate-passwords.js
@@ -70,11 +71,13 @@ jobs:
             src/app/api/subscription/route.ts \
             src/app/api/upi-checkout/route.ts \
             src/components/modules/backup.tsx \
+            src/components/modules/super-admin-subscriptions.tsx \
             src/lib/auto-backup.ts \
             src/lib/auth/workspace-resolver.ts \
             src/lib/debug-guard.ts \
             src/lib/excel-backup.ts \
             src/lib/master-mobile.ts \
+            src/lib/otp/dispatcher.ts \
             src/lib/rbac/enforce-v2.ts
 
       - name: Repository lint baseline (informational)
