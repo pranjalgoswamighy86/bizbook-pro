@@ -79,6 +79,7 @@ export async function POST(req: NextRequest) {
     const email = String(body.email).trim().toLowerCase()
     const password = String(body.password)
     const backupData = body.backupData
+    const authMethod = 'system-admin-session-and-current-database-password'
     const sessionEmail = auth.email.toLowerCase().trim()
 
     const clientIP = getClientIP(req)
