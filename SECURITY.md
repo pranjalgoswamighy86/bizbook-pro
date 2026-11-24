@@ -22,16 +22,16 @@ This repository includes automated secret scanning:
 
 ### What counts as a secret
 
-| Type | Pattern | Example |
+| Type | Pattern | Safe example |
 |---|---|---|
-| Razorpay keys | `rzp_live_*`, `rzp_test_*` | `rzp_live_T7MZNVB6eOvAUR` |
-| Brevo/Sendinblue keys | `xkeysib-*` | `xkeysib-9b1429d0a89...` |
-| Stripe keys | `sk_live_*`, `sk_test_*` | `sk_live_abc123...` |
-| JWT tokens | `eyJhbGciOi...` | `eyJhbGciOiJIUzI1NiIs...` |
-| Database URLs | `postgresql://user:pass@host` | `postgresql://postgres:ztiuIMNE...` |
-| AWS keys | `AKIA*` | `AKIAIOSFODNN7EXAMPLE` |
-| GitHub tokens | `ghp_*`, `gho_*` | `ghp_abc123...` |
-| API keys | `sk-ant-*`, `OPENAI_API_KEY=sk-*` | `sk-ant-api03-...` |
+| Razorpay keys | `rzp_live_*`, `rzp_test_*` | `rzp_live_[REDACTED]` |
+| Brevo/Sendinblue keys | `xkeysib-*` | `xkeysib-[REDACTED]` |
+| Stripe keys | `sk_live_*`, `sk_test_*` | `sk_live_[REDACTED]` |
+| JWT tokens | `eyJ...` | `[JWT_REDACTED]` |
+| Database URLs | `postgresql://user:password@host/database` | `postgresql://[REDACTED]` |
+| AWS keys | `AKIA*` | `AKIA[REDACTED]` |
+| GitHub tokens | `ghp_*`, `gho_*` | `ghp_[REDACTED]` |
+| API keys | provider-specific key formats | `[API_KEY_REDACTED]` |
 
 ### Files that MUST NOT be committed
 
