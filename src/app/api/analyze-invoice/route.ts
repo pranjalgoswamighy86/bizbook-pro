@@ -87,14 +87,16 @@ async function convertPdfToImages(pdfBase64: string): Promise<string[]> {
     const outputPrefix = join(tempDir, `${tempId}_page`)
 
     await new Promise<void>((resolve, reject) => {
+      let timeout: NodeJS.Timeout | undefined
       const proc = execFile('pdftoppm', ['-png', '-r', '200', '-l', '3', pdfPath, outputPrefix], (error) => {
+        if (timeout) clearTimeout(timeout)
         if (error) {
           reject(new Error(`PDF conversion failed: ${error.message}`))
         } else {
           resolve()
         }
       })
-      setTimeout(() => {
+      timeout = setTimeout(() => {
         proc.kill()
         reject(new Error('PDF conversion timed out after 30s'))
       }, 30000)
