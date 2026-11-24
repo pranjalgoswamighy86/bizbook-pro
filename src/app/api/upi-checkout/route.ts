@@ -221,10 +221,10 @@ export async function POST(req: NextRequest) {
         // Check if user is admin@bizbook.pro or pranjalgoswamighy86@gmail.com
         const user = await db.user.findUnique({ where: { id: auth2.userId } })
         const ADMIN_OVERRIDE_EMAILS = [
-          'admin@bizbook.pro',
-          'pranjalgoswamighy86@gmail.com',
-          (process.env.ADMIN_EMAIL || '').toLowerCase(),
-        ].filter(Boolean)
+  process.env.ADMIN_EMAIL || '',
+  process.env.INFRA_OWNER_EMAIL || '',
+  process.env.INFRASTRUCTURE_OWNER_EMAIL || '',
+].map(value => value.toLowerCase().trim()).filter(Boolean)
         if (!user || !ADMIN_OVERRIDE_EMAILS.includes(user.email.toLowerCase())) {
           return NextResponse.json({ error: 'Only Super Admin can manually override payment verification' }, { status: 403 })
         }
