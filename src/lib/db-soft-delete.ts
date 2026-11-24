@@ -228,7 +228,9 @@ export const rawDb = basePrisma
  *   import { includeDeleted } from '@/lib/db-soft-delete'
  *   const allSales = await includeDeleted(db.sale).findMany({ where: { tenantId } })
  */
-export function includeDeleted<T extends { findMany: Function; findFirst: Function; count: Function }>(
+type QueryMethod = (...args: never[]) => unknown
+
+export function includeDeleted<T extends { findMany: QueryMethod; findFirst: QueryMethod; count: QueryMethod }>(
   model: T
 ): T {
   // Return the model as-is but tag queries to skip the soft-delete filter
