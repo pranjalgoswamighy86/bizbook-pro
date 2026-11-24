@@ -110,10 +110,11 @@ try {
 }
 
 // Step 2: Push Prisma schema to PostgreSQL (creates tables if missing)
-// v4.182: Force --accept-data-loss to handle schema changes with existing data
-console.log('→ Syncing database schema to PostgreSQL...');
+// Never auto-accept destructive schema changes during an application restart.
+// If Prisma detects a destructive diff, it must be reviewed and migrated separately.
+console.log('→ Syncing database schema to PostgreSQL (safe mode)...');
 try {
-  execSync('npx prisma db push --skip-generate --accept-data-loss', {
+  execSync('npx prisma db push --skip-generate', {
     stdio: 'inherit',
     env: { ...process.env, DATABASE_URL: process.env.DATABASE_URL }
   });
@@ -131,56 +132,7 @@ try {
 
   prisma.user.count().then(async (count) => {
     if (count === 0) {
-      console.log('→ No users found, seeding admin...');
-      const crypto = require('crypto');
-      const salt = crypto.randomBytes(16);
-      const hash = crypto.scryptSync('admin123', salt, 64);
-      const passwordHash = salt.toString('hex') + ':' + hash.toString('hex');
-
-      let tenant = await prisma.tenant.findFirst({ where: { email: 'admin@bizbook.pro' } }).catch(() => null);
-      if (!tenant) {
-        tenant = await prisma.tenant.create({
-          data: { name: 'BizBook Pro Demo', phone: '9999999999', email: 'admin@bizbook.pro', plan: 'free' }
-        });
-      }
-
-      const existingUser = await prisma.user.findFirst({ where: { email: 'admin@bizbook.pro' } }).catch(() => null);
-      if (!existingUser) {
-        let user;
-        try {
-          user = await prisma.user.create({
-            data: {
-              name: 'Admin',
-              email: 'admin@bizbook.pro',
-              password: passwordHash,
-              role: 'MAIN_ADMIN',
-              tenantId: tenant.id,
-              lastLoginAt: new Date(),
-              lastOtpVerifiedAt: new Date(),
-              passwordChangedAt: new Date(),
-            },
-          });
-        } catch (createErr) {
-          user = await prisma.user.create({
-            data: {
-              name: 'Admin',
-              email: 'admin@bizbook.pro',
-              password: passwordHash,
-              role: 'MAIN_ADMIN',
-              tenantId: tenant.id,
-            },
-          });
-        }
-        const existingLink = await prisma.userTenant.findFirst({ where: { userId: user.id, tenantId: tenant.id } }).catch(() => null);
-        if (!existingLink) {
-          await prisma.userTenant.create({
-            data: { userId: user.id, tenantId: tenant.id, role: 'MAIN_ADMIN', isOwner: true },
-          });
-        }
-        console.log('✓ Admin user created');
-      } else {
-        console.log('✓ Admin user already exists');
-      }
+      console.warn('[SECURITY] Database is empty; no default administrator or password is created. Register an account using a verified email configured as ADMIN_EMAIL or INFRASTRUCTURE_OWNER_EMAIL, then sign in.');
     } else {
       console.log('✓ Database has', count, 'users — skipping seed (data preserved)');
     }
