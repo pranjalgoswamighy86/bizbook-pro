@@ -182,6 +182,12 @@ export function getStateCode(gstin: string): string {
 export function isInterStateSupply(supplierGstin: string, buyerGstin: string): boolean {
   const supplierState = getStateCode(supplierGstin)
   const buyerState = getStateCode(buyerGstin)
+
+  // A missing GSTIN does not prove an inter-state supply. Callers that cannot
+  // determine both states use the provisional intra-state split and should
+  // surface the missing registration/place-of-supply data for review.
+  if (!supplierState || !buyerState) return false
+
   return supplierState !== buyerState
 }
 

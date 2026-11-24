@@ -96,6 +96,14 @@ export async function POST(req: NextRequest) {
     if (!invoiceImage) {
       return NextResponse.json({ error: 'No invoice file provided' }, { status: 400 })
     }
+    if (typeof tenantId !== 'string' || !tenantId.trim()) {
+      return NextResponse.json({ error: 'A business must be selected before analyzing an invoice' }, { status: 400 })
+    }
+
+    // Authenticate before any paid AI request, file write, or auto-save side effect.
+    const auth = await requireAuthAndTenant(req, tenantId)
+    if (auth instanceof NextResponse) return auth
+    const authorizedTenantId = auth.tenantId
 
     const isPdf = invoiceImage.startsWith('data:application/pdf') || fileType === 'pdf'
     // v4.50: Use getZaiClient() for Railway fallback config
@@ -406,7 +414,7 @@ Return ONLY the JSON. No markdown, no code blocks, no explanation.`
     }
 
     // ===== AUTO-SAVE MODE =====
-    if (autoSave && tenantId && analysis) {
+    if (autoSave && authorizedTenantId && analysis) {
       try {
         const items = (analysis.items || []).map((item: {
           name: string; category?: string; hsn?: string; unit?: string;
@@ -446,7 +454,7 @@ Return ONLY the JSON. No markdown, no code blocks, no explanation.`
 
         const purchase = await db.purchase.create({
           data: {
-            tenantId,
+            tenantId: authorizedTenantId,
             invoiceNumber: analysis.invoiceNumber || `PUR-${Date.now().toString().slice(-6)}`,
             date: analysis.date ? new Date(analysis.date).toISOString() : new Date().toISOString(),
             partyName: analysis.supplierName || 'Unknown Supplier',
@@ -468,7 +476,7 @@ Return ONLY the JSON. No markdown, no code blocks, no explanation.`
         for (const item of items) {
           if (!item.name || !item.qty || item.qty <= 0) continue
 
-          const allItems = await db.inventoryItem.findMany({ where: { tenantId } })
+          const allItems = await db.inventoryItem.findMany({ where: { tenantId: authorizedTenantId } })
           const existingItem = allItems.find(i =>
             i.name.toLowerCase() === item.name.toLowerCase() ||
             (item.hsn && i.hsnCode === item.hsn)
@@ -491,7 +499,7 @@ Return ONLY the JSON. No markdown, no code blocks, no explanation.`
           } else {
             await db.inventoryItem.create({
               data: {
-                tenantId,
+                tenantId: authorizedTenantId,
                 name: item.name,
                 category: item.category || null,
                 hsnCode: item.hsn || null,
