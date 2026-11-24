@@ -497,28 +497,48 @@ File: ${file.name}
 ${categoryInstruction}`
       imageBase64 = parsedData.base64
     } else {
-      // For text/json/xml/pdf
-      const content = typeof parsedData === 'string' ? parsedData : JSON.stringify(parsedData).substring(0, 10000)
-      prompt = `Analyze this business data and provide:
-1. Data type identification
-2. Key information extraction
-3. Import suggestions for BizBook Pro
+      const rawContent = typeof parsedData === 'string' ? parsedData : JSON.stringify(parsedData)
+      const content = (rawContent || '').substring(0, 10000)
+      prompt = `Analyze this business data file and extract importable records for BizBook Pro.
 
 File: ${file.name}
 Type: ${dataType.toUpperCase()}
 ${categoryInstruction}
-Content (first 10000 chars):
-${content}
 
-Provide a structured analysis with:
-- dataType: what type of business data this is
-- keyFields: important fields found
-- suggestions: how to import this into BizBook Pro
-- summary: brief summary`
+Return EXACTLY one valid JSON object with no markdown or code fences:
+{
+  "detectedDocumentType": "sale_invoice|purchase_invoice|bank_statement|inventory_data|expense_data|party_data|staff_data|backup_data|mixed_data|unknown",
+  "detectedBusiness": "string or null",
+  "detectedGSTIN": "string or null",
+  "summary": "brief factual summary",
+  "confidence": 0.0,
+  "importData": {
+    "sales": [{"invoiceNumber":"string","date":"YYYY-MM-DD","partyName":"string","partyAddress":null,"partyGst":null,"items":[{"name":"string","qty":1,"rate":0,"amount":0,"total":0}],"subtotal":0,"gstAmount":0,"totalAmount":0,"paymentStatus":"PENDING","paymentMode":null}],
+    "purchases": [{"invoiceNumber":"string","date":"YYYY-MM-DD","partyName":"string","items":[{"name":"string","qty":1,"rate":0,"amount":0}],"subtotal":0,"gstAmount":0,"totalAmount":0,"paymentStatus":"UNPAID"}],
+    "expenses": [{"date":"YYYY-MM-DD","description":"string","amount":0,"category":"string","paymentMode":"OTHERS"}],
+    "products": [{"name":"string","hsnCode":null,"category":null,"unit":"PCS","purchasePrice":0,"salePrice":0,"mrp":0,"currentStock":0,"gstRate":0}],
+    "parties": [{"name":"string","type":"CUSTOMER","address":null,"phone":null,"gstNumber":null,"currentBalance":0}],
+    "staff": [{"name":"string","role":"string","salary":0,"phone":null}],
+    "bankTransactions": [{"date":"YYYY-MM-DD","description":"string","deposit":0,"withdrawal":0,"balance":0,"category":null,"bankName":null}]
+  },
+  "warnings": [],
+  "suggestions": []
+}
+
+Rules:
+- Extract only facts present in the supplied content. Never invent invoice numbers, names, dates, GSTINs, quantities, rates or totals.
+- Use empty arrays for modules with no matching records.
+- Use null for unknown optional text fields and 0 only where a numeric field is genuinely absent.
+- Preserve source amounts and dates; do not silently recalculate or alter financial values.
+- If values conflict or are ambiguous, add a warning and lower confidence.
+- Return only records supported by the source content.
+
+Source content (may be truncated; do not assume omitted text was analyzed):
+${content}`
     }
 
     // Call AI
-    const structuredImport = dataType === 'excel' || dataType === 'csv' || dataType === 'image' || (dataType === 'pdf' && !!imageBase64)
+    const structuredImport = ['excel', 'csv', 'image', 'pdf', 'json', 'text', 'xml', 'doc'].includes(dataType)
     const { provider, result } = await analyzeWithAI(
       prompt,
       undefined,
@@ -560,7 +580,7 @@ Provide a structured analysis with:
       if (sourceTruncationWarnings.length > 0) {
         analysis.warnings.unshift(...sourceTruncationWarnings)
         analysis.partialExtraction = true
-        analysis.rowsAnalyzedPerSheet = 30
+        analysis.sourceTruncated = true
       }
       console.log(`[AI-Import] AI analysis complete. Provider: ${provider}. Records: sales=${analysis.importData.sales.length}, purchases=${analysis.importData.purchases.length}, expenses=${analysis.importData.expenses.length}, products=${analysis.importData.products.length}`)
     } catch {
