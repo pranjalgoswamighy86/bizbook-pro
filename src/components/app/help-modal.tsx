@@ -318,7 +318,7 @@ export function HelpModal({ open, onClose, initialTab = 'faq' }: HelpModalProps)
                 Chat with our AI assistant — get instant answers. Complex queries are forwarded to admin.
               </p>
             </div>
-            <HelpChatTab userEmail={user?.email} tenantName={tenant?.name} />
+            <HelpChatTab tenantId={tenant?.id} />
           </div>
         )}
 

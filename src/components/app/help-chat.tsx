@@ -29,7 +29,7 @@ interface ChatMessage {
   provider?: string  // v4.151: which AI provider answered
 }
 
-export function HelpChatTab({ userEmail, tenantName }: { userEmail?: string; tenantName?: string }) {
+export function HelpChatTab({ tenantId }: { tenantId?: string }) {
   const { toast } = useToast()
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
@@ -63,10 +63,9 @@ export function HelpChatTab({ userEmail, tenantName }: { userEmail?: string; ten
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          tenantId,
           message: input.trim(),
-          userEmail,
-          tenantName,
-          history: messages.slice(-5), // last 5 messages for context
+          history: messages.slice(-8).map(({ role, content }) => ({ role, content })),
         }),
       })
 
@@ -94,7 +93,7 @@ export function HelpChatTab({ userEmail, tenantName }: { userEmail?: string; ten
     } catch (err: any) {
       const errorMessage: ChatMessage = {
         role: 'ai',
-        content: 'I\'m having trouble connecting right now. Your query has been forwarded to our support team — they\'ll get back to you soon.',
+        content: 'I\\'m unable to send your message right now. Please check your connection and try again. Your message has not been confirmed as delivered.',
         timestamp: new Date().toISOString(),
       }
       setMessages(prev => [...prev, errorMessage])
