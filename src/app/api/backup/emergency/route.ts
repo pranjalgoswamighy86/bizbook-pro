@@ -52,10 +52,9 @@ export async function POST(req: NextRequest) {
     // A system-wide backup contains every tenant's financial and personal data.
     // Never expose it to an ordinary tenant account.
     const systemAdminEmails = new Set([
-      'admin@bizbook.pro',
-      'pranjalgoswamighy86@gmail.com',
       process.env.ADMIN_EMAIL || '',
-      process.env.INFRA_OWNER_EMAIL || process.env.INFRASTRUCTURE_OWNER_EMAIL || '',
+      process.env.INFRA_OWNER_EMAIL || '',
+      process.env.INFRASTRUCTURE_OWNER_EMAIL || '',
     ].map(value => value.toLowerCase().trim()).filter(Boolean))
 
     if (!systemAdminEmails.has(email)) {
