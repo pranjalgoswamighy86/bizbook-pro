@@ -26,6 +26,13 @@ jobs:
       - name: Install dependencies
         run: npm install --no-audit --no-fund --force
 
+      - name: Validate startup and seed script syntax
+        run: |
+          node --check scripts/railway-start.js
+          node --check scripts/seed-admin.js
+          node --check scripts/seed-dev-admin.js
+          bash -n scripts/railway-start.sh
+
       - name: Generate Prisma client
         run: npx prisma generate
         env:
