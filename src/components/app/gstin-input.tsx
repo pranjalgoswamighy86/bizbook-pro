@@ -22,7 +22,7 @@ export function GstinInput({ value, onChange, label, placeholder = 'Enter 15-cha
       <Label>{label}</Label>
       <Input
         value={value}
-        onChange={(event) => onChange(event.target.value.toUpperCase().replace(/\\s/g, '').slice(0, 15))}
+        onChange={(event) => onChange(event.target.value.toUpperCase().replace(/\s/g, '').slice(0, 15))}
         placeholder={placeholder}
         maxLength={15}
         autoComplete="off"
