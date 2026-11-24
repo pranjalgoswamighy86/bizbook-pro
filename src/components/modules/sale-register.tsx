@@ -93,6 +93,14 @@ export function SaleRegister() {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [justSavedSale, setJustSavedSale] = useState<Sale | null>(null)
+  const [einvoiceSale, setEinvoiceSale] = useState<Sale | null>(null)
+  const [einvoicePayload, setEinvoicePayload] = useState<Record<string, unknown> | null>(null)
+  const [einvoiceBusy, setEinvoiceBusy] = useState(false)
+  const [einvoiceIrn, setEinvoiceIrn] = useState('')
+  const [einvoiceAckNo, setEinvoiceAckNo] = useState('')
+  const [einvoiceAckDate, setEinvoiceAckDate] = useState('')
+  const [sellerPinCode, setSellerPinCode] = useState('')
+  const [buyerPinCode, setBuyerPinCode] = useState('')
   // Note: Invoice file upload has been moved to AI Smart Import module
   const [savedInvoiceFileRef, setSavedInvoiceFileRef] = useState<string | null>(null)
 
@@ -551,139 +559,121 @@ export function SaleRegister() {
 
 
 
-  // ===== PRINT INVOICE =====
-  const handleGenerateEinvoice = async (sale: Sale) => {
-    if (!tenant) return
-    // Open a tab immediately from the user's click so mobile/desktop popup
-    // blockers do not prevent the manual IRP hand-off after the API responds.
-    const irpWindow = window.open('about:blank', '_blank')
+  // ===== E-INVOICE WORKFLOW =====
+  const openEinvoiceDialog = (sale: Sale) => {
+    setEinvoiceSale(sale)
+    setEinvoicePayload(null)
+    setEinvoiceIrn('')
+    setEinvoiceAckNo('')
+    setEinvoiceAckDate('')
+    setSellerPinCode('')
+    setBuyerPinCode('')
+  }
+
+  const handlePrepareEinvoice = async () => {
+    if (!tenant || !einvoiceSale) return
+    if (sellerPinCode && !/^[1-9]\\d{5}$/.test(sellerPinCode.trim())) {
+      toast({ title: 'Invalid seller PIN code', description: 'Enter a valid six-digit Indian PIN code.', variant: 'destructive' })
+      return
+    }
+    if (buyerPinCode && !/^[1-9]\\d{5}$/.test(buyerPinCode.trim())) {
+      toast({ title: 'Invalid buyer PIN code', description: 'Enter a valid six-digit Indian PIN code.', variant: 'destructive' })
+      return
+    }
+
+    setEinvoiceBusy(true)
     try {
-      // v6.28.0: CRITICAL FIX — call the REAL IRP integration (submit-to-irp)
-      // instead of the fake-hash generate-payload flow. Previously this handler
-      // generated a SHA-256 hash locally, stored it as the "IRN", and marked the
-      // sale as 'GENERATED' — without ever contacting the IRP. The real IRP
-      // integration in irp-integration.ts was correctly implemented but never
-      // invoked from the frontend.
-      //
-      // Now we call submit-to-irp, which:
-      //   - If IRP credentials are configured (LIVE mode): submits to NIC,
-      //     persists the real IRN/AckNo/AckDate/SignedQR, and returns success.
-      //   - If IRP is NOT configured (MANUAL mode): returns the INV-01 payload
-      //     for the user to submit via their GSP portal manually.
-      //   - On LIVE error: returns the error message.
-      let pinCodes: { sellerPinCode?: string; buyerPinCode?: string } = {}
-      const sendEinvoiceRequest = (pins: { sellerPinCode?: string; buyerPinCode?: string }) => authFetch('/api/einvoice', {
+      const res = await authFetch('/api/einvoice', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'submit-to-irp', tenantId: tenant.id, saleId: sale.id, ...pins }),
+        body: JSON.stringify({
+          action: 'submit-to-irp',
+          tenantId: tenant.id,
+          saleId: einvoiceSale.id,
+          sellerPinCode: sellerPinCode.trim() || undefined,
+          buyerPinCode: buyerPinCode.trim() || undefined,
+        }),
       })
-      let res = await sendEinvoiceRequest(pinCodes)
-      let data = await res.json()
-
-      // If an address record has no PIN, ask for the exact PIN instead of
-      // leaving the user with a generic validation error. Never guess a PIN.
-      if (!res.ok && data.code === 'PIN_CODE_REQUIRED' && Array.isArray(data.missingPins)) {
-        const missingPins = data.missingPins as string[]
-        if (missingPins.includes('seller')) {
-          const value = window.prompt('Enter the 6-digit PIN code of this business registered address:')
-          if (!value) { if (irpWindow && !irpWindow.closed) irpWindow.close(); return }
-          if (!/^[1-9]\d{5}$/.test(value.trim())) {
-            if (irpWindow && !irpWindow.closed) irpWindow.close()
-            toast({ title: 'Invalid seller PIN code', description: 'Enter a valid six-digit Indian PIN code.', variant: 'destructive' })
-            return
-          }
-          pinCodes.sellerPinCode = value.trim()
-        }
-        if (missingPins.includes('buyer')) {
-          const value = window.prompt(`Enter the 6-digit PIN code for ${sale.partyName || 'the customer'}'s billing address:`)
-          if (!value) { if (irpWindow && !irpWindow.closed) irpWindow.close(); return }
-          if (!/^[1-9]\d{5}$/.test(value.trim())) {
-            if (irpWindow && !irpWindow.closed) irpWindow.close()
-            toast({ title: 'Invalid buyer PIN code', description: 'Enter a valid six-digit Indian PIN code.', variant: 'destructive' })
-            return
-          }
-          pinCodes.buyerPinCode = value.trim()
-        }
-        res = await sendEinvoiceRequest(pinCodes)
-        data = await res.json()
-      }
+      const data = await res.json().catch(() => ({}))
 
       if (res.ok && data.success && data.mode === 'LIVE') {
-        if (irpWindow && !irpWindow.closed) irpWindow.close()
-        // Real IRN generated — refresh the sales list to show the green checkmark
-        fetchSales()
+        setEinvoiceSale(null)
+        await fetchSales()
         toast({
-          title: 'E-Invoice Generated (LIVE)',
+          title: 'E-Invoice generated successfully',
           description: `IRN: ${data.irn?.slice(0, 24)}... | Ack No: ${data.ackNo || 'N/A'}`,
         })
         return
       }
 
       if (res.ok && data.mode === 'MANUAL' && data.inv01Payload) {
-        // No paid GSP subscription is required for this user-driven workflow.
-        // Download the prepared payload and send the user to the IRIS IRP portal.
-        const irpUrl = 'https://einvoice6.gst.gov.in/'
-        if (irpWindow) {
-          irpWindow.location.href = irpUrl
-        } else {
-          toast({
-            title: 'IRP portal pop-up blocked',
-            description: 'Allow pop-ups for BizBook Pro, then choose E-Invoice again to open the IRIS IRP portal.',
-            variant: 'destructive',
-          })
-        }
-
-        const payloadBlob = new Blob([JSON.stringify(data.inv01Payload, null, 2)], { type: 'application/json' })
-        const payloadUrl = URL.createObjectURL(payloadBlob)
-        const download = document.createElement('a')
-        const safeInvoiceNumber = String(sale.invoiceNumber || 'invoice').replace(/[^a-zA-Z0-9-_]/g, '_')
-        download.href = payloadUrl
-        download.download = `BizBook-Pro-EInvoice-${safeInvoiceNumber}.json`
-        document.body.appendChild(download)
-        download.click()
-        download.remove()
-        window.setTimeout(() => URL.revokeObjectURL(payloadUrl), 1000)
-
+        setEinvoicePayload(data.inv01Payload)
         toast({
-          title: 'IRIS IRP opened — manual e-invoice',
-          description: 'Your invoice JSON has been downloaded. Sign in with this business GSTIN, generate the IRN on IRIS, then return to BizBook Pro and save the IRN and acknowledgement details.',
-          duration: 9000,
+          title: 'GST INV-01 JSON is ready',
+          description: 'Download this file and upload it to the IRP selected by this business. No portal login or paid API is required by BizBook Pro.',
+          duration: 8000,
         })
         return
       }
 
-      // Live error or unexpected response
-      if (irpWindow && !irpWindow.closed) irpWindow.close()
+      if (data.code === 'PIN_CODE_REQUIRED') {
+        toast({
+          title: 'Address PIN code required',
+          description: data.error || 'Enter the exact six-digit PIN for the seller and buyer addresses above, then prepare again.',
+          variant: 'destructive',
+        })
+        return
+      }
+
       toast({
-        title: 'E-Invoice Error',
-        description: data.error || 'Failed to generate e-invoice. Check IRP credentials and try again.',
+        title: 'E-Invoice generation failed',
+        description: data.error || 'The configured IRP API did not generate an IRN. No manual fallback was attempted.',
         variant: 'destructive',
       })
     } catch {
-      if (irpWindow && !irpWindow.closed) irpWindow.close()
-      toast({ title: 'Error', description: 'Failed to generate e-invoice', variant: 'destructive' })
+      toast({ title: 'Network error', description: 'Could not connect to the e-invoice service. Please try again.', variant: 'destructive' })
+    } finally {
+      setEinvoiceBusy(false)
     }
   }
 
-  const handleRecordManualEinvoice = async (sale: Sale) => {
-    const irn = window.prompt('Paste the 64-character IRN generated by the IRP portal:')
-    if (!irn) return
-    const ackNo = window.prompt('Enter the IRP acknowledgement number:')
-    if (!ackNo) return
-    const ackDate = window.prompt('Enter the IRP acknowledgement date/time exactly as shown (for example: 2026-11-24 14:30:00):')
-    if (!ackDate) return
+  const downloadEinvoiceJson = () => {
+    if (!einvoicePayload || !einvoiceSale) return
+    const blob = new Blob([JSON.stringify(einvoicePayload, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    const safeInvoiceNumber = String(einvoiceSale.invoiceNumber || 'invoice').replace(/[^a-zA-Z0-9-_]/g, '_')
+    link.href = url
+    link.download = `BizBook-Pro-GST-INV-01-${safeInvoiceNumber}.json`
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+  }
 
+  const handleSaveManualEinvoice = async () => {
+    if (!tenant || !einvoiceSale) return
+    if (!/^[A-Fa-f0-9]{64}$/.test(einvoiceIrn.trim())) {
+      toast({ title: 'Invalid IRN', description: 'The IRN must contain exactly 64 hexadecimal characters.', variant: 'destructive' })
+      return
+    }
+    if (!einvoiceAckNo.trim() || !einvoiceAckDate || Number.isNaN(new Date(einvoiceAckDate).getTime())) {
+      toast({ title: 'Acknowledgement details required', description: 'Enter the acknowledgement number and a valid acknowledgement date/time from the IRP.', variant: 'destructive' })
+      return
+    }
+
+    setEinvoiceBusy(true)
     try {
       const res = await authFetch('/api/einvoice', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: 'update-status',
-          tenantId: tenant?.id,
-          saleId: sale.id,
-          irn: irn.trim(),
-          ackNo: ackNo.trim(),
-          ackDate: ackDate.trim(),
+          tenantId: tenant.id,
+          saleId: einvoiceSale.id,
+          irn: einvoiceIrn.trim(),
+          ackNo: einvoiceAckNo.trim(),
+          ackDate: new Date(einvoiceAckDate).toISOString(),
           status: 'GENERATED',
         }),
       })
@@ -692,10 +682,14 @@ export function SaleRegister() {
         toast({ title: 'Could not save IRP details', description: data.error || 'Please verify the IRN and acknowledgement details.', variant: 'destructive' })
         return
       }
+      const invoiceNumber = einvoiceSale.invoiceNumber
+      setEinvoiceSale(null)
       await fetchSales()
-      toast({ title: 'E-Invoice details saved', description: `IRN recorded for invoice ${sale.invoiceNumber}.` })
+      toast({ title: 'E-Invoice details saved', description: `IRN recorded for invoice ${invoiceNumber}.` })
     } catch {
       toast({ title: 'Network error', description: 'Could not save the IRP details. Please try again.', variant: 'destructive' })
+    } finally {
+      setEinvoiceBusy(false)
     }
   }
 
@@ -1003,13 +997,8 @@ export function SaleRegister() {
                         <div className="flex justify-end gap-1">
                           <Button variant="ghost" size="icon" className="h-8 w-8" title="Print Invoice" onClick={() => handlePrintInvoice(s)}><Printer className="h-4 w-4" /></Button>
                           {s.partyGst && s.invoiceStatus !== 'QUOTATION' && (
-                            <Button variant="outline" size="sm" className="h-8 gap-1 px-2" title="Prepare e-invoice and open IRIS IRP" onClick={() => handleGenerateEinvoice(s)}>
+                            <Button variant="outline" size="sm" className="h-8 gap-1 px-2" title="Generate IRN or export GST INV-01 JSON" onClick={() => openEinvoiceDialog(s)}>
                               <FileCheck className="h-4 w-4" /><span className="text-xs">E-Invoice</span>
-                            </Button>
-                          )}
-                          {s.partyGst && s.invoiceStatus !== 'QUOTATION' && s.einvoiceStatus !== 'GENERATED' && (
-                            <Button variant="ghost" size="sm" className="h-8 px-2 text-xs" title="Record IRN and acknowledgement details from IRIS IRP" onClick={() => handleRecordManualEinvoice(s)}>
-                              Record IRN
                             </Button>
                           )}
                           {s.invoiceStatus !== 'QUOTATION' && s.totalAmount >= 50000 && !s.ewayBillNo && (
@@ -1677,6 +1666,65 @@ export function SaleRegister() {
         </Dialog>
 
         {/* ===== PRINT INVOICE DIALOG (after saving) ===== */}
+        <Dialog open={!!einvoiceSale} onOpenChange={(open) => { if (!open && !einvoiceBusy) setEinvoiceSale(null) }}>
+          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <FileCheck className="h-5 w-5" /> E-Invoice — {einvoiceSale?.invoiceNumber}
+              </DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4 text-sm">
+              <p className="text-muted-foreground">
+                BizBook Pro can generate the IRN through this tenant&apos;s configured GSP credentials, or prepare a GST INV-01 JSON file for upload to the IRP chosen by the business. It will not redirect you to a fixed IRP portal.
+              </p>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-1">
+                  <Label htmlFor="einvoice-seller-pin">Seller registered-address PIN (if missing above)</Label>
+                  <Input id="einvoice-seller-pin" inputMode="numeric" maxLength={6} value={sellerPinCode} onChange={e => setSellerPinCode(e.target.value.replace(/\\D/g, '').slice(0, 6))} placeholder="6-digit PIN" />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="einvoice-buyer-pin">Buyer billing-address PIN (if missing above)</Label>
+                  <Input id="einvoice-buyer-pin" inputMode="numeric" maxLength={6} value={buyerPinCode} onChange={e => setBuyerPinCode(e.target.value.replace(/\\D/g, '').slice(0, 6))} placeholder="6-digit PIN" />
+                </div>
+              </div>
+              <Button onClick={handlePrepareEinvoice} disabled={einvoiceBusy} className="w-full">
+                {einvoiceBusy ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <FileCheck className="h-4 w-4 mr-2" />}
+                Generate IRN / Prepare GST INV-01 JSON
+              </Button>
+              {einvoicePayload && (
+                <div className="space-y-2 rounded-lg border p-3">
+                  <div className="font-medium text-emerald-700">GST INV-01 JSON prepared</div>
+                  <p className="text-muted-foreground">Download the JSON and upload it through the IRP portal where this business is registered. The portal returns the IRN and acknowledgement details; BizBook Pro does not choose or assume an IRP for you.</p>
+                  <Button type="button" variant="outline" onClick={downloadEinvoiceJson} className="w-full">
+                    <FileCheck className="h-4 w-4 mr-2" /> Download GST INV-01 JSON
+                  </Button>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="space-y-1">
+                      <Label htmlFor="einvoice-irn">IRN (64 hexadecimal characters)</Label>
+                      <Input id="einvoice-irn" value={einvoiceIrn} onChange={e => setEinvoiceIrn(e.target.value.trim().toUpperCase().slice(0, 64))} maxLength={64} placeholder="Paste IRN returned by IRP" />
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="einvoice-ack-no">Acknowledgement number</Label>
+                      <Input id="einvoice-ack-no" value={einvoiceAckNo} onChange={e => setEinvoiceAckNo(e.target.value)} placeholder="Paste Ack No." />
+                    </div>
+                    <div className="space-y-1 sm:col-span-2">
+                      <Label htmlFor="einvoice-ack-date">Acknowledgement date and time</Label>
+                      <Input id="einvoice-ack-date" type="datetime-local" value={einvoiceAckDate} onChange={e => setEinvoiceAckDate(e.target.value)} />
+                    </div>
+                  </div>
+                  <Button onClick={handleSaveManualEinvoice} disabled={einvoiceBusy} className="w-full bg-emerald-600 hover:bg-emerald-700">
+                    {einvoiceBusy ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <CheckCircle2 className="h-4 w-4 mr-2" />}
+                    Save IRN and acknowledgement details
+                  </Button>
+                </div>
+              )}
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setEinvoiceSale(null)} disabled={einvoiceBusy}>Close</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
         <Dialog open={!!justSavedSale} onOpenChange={(open) => { if (!open) setJustSavedSale(null) }}>
           <DialogContent className="max-w-md">
             <DialogHeader>
