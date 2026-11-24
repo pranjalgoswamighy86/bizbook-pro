@@ -33,6 +33,12 @@ jobs:
           node --check scripts/seed-dev-admin.js
           node --check scripts/migrate-passwords.js
           bash -n scripts/railway-start.sh
+          node --check scripts/try-api-import.js
+          node --check scripts/final-import.js
+          node --check scripts/find-tenant-and-import.js
+          node --check scripts/final-import-v2.js
+          node --check scripts/final-import-v3.js
+          python3 -m py_compile scripts/stress-test.py scripts/generate-chat-log.py
 
       - name: Generate Prisma client
         run: npx prisma generate
