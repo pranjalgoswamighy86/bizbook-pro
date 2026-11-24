@@ -86,6 +86,11 @@ export async function buildBackupRecords(tenantId: string | null, take = 100000)
   const tableErrors: Array<{ table: string; error: string }> = []
 
   for (const table of BACKUP_TABLES) {
+    // Business exports never include login credentials or role/ownership memberships.
+    if (tenantId && (table.model === 'user' || table.model === 'userTenant')) {
+      data[table.label] = []
+      continue
+    }
     try {
       const where = tenantId
         ? table.tenantWhere?.(tenantId, userIds) ?? {}
