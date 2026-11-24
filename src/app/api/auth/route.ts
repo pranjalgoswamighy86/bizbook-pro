@@ -151,10 +151,8 @@ export async function POST(req: NextRequest) {
         }, { status: 409 })
       }
 
-      // v4.124: Master mobile (9101555075) BYPASSES phone uniqueness check —
-      // the master mobile can be used across ALL tenant accounts. This is the
-      // admin's mobile that works as a universal login + OTP receiver.
-      // Only non-master mobiles are checked for uniqueness.
+      // Only the explicitly configured shared business phone may be reused
+      // across tenants; all other business phone numbers remain unique.
       if (!isMasterMobile(businessPhone)) {
         const existingPhoneTenant = await findTenantByPhone(businessPhone)
         if (existingPhoneTenant) {
@@ -182,7 +180,7 @@ export async function POST(req: NextRequest) {
       //   - Email first (Resend primary, SMTP fallback)
       //   - SMS text only (no voice/TTS — Rule 2.1) if email fails
       //   - WhatsApp fail-safe if SMS fails AND WHATSAPP_ACCESS_TOKEN set
-      //   - NEVER routes to master mobile for non-admin users (Rule 1.1 fix)
+      //   - NEVER routes OTP to a shared business phone as a fallback (Rule 1.1 fix)
       //   - Logs to AuditLog table
       console.log(`[REG-OTP] Dispatching via multi-channel pipeline to ${email} / ${businessPhone || 'no-phone'}`)
       const otpResult = await dispatchOtp(otp, {
