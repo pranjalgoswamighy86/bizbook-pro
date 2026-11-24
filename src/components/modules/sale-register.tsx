@@ -565,12 +565,42 @@ export function SaleRegister() {
       //   - If IRP is NOT configured (MANUAL mode): returns the INV-01 payload
       //     for the user to submit via their GSP portal manually.
       //   - On LIVE error: returns the error message.
-      const res = await authFetch('/api/einvoice', {
+      let pinCodes: { sellerPinCode?: string; buyerPinCode?: string } = {}
+      const sendEinvoiceRequest = (pins: { sellerPinCode?: string; buyerPinCode?: string }) => authFetch('/api/einvoice', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'submit-to-irp', tenantId: tenant.id, saleId: sale.id }),
+        body: JSON.stringify({ action: 'submit-to-irp', tenantId: tenant.id, saleId: sale.id, ...pins }),
       })
-      const data = await res.json()
+      let res = await sendEinvoiceRequest(pinCodes)
+      let data = await res.json()
+
+      // If an address record has no PIN, ask for the exact PIN instead of
+      // leaving the user with a generic validation error. Never guess a PIN.
+      if (!res.ok && data.code === 'PIN_CODE_REQUIRED' && Array.isArray(data.missingPins)) {
+        const missingPins = data.missingPins as string[]
+        if (missingPins.includes('seller')) {
+          const value = window.prompt('Enter the 6-digit PIN code of this business registered address:')
+          if (!value) { if (irpWindow && !irpWindow.closed) irpWindow.close(); return }
+          if (!/^[1-9]\\d{5}$/.test(value.trim())) {
+            if (irpWindow && !irpWindow.closed) irpWindow.close()
+            toast({ title: 'Invalid seller PIN code', description: 'Enter a valid six-digit Indian PIN code.', variant: 'destructive' })
+            return
+          }
+          pinCodes.sellerPinCode = value.trim()
+        }
+        if (missingPins.includes('buyer')) {
+          const value = window.prompt(`Enter the 6-digit PIN code for ${sale.partyName || 'the customer'}'s billing address:`)
+          if (!value) { if (irpWindow && !irpWindow.closed) irpWindow.close(); return }
+          if (!/^[1-9]\\d{5}$/.test(value.trim())) {
+            if (irpWindow && !irpWindow.closed) irpWindow.close()
+            toast({ title: 'Invalid buyer PIN code', description: 'Enter a valid six-digit Indian PIN code.', variant: 'destructive' })
+            return
+          }
+          pinCodes.buyerPinCode = value.trim()
+        }
+        res = await sendEinvoiceRequest(pinCodes)
+        data = await res.json()
+      }
 
       if (res.ok && data.success && data.mode === 'LIVE') {
         if (irpWindow && !irpWindow.closed) irpWindow.close()
