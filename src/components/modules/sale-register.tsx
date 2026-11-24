@@ -729,12 +729,12 @@ export function SaleRegister() {
       toast({ title: 'Invalid transport distance', description: 'Enter a positive whole-number distance in kilometres.', variant: 'destructive' })
       return
     }
-    const vehicleNo = ewbVehicleNo.replace(/\\s+/g, '').toUpperCase()
+    const vehicleNo = ewbVehicleNo.replace(/\s+/g, '').toUpperCase()
     if (!vehicleNo && !ewbTransporterId.trim()) {
       toast({ title: 'Transport details required', description: 'Enter a vehicle number or the registered transporter GSTIN.', variant: 'destructive' })
       return
     }
-    if (vehicleNo && !/^[A-Z]{2}\\d{1,2}[A-Z]{1,2}\\d{3,4}$/.test(vehicleNo)) {
+    if (vehicleNo && !/^[A-Z]{2}\d{1,2}[A-Z]{1,2}\d{3,4}$/.test(vehicleNo)) {
       toast({ title: 'Invalid vehicle number', description: 'Use the Indian vehicle number format, for example WB12AB1234.', variant: 'destructive' })
       return
     }
@@ -813,7 +813,7 @@ export function SaleRegister() {
 
   const handleSaveManualEwb = async () => {
     if (!tenant || !ewbSale) return
-    if (!/^\\d{12}$/.test(manualEwbNo.trim())) {
+    if (!/^\d{12}$/.test(manualEwbNo.trim())) {
       toast({ title: 'Invalid EWB number', description: 'The E-Way Bill number must contain exactly 12 digits.', variant: 'destructive' })
       return
     }
@@ -838,7 +838,7 @@ export function SaleRegister() {
           ewbValidUpto: validUpto.toISOString(),
           transporterId: ewbTransporterId.trim(),
           transporterName: ewbTransporterName.trim(),
-          vehicleNo: ewbVehicleNo.replace(/\\s+/g, '').toUpperCase(),
+          vehicleNo: ewbVehicleNo.replace(/\s+/g, '').toUpperCase(),
           modeOfTransport: ewbModeOfTransport,
           distanceKm: Number(ewbDistanceKm),
         }),
@@ -1807,7 +1807,7 @@ export function SaleRegister() {
                   <div className="grid gap-3 sm:grid-cols-2">
                     <div className="space-y-1">
                       <Label htmlFor="manual-ewb-no">EWB number (12 digits)</Label>
-                      <Input id="manual-ewb-no" inputMode="numeric" maxLength={12} value={manualEwbNo} onChange={e => setManualEwbNo(e.target.value.replace(/\\D/g, '').slice(0, 12))} placeholder="12-digit EWB number" />
+                      <Input id="manual-ewb-no" inputMode="numeric" maxLength={12} value={manualEwbNo} onChange={e => setManualEwbNo(e.target.value.replace(/\D/g, '').slice(0, 12))} placeholder="12-digit EWB number" />
                     </div>
                     <div className="space-y-1">
                       <Label htmlFor="manual-ewb-date">EWB generation date/time</Label>
