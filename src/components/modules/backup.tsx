@@ -261,22 +261,23 @@ export function BackupPage() {
     if (!tenant) return
     setCreating(true)
     try {
-      const res = await authFetch('/api/db-admin', {
+      const res = await authFetch('/api/auto-backup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'backup' }),
+        body: JSON.stringify({ action: 'generate', tenantId: tenant.id, trigger: 'manual' }),
       })
-      if (res.ok) {
-        const data = await res.json()
-        if (data.success) {
-          toast({ title: 'Backup Created', description: `Saved to ${data.path}` })
-          loadBackups()
-        } else {
-          toast({ title: 'Backup Failed', description: data.error || 'Unknown error', variant: 'destructive' })
-        }
+      const data = await res.json().catch(() => ({}))
+      if (res.ok && data.success) {
+        toast({
+          title: 'Business Backup Created',
+          description: `${data.backup?.recordCount ?? 0} records saved to the server backup.`,
+        })
+        await loadExcelBackups()
+      } else {
+        toast({ title: 'Backup Failed', description: data.error || 'Could not generate the business backup.', variant: 'destructive' })
       }
     } catch {
-      toast({ title: 'Error', description: 'Failed to create backup', variant: 'destructive' })
+      toast({ title: 'Error', description: 'Failed to create business backup', variant: 'destructive' })
     } finally {
       setCreating(false)
     }
@@ -368,7 +369,7 @@ export function BackupPage() {
                 </div>
                 <div className="flex-1">
                   <p className="text-sm font-medium">Create Backup</p>
-                  <p className="text-xs text-muted-foreground">Manual database backup</p>
+                  <p className="text-xs text-muted-foreground">Manual Excel backup</p>
                 </div>
                 <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 h-8" onClick={handleCreateBackup} disabled={creating}>
                   {creating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Create'}
