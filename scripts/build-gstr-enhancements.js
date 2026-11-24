@@ -317,7 +317,7 @@ console.log('PATCH 5: Added GSTR-9 tab trigger')
 // ============================================================
 src = src.replace(
   `                  {/* Net Payable */}
-                  <div className={`${summary.netGstPayable >= 0 ? 'bg-red-50 dark:bg-red-950' : 'bg-emerald-50 dark:bg-emerald-950'} p-4 rounded-lg`">`,
+                  <div className={\`\${summary.netGstPayable >= 0 ? 'bg-red-50 dark:bg-red-950' : 'bg-emerald-50 dark:bg-emerald-950'} p-4 rounded-lg\`}>`,
   `                  {/* v4.149: HSN-wise Summary (GSTR-3B Section 4) */}
                   {hsnSummary.length > 0 && (
                     <div className="bg-purple-50 dark:bg-purple-950 p-4 rounded-lg">
