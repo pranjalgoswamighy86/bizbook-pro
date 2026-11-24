@@ -57,12 +57,22 @@ jobs:
       - name: Lint changed application files
         run: |
           npx eslint \
+            src/app/api/admin/delete-account/route.ts \
             src/app/api/auth/route.ts \
             src/app/api/auto-backup/route.ts \
             src/app/api/backup/emergency/route.ts \
             src/app/api/backup/restore/route.ts \
             src/app/api/db-admin/route.ts \
+            src/app/api/debug-env/route.ts \
+            src/app/api/help-tickets/route.ts \
+            src/app/api/payment-proof/review/route.ts \
+            src/app/api/payment-proof/route.ts \
+            src/app/api/subscription/route.ts \
+            src/app/api/upi-checkout/route.ts \
             src/components/modules/backup.tsx \
+            src/lib/auto-backup.ts \
+            src/lib/auth/workspace-resolver.ts \
+            src/lib/debug-guard.ts \
             src/lib/excel-backup.ts \
             src/lib/master-mobile.ts \
             src/lib/rbac/enforce-v2.ts
