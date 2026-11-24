@@ -467,7 +467,7 @@ export async function POST(req: NextRequest) {
           TotAmt: gst.totAmt,
           Discount: roundTo2(Number(item.discount || 0)),
           AssAmt: gst.assAmt,
-          GstRt: Number(item.gstRate || 0),
+          GstRt: getItemGstRate(item),
           IgstAmt: gst.igstAmt,
           CgstAmt: gst.cgstAmt,
           SgstAmt: gst.sgstAmt,
@@ -584,18 +584,23 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'No IRN exists for this sale' }, { status: 400 })
       }
 
-      // Check 24-hour window
-      if (sale.einvoiceAckDate) {
-        const ackDate = new Date(sale.einvoiceAckDate)
-        const hoursDiff = (Date.now() - ackDate.getTime()) / (1000 * 60 * 60)
-        if (hoursDiff > 24) {
-          return NextResponse.json({
-            error: `24-hour cancellation window expired (${hoursDiff.toFixed(1)}h). Issue a Credit Note instead.`,
-          }, { status: 400 })
-        }
+      // IRP cancellation is permitted only for an active IRN inside 24 hours.
+      if (sale.einvoiceStatus !== 'GENERATED' || !sale.einvoiceAckDate) {
+        return NextResponse.json({ error: 'Only an active IRP-generated invoice with an acknowledgement date can be cancelled.' }, { status: 400 })
+      }
+      const ackDate = new Date(sale.einvoiceAckDate)
+      const hoursDiff = (Date.now() - ackDate.getTime()) / (1000 * 60 * 60)
+      if (!Number.isFinite(hoursDiff) || hoursDiff < 0 || hoursDiff > 24) {
+        return NextResponse.json({
+          error: 'The IRP 24-hour cancellation window has expired or the acknowledgement date is invalid. Issue a credit note instead.',
+        }, { status: 400 })
+      }
+      const reasonCode = String(reason || '1')
+      if (!/^[1-6]$/.test(reasonCode)) {
+        return NextResponse.json({ error: 'Invalid IRP cancellation reason. Use a reason code from 1 to 6.' }, { status: 400 })
       }
 
-      const cancelResult = await cancelIrn(sale.einvoiceIrn, reason || '1')
+      const cancelResult = await cancelIrn(sale.einvoiceIrn, reasonCode)
 
       if (cancelResult.success) {
         const updated = await db.sale.update({
