@@ -316,47 +316,8 @@ console.log('PATCH 5: Added GSTR-9 tab trigger')
 // PATCH 6: Add GSTR-3B HSN summary section (before closing </CardContent> of gstr3b tab)
 // ============================================================
 src = src.replace(
-  `                  {/* Net Payable */}
-                  <div className={\`\${summary.netGstPayable >= 0 ? 'bg-red-50 dark:bg-red-950' : 'bg-emerald-50 dark:bg-emerald-950'} p-4 rounded-lg\`}>`,
-  `                  {/* v4.149: HSN-wise Summary (GSTR-3B Section 4) */}
-                  {hsnSummary.length > 0 && (
-                    <div className="bg-purple-50 dark:bg-purple-950 p-4 rounded-lg">
-                      <h4 className="text-sm font-semibold text-purple-700 dark:text-purple-300 mb-3">
-                        HSN-wise Summary (GSTR-3B Section 4)
-                      </h4>
-                      <div className="overflow-x-auto max-h-72 overflow-y-auto">
-                        <Table>
-                          <TableHeader>
-                            <TableRow>
-                              <TableHead className="text-xs">HSN</TableHead>
-                              <TableHead className="text-xs">Description</TableHead>
-                              <TableHead className="text-xs text-right">Qty</TableHead>
-                              <TableHead className="text-xs text-right">Taxable</TableHead>
-                              <TableHead className="text-xs text-right">IGST</TableHead>
-                              <TableHead className="text-xs text-right">CGST</TableHead>
-                              <TableHead className="text-xs text-right">SGST</TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {hsnSummary.map(row => (
-                              <TableRow key={row.hsn}>
-                                <TableCell className="font-mono text-xs">{row.hsn}</TableCell>
-                                <TableCell className="text-xs">{row.description.slice(0, 40)}</TableCell>
-                                <TableCell className="text-right text-xs">{row.totalQty}</TableCell>
-                                <TableCell className="text-right text-xs">{formatCurrency(row.totalTaxableValue, tenant?.currency)}</TableCell>
-                                <TableCell className="text-right text-xs">{formatCurrency(row.totalIgst, tenant?.currency)}</TableCell>
-                                <TableCell className="text-right text-xs">{formatCurrency(row.totalCgst, tenant?.currency)}</TableCell>
-                                <TableCell className="text-right text-xs">{formatCurrency(row.totalSgst, tenant?.currency)}</TableCell>
-                              </TableRow>
-                            ))}
-                          </TableBody>
-                        </Table>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Net Payable */}
-                  <div className={\`\${summary.netGstPayable >= 0 ? 'bg-red-50 dark:bg-red-950' : 'bg-emerald-50 dark:bg-emerald-950'} p-4 rounded-lg\`}>``
+  "                  {/* Net Payable */}\n                  <div className={`${summary.netGstPayable >= 0 ? 'bg-red-50 dark:bg-red-950' : 'bg-emerald-50 dark:bg-emerald-950'} p-4 rounded-lg`}>",
+  "                  {/* v4.149: HSN-wise Summary (GSTR-3B Section 4) */}\n                  {hsnSummary.length > 0 && (\n                    <div className=\"bg-purple-50 dark:bg-purple-950 p-4 rounded-lg\">\n                      <h4 className=\"text-sm font-semibold text-purple-700 dark:text-purple-300 mb-3\">\n                        HSN-wise Summary (GSTR-3B Section 4)\n                      </h4>\n                      <div className=\"overflow-x-auto max-h-72 overflow-y-auto\">\n                        <Table>\n                          <TableHeader>\n                            <TableRow>\n                              <TableHead className=\"text-xs\">HSN</TableHead>\n                              <TableHead className=\"text-xs\">Description</TableHead>\n                              <TableHead className=\"text-xs text-right\">Qty</TableHead>\n                              <TableHead className=\"text-xs text-right\">Taxable</TableHead>\n                              <TableHead className=\"text-xs text-right\">IGST</TableHead>\n                              <TableHead className=\"text-xs text-right\">CGST</TableHead>\n                              <TableHead className=\"text-xs text-right\">SGST</TableHead>\n                            </TableRow>\n                          </TableHeader>\n                          <TableBody>\n                            {hsnSummary.map(row => (\n                              <TableRow key={row.hsn}>\n                                <TableCell className=\"font-mono text-xs\">{row.hsn}</TableCell>\n                                <TableCell className=\"text-xs\">{row.description.slice(0, 40)}</TableCell>\n                                <TableCell className=\"text-right text-xs\">{row.totalQty}</TableCell>\n                                <TableCell className=\"text-right text-xs\">{formatCurrency(row.totalTaxableValue, tenant?.currency)}</TableCell>\n                                <TableCell className=\"text-right text-xs\">{formatCurrency(row.totalIgst, tenant?.currency)}</TableCell>\n                                <TableCell className=\"text-right text-xs\">{formatCurrency(row.totalCgst, tenant?.currency)}</TableCell>\n                                <TableCell className=\"text-right text-xs\">{formatCurrency(row.totalSgst, tenant?.currency)}</TableCell>\n                              </TableRow>\n                            ))}\n                          </TableBody>\n                        </Table>\n                      </div>\n                    </div>\n                  )}\n\n                  {/* Net Payable */}\n                  <div className={`${summary.netGstPayable >= 0 ? 'bg-red-50 dark:bg-red-950' : 'bg-emerald-50 dark:bg-emerald-950'} p-4 rounded-lg`}>"
 )
 
 console.log('PATCH 6: Added HSN-wise summary section in GSTR-3B')
