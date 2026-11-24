@@ -115,9 +115,11 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'Transporter GSTIN is invalid. Enter a valid 15-character GSTIN or leave it blank.' }, { status: 400 })
       }
 
-      if (!Number.isInteger(transporter.distanceKm) || transporter.distanceKm <= 0) {
+      const transportDistanceKm = Number(transporter.distanceKm ?? 0)
+      if (!Number.isInteger(transportDistanceKm) || transportDistanceKm <= 0) {
         return NextResponse.json({ error: 'Enter a positive whole-number transport distance in kilometres.' }, { status: 400 })
       }
+      transporter.distanceKm = transportDistanceKm
 
       if (!Object.values(TRANSPORT_MODE).includes(transporter.modeOfTransport as any)) {
         return NextResponse.json({ error: 'Select a supported mode of transport.' }, { status: 400 })
