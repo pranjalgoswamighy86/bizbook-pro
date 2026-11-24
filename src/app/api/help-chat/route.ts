@@ -3,6 +3,7 @@ import { db } from '@/lib/db'
 import { analyzeWithAI } from '@/lib/multi-ai'
 import { requireAuthAndTenant } from '@/lib/api-helpers'
 import { checkRateLimit } from '@/lib/rate-limit'
+import { APP_VERSION } from '@/lib/version'
 
 type ChatHistoryMessage = {
   role: 'user' | 'ai'
@@ -33,6 +34,8 @@ type ChatHistoryMessage = {
 //   • Rate limit: 10 messages per minute per user (chat-specific bucket).
 //   • System prompt now includes app version + feature list so the AI can
 //     answer product questions accurately instead of guessing.
+//   • APP_VERSION is imported from src/lib/version.ts (single source of
+//     truth) so the chat prompt stays in sync with the deployed banner.
 // ============================================================
 
 const ESCALATION_KEYWORDS = [
@@ -72,8 +75,6 @@ function buildOptimizedQuery(message: string): string {
   if (cleaned.length <= 80) return cleaned
   return cleaned.slice(0, 77) + '...'
 }
-
-const APP_VERSION = 'v6.30.7'
 
 export async function POST(req: NextRequest) {
   try {
