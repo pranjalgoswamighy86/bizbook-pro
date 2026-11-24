@@ -30,6 +30,8 @@ model Tenant {
   showSignatureInInvoice Boolean @default(true) // whether to show signature line
   showQrCode Boolean @default(true) // whether to show UPI QR code on invoices
   invoiceFooterText String?  // custom footer text for invoices
+  einvoiceAutoGenerate Boolean @default(false)
+  ewbAutoGenerate      Boolean @default(false)
   plan        String   @default("free")
   planExpires DateTime?
   // Soft-delete: records are never truly deleted
@@ -207,6 +209,18 @@ model Sale {
   einvoiceAckDate    String?   // Acknowledgement timestamp from IRP
   einvoiceQrCodeText String?   // Raw QR code string for printing
   einvoiceStatus     String    @default("PENDING")  // PENDING, GENERATED, CANCELLED
+  // v6.31.0: GST E-Way Bill fields
+  ewayBillNo           String?
+  ewayBillDate         String?
+  ewayBillValidUpto    String?
+  ewayBillStatus       String     @default("PENDING")
+  transporterId        String?
+  transporterName      String?
+  vehicleNo            String?
+  modeOfTransport      String?
+  distanceKm           Int?
+  ewayBillCanceledAt   DateTime?
+  ewayBillCancelReason String?
   tenantId      String
   tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   createdBy     String?
