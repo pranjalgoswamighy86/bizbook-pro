@@ -3,6 +3,8 @@ name: PR Build Verification
 on:
   pull_request:
     branches: [main]
+  push:
+    branches: [fix/ai-support-einvoice-security-nov-2026]
 
 permissions:
   contents: read
