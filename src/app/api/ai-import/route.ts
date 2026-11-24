@@ -1326,6 +1326,10 @@ async function handleApplyImport(req: NextRequest, formData: FormData, tenantId:
     const totalSkipped = Object.values(results).reduce((sum, r) => sum + r.skipped, 0)
     const totalGLPosted = Object.values(results).reduce((sum, r) => sum + r.glPosted, 0)
 
+    if (Object.keys(results).length === 0) {
+      return NextResponse.json({ error: 'Select at least one module containing records before importing.' }, { status: 400 })
+    }
+
     let message: string
     if (totalFailed === 0 && totalSkipped === 0) {
       message = `Successfully imported ${totalCreated} record(s). GL entries posted: ${totalGLPosted}.`
@@ -1335,7 +1339,12 @@ async function handleApplyImport(req: NextRequest, formData: FormData, tenantId:
       message = `Imported ${totalCreated} record(s) with ${totalFailed} failure(s); ${totalSkipped} skipped as duplicates. GL entries posted: ${totalGLPosted}.`
     }
 
-    return NextResponse.json({ success: true, results, message })
+    return NextResponse.json({
+      success: totalFailed === 0,
+      partialSuccess: totalCreated > 0 && totalFailed > 0,
+      results,
+      message,
+    })
   } catch (err: any) {
     console.error('[AI-Import] apply failed:', err)
     return NextResponse.json({ error: `Import failed: ${err.message}`, results }, { status: 500 })
