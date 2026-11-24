@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db-soft-delete'
 import { analyzeWithAI } from '@/lib/multi-ai'
-import { requireAuthAndTenant } from '@/lib/api-helpers'
+import { requireAuthAndTenant, requireAuthAndRole } from '@/lib/api-helpers'
 import { postSaleJE, postPurchaseJE, postExpenseJE } from '@/lib/gl-posting'
 import { roundTo2 } from '@/lib/gst-utils'
 
@@ -146,7 +146,7 @@ async function handleFileUpload(req: NextRequest) {
     return NextResponse.json({ error: 'No tenant ID provided' }, { status: 400 })
   }
 
-  const auth = await requireAuthAndTenant(req, tenantId)
+  const auth = await requireAuthAndRole(req, tenantId, ['DATA_ENTRY', 'JUNIOR_ADMIN', 'MAIN_ADMIN'])
   if (auth instanceof NextResponse) return auth
 
   const fileName = file.name.toLowerCase()
@@ -867,7 +867,7 @@ async function handleApplyImport(req: NextRequest, formData: FormData, tenantId:
   if (!tenantId) {
     return NextResponse.json({ error: 'No tenant ID provided' }, { status: 400 })
   }
-  const auth = await requireAuthAndTenant(req, tenantId)
+  const auth = await requireAuthAndRole(req, tenantId, ['DATA_ENTRY', 'JUNIOR_ADMIN', 'MAIN_ADMIN'])
   if (auth instanceof NextResponse) return auth
 
   const importDataRaw = formData.get('importData') as string
