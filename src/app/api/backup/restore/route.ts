@@ -121,7 +121,7 @@ async function recordBelongsToTenant(model: string, row: any, tenantId: string):
 
   if (model === 'staffAttendance') {
     return row.tenantId === tenantId &&
-      parentBelongsToTenant('staff', row.staffId, tenantId)
+      await parentBelongsToTenant('staff', row.staffId, tenantId)
   }
   if (model === 'salaryPayment') {
     const checks = await Promise.all([
@@ -303,8 +303,8 @@ export async function POST(req: NextRequest) {
         continue
       }
       if (tenantId && ['user', 'userTenant', 'subscription', 'subscriptionQueue', 'recharge', 'usageLog', 'auditLog', 'helpSupportTicket'].includes(model)) {
-        // Older tenant backups may contain password hashes and memberships.
-        // They are intentionally not imported by business administrators.
+        // Older tenant backups may contain credentials, platform billing,
+        // usage counters, support tickets or audit history. Do not import them.
         const skipped = sourceRows.length
         totalSkipped += skipped
         results.push({ table: label, imported: 0, updated: 0, skipped })
