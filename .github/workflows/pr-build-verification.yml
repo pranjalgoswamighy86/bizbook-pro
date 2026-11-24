@@ -31,6 +31,11 @@ jobs:
         env:
           DATABASE_URL: postgresql://placeholder:placeholder@localhost:5432/placeholder
 
+      - name: TypeScript verification
+        run: npx tsc --noEmit
+        env:
+          DATABASE_URL: postgresql://placeholder:placeholder@localhost:5432/placeholder
+
       - name: Build application
         run: npm run build
         env:
