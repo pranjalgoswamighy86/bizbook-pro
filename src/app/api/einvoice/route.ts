@@ -14,7 +14,8 @@ import {
   extractPinCode,
 } from '@/lib/gst-utils'
 // v4.152: IRP direct integration
-import { submitToIrp, cancelIrn, isIrpConfigured, getIrpBaseUrl } from '@/lib/irp-integration'
+import { submitToIrp, cancelIrn, getIrpBaseUrl } from '@/lib/irp-integration'
+import { getEffectiveGspConfig } from '@/lib/gsp-credentials'
 
 // Sale items may store GST as one GST entry (18%) or split CGST + SGST
 // entries (9% + 9%). IRP needs the combined GST rate.
@@ -308,7 +309,8 @@ export async function POST(req: NextRequest) {
       if (!Number.isFinite(hoursDiff) || hoursDiff < 0 || hoursDiff > 24) {
         return NextResponse.json({ error: 'The IRP 24-hour cancellation window has expired or the acknowledgement date is invalid. Issue a credit note instead.' }, { status: 400 })
       }
-      const result = await cancelIrn(sale.einvoiceIrn, reasonCode)
+      const gspConfig = await getEffectiveGspConfig(tenantId)
+      const result = await cancelIrn(sale.einvoiceIrn, reasonCode, gspConfig)
       if (!result.success) return NextResponse.json({ success: false, mode: result.mode, error: result.errorMessage || 'IRP cancellation failed' }, { status: 502 })
       const updated = await db.sale.update({ where: { id: saleId }, data: { einvoiceStatus: 'CANCELLED' } })
       await writeAuditLog({
@@ -543,7 +545,8 @@ export async function POST(req: NextRequest) {
       }
 
       // Submit to IRP
-      const irpResult = await submitToIrp(inv01Payload)
+      const gspConfig = await getEffectiveGspConfig(tenantId)
+      const irpResult = await submitToIrp(inv01Payload, gspConfig)
 
       if (irpResult.success && irpResult.irn) {
         // Persist IRN + AckNo + AckDate + SignedQR
@@ -657,12 +660,13 @@ export async function POST(req: NextRequest) {
       const access = await requireAuthAndTenant(req, tenantId)
       if (access instanceof NextResponse) return access
 
+      const gspConfig = await getEffectiveGspConfig(tenantId)
       return NextResponse.json({
-        configured: isIrpConfigured(),
-        mode: isIrpConfigured() ? 'LIVE' : 'MANUAL',
-        env: process.env.IRP_ENV || 'sandbox',
-        baseUrl: getIrpBaseUrl(),
-        gspCode: process.env.IRP_GSP_CODE || null,
+        configured: !!gspConfig,
+        mode: gspConfig ? 'LIVE' : 'MANUAL',
+        env: gspConfig?.irpEnv || 'sandbox',
+        baseUrl: gspConfig ? getIrpBaseUrl(gspConfig) : null,
+        gspCode: gspConfig?.gspCode || null,
       })
     }
 
