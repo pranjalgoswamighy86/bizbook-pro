@@ -32,6 +32,14 @@ model Tenant {
   invoiceFooterText String?  // custom footer text for invoices
   einvoiceAutoGenerate Boolean @default(false)
   ewbAutoGenerate      Boolean @default(false)
+  // Per-tenant GSP credentials. Secret values are AES-256-GCM ciphertext only.
+  gspCode              String?
+  gspClientIdEnc       String?  @db.Text
+  gspClientSecretEnc   String?  @db.Text
+  gspUsernameEnc       String?  @db.Text
+  gspPasswordEnc       String?  @db.Text
+  irpEnv               String   @default("sandbox")
+  gspConfigUpdatedAt   DateTime?
   plan        String   @default("free")
   planExpires DateTime?
   // Soft-delete: records are never truly deleted
