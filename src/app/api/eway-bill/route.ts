@@ -20,7 +20,6 @@ import {
   TRANSPORT_MODE,
   TransporterDetails,
 } from '@/lib/ewb-integration'
-import { getIrpBaseUrl } from '@/lib/irp-integration'
 import { getEffectiveGspConfig, tenantHasGspCredentials } from '@/lib/gsp-credentials'
 
 // ============================================================
@@ -66,7 +65,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({
         configured: await tenantHasGspCredentials(tenantId),
         mode: await tenantHasGspCredentials(tenantId) ? 'LIVE' : 'MANUAL',
-        env: 'sandbox',
+        env: (await getEffectiveGspConfig(tenantId))?.irpEnv || 'sandbox',
         einvoiceAutoGenerate: tenant?.einvoiceAutoGenerate || false,
         ewbAutoGenerate: tenant?.ewbAutoGenerate || false,
       })
