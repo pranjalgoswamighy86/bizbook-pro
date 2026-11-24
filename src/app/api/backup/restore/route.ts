@@ -98,10 +98,9 @@ export async function POST(req: NextRequest) {
     // This route restores all tenants, not one tenant. Only the system
     // administrator identities used by the platform RBAC may run it.
     const systemAdminEmails = new Set([
-      'admin@bizbook.pro',
-      'pranjalgoswamighy86@gmail.com',
       process.env.ADMIN_EMAIL || '',
-      process.env.INFRA_OWNER_EMAIL || process.env.INFRASTRUCTURE_OWNER_EMAIL || '',
+      process.env.INFRA_OWNER_EMAIL || '',
+      process.env.INFRASTRUCTURE_OWNER_EMAIL || '',
     ].map(value => value.toLowerCase().trim()).filter(Boolean))
 
     if (!systemAdminEmails.has(sessionEmail)) {
@@ -171,7 +170,7 @@ export async function POST(req: NextRequest) {
           delete cleanRecord.subscriptions
 
           // v4.120: Use upsert — creates if not exists, updates if exists
-          // This fixes the "duplicate key" error when admin@bizbook.pro already exists
+          // The verified backup administrator may already exist in the current database.
           await (rawDb as any)[label].upsert({
             where: { id: record.id },
             create: cleanRecord,
@@ -216,10 +215,7 @@ export async function POST(req: NextRequest) {
     // Write audit log (best-effort)
     try {
       // Find the admin's tenant from the backup
-      const adminUser = backupUsers.find((u: any) =>
-        u.email && u.email.toLowerCase() === 'admin@bizbook.pro'
-      )
-      const userTenantId = backupUser?.tenantId || adminUser?.tenantId
+      const userTenantId = backupUser.tenantId
       if (userTenantId) {
         const tenantExists = await rawDb.tenant.findUnique({
           where: { id: userTenantId },
@@ -229,8 +225,8 @@ export async function POST(req: NextRequest) {
           await rawDb.auditLog.create({
             data: {
               tenantId: userTenantId,
-              userId: backupUser?.id || adminUser?.id || 'restore',
-              userName: backupUser?.name || 'Admin',
+              userId: backupUser.id,
+              userName: backupUser.name || 'Admin',
               action: 'DATABASE_RESTORE',
               entityType: 'Backup',
               entityId: null,
