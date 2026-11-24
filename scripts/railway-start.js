@@ -70,7 +70,6 @@ if (_secretLooksMalformed(process.env.SESSION_SECRET)) {
   }
   process.env.SESSION_SECRET = crypto.randomBytes(48).toString('hex');
 }
-process.env.ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin@bizbook.pro';
 process.env.NEXT_TELEMETRY_DISABLED = '1';
 
 // v4.56: Verify DATABASE_URL is set (PostgreSQL connection string)
