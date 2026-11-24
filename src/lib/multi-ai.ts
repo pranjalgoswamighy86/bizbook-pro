@@ -40,7 +40,7 @@ class DeepSeekProvider implements AIProvider {
     if (!this.apiKey) throw new Error('DeepSeek API key missing');
     const url = 'https://api.deepseek.com/v1/chat/completions';
     const messages = [
-      { role: 'system', content: 'You are a helpful business AI for BizBook Pro. Respond in English only.' },
+      { role: 'system', content: 'You are a helpful business AI for BizBook Pro. Follow the language requested in the user prompt.' },
       { role: 'user', content: context ? `Context: ${context}\n\n${prompt}` : prompt }
     ];
     try {
@@ -132,11 +132,17 @@ class GeminiProvider implements AIProvider {
 
   async analyze(prompt: string, context?: string, options: AIRequestOptions = {}): Promise<string> {
     if (!this.apiKey) throw new Error('Gemini API key missing');
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${this.apiKey}`;
+    const model = process.env.GEMINI_MODEL || 'gemini-3.5-flash'
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${this.apiKey}`;
     const res = await axios.post(url, {
       contents: [{
-        parts: [{ text: context ? `Context: ${context}\n\n${prompt}` : prompt }]
-      }]
+        parts: [{ text: context ? `Context: ${context}\\n\\n${prompt}` : prompt }]
+      }],
+      generationConfig: {
+        temperature: options.temperature ?? 0.3,
+        maxOutputTokens: options.maxTokens ?? 2000,
+        ...(options.jsonMode ? { responseMimeType: 'application/json' } : {}),
+      },
     }, { timeout: 30000 });
     return res.data.candidates[0].content.parts[0].text;
   }
@@ -286,7 +292,7 @@ export async function analyzeWithAI(
     }
     const response = await zai.chat.completions.create({
       messages: [
-        { role: 'system', content: 'You are a helpful assistant for BizBook Pro accounting software. Respond in English only.' },
+        { role: 'system', content: 'You are a helpful assistant for BizBook Pro accounting software. Follow the language used by the customer.' },
         { role: 'user', content: context ? `${context}\n\nQuestion: ${prompt}` : prompt },
       ],
     })
