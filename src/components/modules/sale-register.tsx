@@ -17,7 +17,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { formatCurrency, formatDate, getDateFilterRange } from '@/lib/formulas'
 import { isInterStateSupply, roundTo2 } from '@/lib/gst-utils'
 import { generateInvoiceHtml } from '@/lib/invoice-templates'
-import { Plus, Pencil, Trash2, Eye, ChevronDown, X, Loader2, CheckCircle2, Printer, Package, FileCheck, Sparkles } from 'lucide-react'
+import { Plus, Pencil, Trash2, Eye, ChevronDown, X, Loader2, CheckCircle2, Printer, Package, FileCheck, Sparkles, Truck } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import { PartySuggest } from '@/components/app/party-suggest'
 import { ItemSuggest } from '@/components/app/item-suggest'
@@ -56,6 +56,7 @@ interface Sale {
   paymentStatus: string; paymentMode: string | null; invoiceStatus: string; upiAmount: number; amountPaid: number; amountReceived: number; discountPercent: number; notes: string | null; invoiceFile: string | null; createdBy: string | null
   einvoiceIrn: string | null; einvoiceAckNo: string | null; einvoiceAckDate: string | null
   einvoiceQrCodeText: string | null; einvoiceStatus: string
+  ewayBillNo: string | null; ewayBillDate: string | null; ewayBillValidUpto: string | null; ewayBillStatus: string
 }
 
 const PRESET_TAXES = ['GST', 'CGST', 'SGST', 'IGST', 'VAT', 'Excise Duty', 'Import Duty', 'Cess', 'Surcharge']
@@ -517,6 +518,10 @@ export function SaleRegister() {
           einvoiceAckDate: null,
           einvoiceQrCodeText: null,
           einvoiceStatus: 'PENDING',
+          ewayBillNo: null,
+          ewayBillDate: null,
+          ewayBillValidUpto: null,
+          ewayBillStatus: 'PENDING',
           discountPercent: form.discountPercent || 0, // v6.30.2: FIX — was missing from savedSale object; Print Invoice got discountPercent: undefined → "NaN%" or broken discount display
           createdBy: user?.id || null,
         }
@@ -690,6 +695,92 @@ export function SaleRegister() {
       toast({ title: 'E-Invoice details saved', description: `IRN recorded for invoice ${sale.invoiceNumber}.` })
     } catch {
       toast({ title: 'Network error', description: 'Could not save the IRP details. Please try again.', variant: 'destructive' })
+    }
+  }
+
+  const handleGenerateEwb = async (sale: Sale) => {
+    if (!tenant) return
+    const vehicleNo = window.prompt('Enter vehicle number (for example WB12AB1234):')
+    if (!vehicleNo) return
+    const distanceInput = window.prompt('Enter approximate transport distance in kilometres:')
+    if (!distanceInput) return
+    const distanceKm = Number(distanceInput)
+    if (!Number.isFinite(distanceKm) || distanceKm <= 0) {
+      toast({ title: 'Invalid distance', description: 'Enter a positive distance in kilometres.', variant: 'destructive' })
+      return
+    }
+    const transporterId = window.prompt('Transporter GSTIN (optional; leave blank if not applicable):') || ''
+    const ewbWindow = window.open('about:blank', '_blank')
+    try {
+      const res = await authFetch('/api/eway-bill', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'generate-payload', tenantId: tenant.id, saleId: sale.id,
+          vehicleNo: vehicleNo.trim().toUpperCase(), distanceKm, transporterId: transporterId.trim(),
+          modeOfTransport: '2',
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        if (ewbWindow && !ewbWindow.closed) ewbWindow.close()
+        toast({ title: 'E-Way Bill Error', description: data.error || 'Could not prepare the E-Way Bill.', variant: 'destructive' })
+        return
+      }
+      if (data.mode === 'LIVE' && data.success) {
+        if (ewbWindow && !ewbWindow.closed) ewbWindow.close()
+        await fetchSales()
+        toast({ title: 'E-Way Bill generated', description: `EWB No: ${data.ewbNo || 'Generated'}` })
+        return
+      }
+      if (data.mode === 'MANUAL' && data.payload) {
+        if (ewbWindow) ewbWindow.location.href = 'https://ewaybillgst.gov.in/'
+        const blob = new Blob([JSON.stringify(data.payload, null, 2)], { type: 'application/json' })
+        const url = URL.createObjectURL(blob)
+        const link = document.createElement('a')
+        const invoice = String(sale.invoiceNumber || 'invoice').replace(/[^a-zA-Z0-9-_]/g, '_')
+        link.href = url
+        link.download = `BizBook-Pro-EWayBill-${invoice}.json`
+        document.body.appendChild(link)
+        link.click()
+        link.remove()
+        window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+        toast({ title: 'E-Way Bill payload downloaded', description: 'Submit the JSON on the GST E-Way Bill portal, then use Record EWB to save the 12-digit number.', duration: 9000 })
+        return
+      }
+      if (ewbWindow && !ewbWindow.closed) ewbWindow.close()
+      toast({ title: 'E-Way Bill Error', description: data.error || 'Unexpected response from the E-Way Bill service.', variant: 'destructive' })
+    } catch {
+      if (ewbWindow && !ewbWindow.closed) ewbWindow.close()
+      toast({ title: 'Network error', description: 'Could not connect to the E-Way Bill service.', variant: 'destructive' })
+    }
+  }
+
+  const handleRecordManualEwb = async (sale: Sale) => {
+    if (!tenant) return
+    const ewbNo = window.prompt('Enter the 12-digit E-Way Bill number returned by the GST portal:')
+    if (!ewbNo) return
+    if (!/^\\d{12}$/.test(ewbNo.trim())) {
+      toast({ title: 'Invalid EWB number', description: 'The E-Way Bill number must contain exactly 12 digits.', variant: 'destructive' })
+      return
+    }
+    const ewbDate = window.prompt('Enter EWB generation date (YYYY-MM-DD):', new Date().toISOString().slice(0, 10))
+    if (!ewbDate) return
+    try {
+      const res = await authFetch('/api/eway-bill', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'update-status', tenantId: tenant.id, saleId: sale.id, ewbNo: ewbNo.trim(), ewbDate, distanceKm: null }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        toast({ title: 'Could not save EWB details', description: data.error || 'Verify the EWB number and date.', variant: 'destructive' })
+        return
+      }
+      await fetchSales()
+      toast({ title: 'E-Way Bill recorded', description: `EWB ${ewbNo.trim()} saved for invoice ${sale.invoiceNumber}.` })
+    } catch {
+      toast({ title: 'Network error', description: 'Could not save the E-Way Bill details.', variant: 'destructive' })
     }
   }
 
@@ -920,6 +1011,17 @@ export function SaleRegister() {
                               Record IRN
                             </Button>
                           )}
+                          {s.invoiceStatus !== 'QUOTATION' && s.totalAmount >= 50000 && !s.ewayBillNo && (
+                            <Button variant="outline" size="sm" className="h-8 gap-1 px-2" title="Prepare E-Way Bill JSON for GST portal" onClick={() => handleGenerateEwb(s)}>
+                              <Truck className="h-4 w-4" /><span className="text-xs">EWB</span>
+                            </Button>
+                          )}
+                          {s.invoiceStatus !== 'QUOTATION' && s.totalAmount >= 50000 && !s.ewayBillNo && (
+                            <Button variant="ghost" size="sm" className="h-8 px-2 text-xs" title="Record the 12-digit E-Way Bill number from the GST portal" onClick={() => handleRecordManualEwb(s)}>
+                              Record EWB
+                            </Button>
+                          )}
+                          {s.ewayBillNo && <Badge variant="outline" className="h-8 gap-1 border-blue-300 text-blue-700"><Truck className="h-3 w-3" /> EWB</Badge>}
                           <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setViewItem(s)}><Eye className="h-4 w-4" /></Button>
                           {/* v4.106: Show Confirm button for Quotation sales */}
                           {s.invoiceStatus === 'QUOTATION' && canEdit(user?.role || 'VIEW_ONLY') && (
