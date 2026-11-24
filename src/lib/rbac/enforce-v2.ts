@@ -219,7 +219,7 @@ export async function requirePermission(
   if (!allowed) {
     // Log denied attempt using existing AuditLog schema
     try {
-      await prisma.auditLog.create({
+      await db.auditLog.create({
         data: {
           userId: user.id,
           tenantId,
