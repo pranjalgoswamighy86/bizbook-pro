@@ -18,7 +18,10 @@ import { writeFile, mkdir, readFile, unlink, readdir, stat } from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
 
-const BACKUP_DIR = path.join(process.cwd(), 'db', 'excel-backups')
+const BACKUP_DIR = process.env.BIZBOOK_BACKUP_DIR?.trim() ||
+  (process.env.NODE_ENV === 'production'
+    ? '/app/data/excel-backups'
+    : path.join(process.cwd(), 'db', 'excel-backups'))
 const DEBOUNCE_MS = 30_000 // 30 seconds between auto-backups per tenant
 const MAX_BACKUPS_PER_TENANT = 10 // Keep last 10 Excel backups per tenant
 

@@ -1339,8 +1339,8 @@ export function SettingsPage() {
             <CardContent className="space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="bg-rose-50 dark:bg-rose-950/20 p-4 rounded-lg border border-rose-200 dark:border-rose-900">
-                  <h4 className="font-medium text-sm mb-1 flex items-center gap-2"><Database className="h-4 w-4 text-rose-600" /> Complete Database Backup</h4>
-                  <p className="text-xs text-muted-foreground mb-3">Download a <strong>complete backup of the entire database</strong> (all tables, all records). Keep this safe — if you ever lose access to the server, you can restore the entire software from this file.</p>
+                  <h4 className="font-medium text-sm mb-1 flex items-center gap-2"><Database className="h-4 w-4 text-rose-600" /> Business Data Backup</h4>
+                  <p className="text-xs text-muted-foreground mb-3">Download a backup of the data your account is authorized to manage. Business administrators receive only their current business data; platform administrators can create system-wide backups.</p>
                   <Button size="sm" className="bg-rose-600 hover:bg-rose-700" onClick={async () => {
                     try {
                       const res = await authFetch('/api/backup/download')
@@ -1352,7 +1352,7 @@ export function SettingsPage() {
                         a.download = `bizbook_pro_complete_backup_${new Date().toISOString().split('T')[0]}.json`
                         a.click()
                         URL.revokeObjectURL(url)
-                        toast({ title: 'Complete Backup Downloaded', description: 'Keep this file safe. It contains your entire database.', duration: 8000 })
+                        toast({ title: 'Backup Downloaded', description: 'Keep this file safe. It contains only data your account is authorized to export.', duration: 8000 })
                       } else {
                         // Read the error response body for details
                         let errDetail = `Server returned ${res.status} ${res.statusText}`
