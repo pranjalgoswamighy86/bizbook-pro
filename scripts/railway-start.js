@@ -70,7 +70,6 @@ if (_secretLooksMalformed(process.env.SESSION_SECRET)) {
   }
   process.env.SESSION_SECRET = crypto.randomBytes(48).toString('hex');
 }
-process.env.MASTER_MOBILE_NUMBER = process.env.MASTER_MOBILE_NUMBER || '9101555075';
 process.env.ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin@bizbook.pro';
 process.env.NEXT_TELEMETRY_DISABLED = '1';
 
