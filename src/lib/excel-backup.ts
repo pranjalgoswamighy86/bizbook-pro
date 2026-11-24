@@ -1567,7 +1567,9 @@ export async function restoreFromExcelData(
   }
 
   return {
-    success: errors.length === 0 || totalRestored > 0,
+    // A partial import must never be reported as a complete success.
+    success: errors.length === 0,
+    partial: errors.length > 0 && totalRestored > 0,
     restoredCount: totalRestored,
     errors,
     details,
