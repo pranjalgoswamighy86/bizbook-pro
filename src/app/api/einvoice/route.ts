@@ -310,6 +310,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: true, sale: updated })
     }
 
+    if (action === 'generate-purchase-payload') {
+      // Purchases are supplier-issued invoices; BizBook Pro records the IRN
+      // supplied by the vendor and must never generate one on the buyer's behalf.
+      return NextResponse.json({
+        error: 'A supplier must generate the IRN for a purchase invoice. Enter the supplier-issued IRN and acknowledgement details instead.',
+        code: 'SUPPLIER_ISSUED_EINVOICE',
+      }, { status: 400 })
+    }
+
     if (action === 'update-purchase-status') {
       // v6.27.5: SECURITY FIX — add authentication (was missing).
       const access = await requireAuthAndTenant(req, tenantId)
