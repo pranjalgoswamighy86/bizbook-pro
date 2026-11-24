@@ -50,7 +50,9 @@ if (!globalForPrisma.prisma) {
   // @ts-ignore - Prisma event types
   db.$on('query', (e: { query: string; duration: number }) => {
     const q = e.query.toLowerCase().trim()
-    if (q.startsWith('delete') || q.includes('delete from')) {
+    // LoginAttempt rows are short-lived rate-limit/security telemetry and are
+    // intentionally purged after 24 hours; this is not deletion of business data.
+    if ((q.startsWith('delete') || q.includes('delete from')) && !/\bloginattempt\b/i.test(q)) {
       console.warn(`[DB-PROTECTION] HARD DELETE operation detected! Should use soft-delete: ${e.query.slice(0, 300)}...`)
     }
   })
