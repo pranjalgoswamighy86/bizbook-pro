@@ -114,7 +114,7 @@ async function main() {
     console.log(`  Migrated:   ${migrated}`)
     console.log(`  Skipped:    ${skipped}  (already hashed)`)
     console.log('')
-    console.log('Next step: start the server and sign in with each user's existing password.')
+    console.log("Next step: start the server and sign in with each user\u0027s existing password.")
     console.log('')
 
     // IMPORTANT: Set SESSION_SECRET in .env so session tokens survive restarts
