@@ -110,9 +110,8 @@ export function AppSidebar() {
   // v6.17: Which tab the HelpModal opens on. F1 / "AI Support Chat" menu
   // action sets this to 'chat' via the global openHelpChat() event.
   const [helpInitialTab, setHelpInitialTab] = useState<'faq' | 'guides' | 'chat' | 'management'>('faq')
-  // v4.67: Check if user is Super Admin (to hide regular Help button)
-  const SUPER_ADMIN_EMAILS = ['admin@bizbook.pro', 'pranjalgoswamighy86@gmail.com']
-  const isSuperAdmin = user ? SUPER_ADMIN_EMAILS.includes(user.email.toLowerCase()) : false
+  // Use the role delivered by the authenticated session; server APIs still enforce admin access.
+  const isSuperAdmin = user?.role === 'SUPER_ADMIN'
 
   // Detect mobile screen size
   // Use 900px breakpoint so that small screens like 800x600
@@ -131,7 +130,7 @@ export function AppSidebar() {
   const filteredItems = navItems.filter((item) => {
     if (!item.minRole) return true
     if (!user) return false
-    // v4.61: SUPER_ADMIN items only visible to admin@bizbook.pro / pranjalgoswamighy86@gmail.com
+    // SUPER_ADMIN items are visible only to accounts carrying the system-admin role.
     if (item.minRole === 'SUPER_ADMIN') {
       return isSuperAdmin
     }

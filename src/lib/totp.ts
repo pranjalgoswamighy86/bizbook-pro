@@ -40,7 +40,7 @@ export function createTotpUri(secret: string, email: string): string {
     secret,
     label: email,
     issuer: 'BizBook Pro',
-    algorithm: 'SHA1',
+    algorithm: 'sha1',
     digits: TOTP_CONFIG.digits,
     period: TOTP_CONFIG.step,
     type: 'totp',
@@ -82,7 +82,7 @@ export function verifyTOTP(secret: string, token: string): boolean {
     // Remove any spaces or dashes the user might have typed
     const cleanToken = token.replace(/[\s-]/g, '')
 
-    const result = verifySync({ token: cleanToken, secret, digits: TOTP_CONFIG.digits, period: TOTP_CONFIG.step, window: TOTP_CONFIG.window, algorithm: 'SHA1' })
+    const result = verifySync({ token: cleanToken, secret, digits: TOTP_CONFIG.digits, period: TOTP_CONFIG.step, window: TOTP_CONFIG.window, algorithm: 'sha1' })
     return result.valid === true
   } catch {
     return false
@@ -94,5 +94,5 @@ export function verifyTOTP(secret: string, token: string): boolean {
  * WARNING: This should only be used for debugging, never in production responses.
  */
 export function generateCurrentToken(secret: string): string {
-  return generateSync({ secret, digits: TOTP_CONFIG.digits, period: TOTP_CONFIG.step, algorithm: 'SHA1' })
+  return generateSync({ secret, digits: TOTP_CONFIG.digits, period: TOTP_CONFIG.step, algorithm: 'sha1' })
 }

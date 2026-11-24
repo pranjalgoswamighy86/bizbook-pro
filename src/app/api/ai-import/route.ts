@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db-soft-delete'
 import { analyzeWithAI } from '@/lib/multi-ai'
-import { requireAuthAndTenant } from '@/lib/api-helpers'
+import { requireAuthAndTenant, requireAuthAndRole } from '@/lib/api-helpers'
 import { postSaleJE, postPurchaseJE, postExpenseJE } from '@/lib/gl-posting'
 import { roundTo2 } from '@/lib/gst-utils'
 
@@ -146,7 +146,7 @@ async function handleFileUpload(req: NextRequest) {
     return NextResponse.json({ error: 'No tenant ID provided' }, { status: 400 })
   }
 
-  const auth = await requireAuthAndTenant(req, tenantId)
+  const auth = await requireAuthAndRole(req, tenantId, ['DATA_ENTRY', 'JUNIOR_ADMIN', 'MAIN_ADMIN'])
   if (auth instanceof NextResponse) return auth
 
   const fileName = file.name.toLowerCase()
@@ -176,6 +176,7 @@ async function handleFileUpload(req: NextRequest) {
 
   let parsedData: any = null
   let dataType = 'unknown'
+  const sourceTruncationWarnings: string[] = []
 
   // ============================================================
   // Parse by file type
@@ -236,11 +237,13 @@ async function handleFileUpload(req: NextRequest) {
       // JSON file
       parsedData = JSON.parse(buffer.toString('utf-8'))
       dataType = 'json'
+      if (buffer.length > 10000) sourceTruncationWarnings.push('JSON source exceeds the 10,000-character AI context limit; the preview may omit later content.')
       console.log(`[AI-Import] Parsed JSON`)
     } else if (['txt'].includes(ext)) {
       // Text file
       parsedData = { content: buffer.toString('utf-8') }
       dataType = 'text'
+      if (buffer.length > 10000) sourceTruncationWarnings.push('Text source exceeds the 10,000-character AI context limit; later content is not included in the preview.')
       console.log(`[AI-Import] Parsed text: ${buffer.length} bytes`)
     } else if (['pdf'].includes(ext)) {
       // v6.27.5: PDF — extract real text with pdf-parse (was a placeholder before)
@@ -254,11 +257,13 @@ async function handleFileUpload(req: NextRequest) {
           info: pdfData.info,
         }
         dataType = 'pdf'
+        if ((pdfData.text?.length || 0) > 10000) sourceTruncationWarnings.push('PDF text exceeds the 10,000-character AI context limit; later content is not included in the preview.')
         console.log(`[AI-Import] Parsed PDF: ${pdfData.numpages} pages, ${pdfData.text?.length || 0} chars`)
         // If text extraction yielded nothing (scanned PDF), fall through to image-vision path
         // by treating the first page as an image. We mark dataType so the AI prompt builder
         // can route to vision.
         if (!pdfData.text || pdfData.text.trim().length < 20) {
+          if ((pdfData.numpages || 0) > 1) sourceTruncationWarnings.push('Scanned PDF: only page 1 is sent to vision analysis. Other pages are not included in this preview.')
           console.warn('[AI-Import] PDF text extraction yielded empty content (likely scanned). Falling back to vision AI.')
           // Convert first page to PNG via pdfjs-dist and feed to vision model.
           // Note: page rendering requires a canvas implementation. In the Next.js
@@ -288,12 +293,17 @@ async function handleFileUpload(req: NextRequest) {
           } catch (renderErr: any) {
             console.warn('[AI-Import] PDF page-render fallback failed:', renderErr?.message)
           }
+          if (!parsedData?.base64) {
+            return NextResponse.json({
+              error: 'This PDF appears to be scanned, but the server could not render its first page for AI analysis. Convert it to a searchable PDF or upload the pages as images.',
+            }, { status: 422 })
+          }
         }
       } catch (pdfErr: any) {
         console.error('[AI-Import] pdf-parse failed:', pdfErr)
-        // Last-resort fallback: send raw bytes info to AI
-        parsedData = { content: `[PDF file: ${file.name}, ${fileSize} bytes. Text extraction failed: ${pdfErr.message}]`, note: 'PDF text extraction failed. Try converting to Excel/CSV.' }
-        dataType = 'pdf'
+        return NextResponse.json({
+          error: 'BizBook Pro could not extract text from this PDF. If it is scanned, convert it to a searchable PDF or upload the pages as images before trying again.',
+        }, { status: 422 })
       }
     } else if (['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp'].includes(ext)) {
       // v6.27.5: Image file — convert to base64 data URL for vision analysis.
@@ -309,19 +319,22 @@ async function handleFileUpload(req: NextRequest) {
       const text = buffer.toString('utf-8')
       parsedData = { content: text.substring(0, 10000), note: 'XML file (Tally export or similar)' }
       dataType = 'xml'
+      if (text.length > 10000) sourceTruncationWarnings.push('XML source exceeds the 10,000-character AI context limit; later content is not included in the preview.')
       console.log(`[AI-Import] XML file: ${text.length} chars`)
-    } else if (['docx', 'doc'].includes(ext)) {
+    } else if (ext === 'docx') {
       // v6.27.5: Word document — extract real text with mammoth (was a placeholder before)
       try {
         const mammoth = await import('mammoth')
         const result = await mammoth.extractRawText({ arrayBuffer })
         parsedData = { content: result.value || '', note: `Word document: ${file.name}` }
         dataType = 'doc'
+        if ((result.value?.length || 0) > 10000) sourceTruncationWarnings.push('Word document text exceeds the 10,000-character AI context limit; later content is not included in the preview.')
         console.log(`[AI-Import] Parsed DOCX: ${result.value?.length || 0} chars`)
       } catch (docErr: any) {
         console.error('[AI-Import] mammoth failed:', docErr)
-        parsedData = { content: `[Word document: ${file.name}, ${fileSize} bytes. Extraction failed: ${docErr.message}]`, note: 'Word document parsing failed.' }
-        dataType = 'doc'
+        return NextResponse.json({
+          error: 'BizBook Pro could not extract text from this DOCX file. Re-save it as a valid .docx document or convert it to PDF before uploading.',
+        }, { status: 422 })
       }
     } else {
       return NextResponse.json({
@@ -368,13 +381,18 @@ async function handleFileUpload(req: NextRequest) {
       // v6.19.1: Truncate to avoid Gemini 400 errors on large files (303+ rows)
       const sheets = parsedData as Record<string, any[]>
       const MAX_ROWS_PER_SHEET = 30 // Truncate to 30 sample rows per sheet (was 5, but headers + 30 rows is safe for all providers)
-      const MAX_TOTAL_CHARS = 20000 // Hard cap to stay under token limits
-      const sheetSummary = Object.entries(sheets).map(([name, rows]) => {
+      const MAX_TOTAL_CHARS = 20000
+      const fullSheetSummary = Object.entries(sheets).map(([name, rows]) => {
         const headers = rows.length > 0 ? Object.keys(rows[0]) : []
         const sampleRows = rows.slice(0, MAX_ROWS_PER_SHEET)
-        const truncatedNote = rows.length > MAX_ROWS_PER_SHEET ? `\n(Showing first ${MAX_ROWS_PER_SHEET} of ${rows.length} rows — data truncated for AI analysis)` : ''
+        if (rows.length > MAX_ROWS_PER_SHEET) {
+          sourceTruncationWarnings.push(`Sheet "${name}": only the first ${MAX_ROWS_PER_SHEET} of ${rows.length} rows were analyzed; ${rows.length - MAX_ROWS_PER_SHEET} rows were not sent to the AI and are NOT included in the import preview.`)
+        }
+        const truncatedNote = rows.length > MAX_ROWS_PER_SHEET
+          ? `\nIMPORTANT: ONLY the first ${MAX_ROWS_PER_SHEET} rows are included below. The remaining ${rows.length - MAX_ROWS_PER_SHEET} rows were not analyzed.`
+          : ''
         return `Sheet "${name}": ${rows.length} rows, columns: ${headers.join(', ')}${truncatedNote}
-Sample data (first ${sampleRows.length} rows):
+Rows supplied to the model (${sampleRows.length}):
 ${JSON.stringify(sampleRows, null, 2)}`
       }).join('\n\n').substring(0, MAX_TOTAL_CHARS)
 
@@ -384,9 +402,9 @@ File: ${file.name}
 Type: ${dataType.toUpperCase()}
 ${categoryInstruction}
 
-${sheetSummary}
+${fullSheetSummary}
 
-CRITICAL: You must return a JSON object with the following structure. The "importData" field is the MOST IMPORTANT — it contains the actual extracted records that will be imported. Extract ALL rows from the file, not just the sample.
+CRITICAL: You must return a JSON object with the following structure. The "importData" field contains the extracted records that will be imported. Extract ONLY the rows explicitly supplied above. Never claim to have analyzed rows that were not supplied.
 
 Return EXACTLY this JSON structure (no markdown, no code fences, just pure JSON):
 {
@@ -444,7 +462,7 @@ Return EXACTLY this JSON structure (no markdown, no code fences, just pure JSON)
 }
 
 RULES:
-- Extract ALL rows from the file into the appropriate importData array(s), not just the sample.
+- Extract every row supplied in this prompt into the appropriate importData array(s). Do not invent or infer records from rows that were not supplied.
 - Only populate arrays that match the data you found. Leave empty arrays for modules with no data.
 - Use 0 for missing numeric values, null for missing optional string values.
 - Confidence is a number between 0 and 1 (e.g., 0.85 for 85% confident).
@@ -480,28 +498,57 @@ File: ${file.name}
 ${categoryInstruction}`
       imageBase64 = parsedData.base64
     } else {
-      // For text/json/xml/pdf
-      const content = typeof parsedData === 'string' ? parsedData : JSON.stringify(parsedData).substring(0, 10000)
-      prompt = `Analyze this business data and provide:
-1. Data type identification
-2. Key information extraction
-3. Import suggestions for BizBook Pro
+      const rawContent = typeof parsedData === 'string' ? parsedData : JSON.stringify(parsedData)
+      if ((rawContent || '').length > 10000 && !sourceTruncationWarnings.some(warning => warning.includes('10,000-character AI context limit'))) {
+        sourceTruncationWarnings.push('Extracted text exceeds the 10,000-character AI context limit; later content is not included in the preview.')
+      }
+      const content = (rawContent || '').substring(0, 10000)
+      prompt = `Analyze this business data file and extract importable records for BizBook Pro.
 
 File: ${file.name}
 Type: ${dataType.toUpperCase()}
 ${categoryInstruction}
-Content (first 10000 chars):
-${content}
 
-Provide a structured analysis with:
-- dataType: what type of business data this is
-- keyFields: important fields found
-- suggestions: how to import this into BizBook Pro
-- summary: brief summary`
+Return EXACTLY one valid JSON object with no markdown or code fences:
+{
+  "detectedDocumentType": "sale_invoice|purchase_invoice|bank_statement|inventory_data|expense_data|party_data|staff_data|backup_data|mixed_data|unknown",
+  "detectedBusiness": "string or null",
+  "detectedGSTIN": "string or null",
+  "summary": "brief factual summary",
+  "confidence": 0.0,
+  "importData": {
+    "sales": [{"invoiceNumber":"string","date":"YYYY-MM-DD","partyName":"string","partyAddress":null,"partyGst":null,"items":[{"name":"string","qty":1,"rate":0,"amount":0,"total":0}],"subtotal":0,"gstAmount":0,"totalAmount":0,"paymentStatus":"PENDING","paymentMode":null}],
+    "purchases": [{"invoiceNumber":"string","date":"YYYY-MM-DD","partyName":"string","items":[{"name":"string","qty":1,"rate":0,"amount":0}],"subtotal":0,"gstAmount":0,"totalAmount":0,"paymentStatus":"UNPAID"}],
+    "expenses": [{"date":"YYYY-MM-DD","description":"string","amount":0,"category":"string","paymentMode":"OTHERS"}],
+    "products": [{"name":"string","hsnCode":null,"category":null,"unit":"PCS","purchasePrice":0,"salePrice":0,"mrp":0,"currentStock":0,"gstRate":0}],
+    "parties": [{"name":"string","type":"CUSTOMER","address":null,"phone":null,"gstNumber":null,"currentBalance":0}],
+    "staff": [{"name":"string","role":"string","salary":0,"phone":null}],
+    "bankTransactions": [{"date":"YYYY-MM-DD","description":"string","deposit":0,"withdrawal":0,"balance":0,"category":null,"bankName":null}]
+  },
+  "warnings": [],
+  "suggestions": []
+}
+
+Rules:
+- Extract only facts present in the supplied content. Never invent invoice numbers, names, dates, GSTINs, quantities, rates or totals.
+- Use empty arrays for modules with no matching records.
+- Use null for unknown optional text fields and 0 only where a numeric field is genuinely absent.
+- Preserve source amounts and dates; do not silently recalculate or alter financial values.
+- If values conflict or are ambiguous, add a warning and lower confidence.
+- Return only records supported by the source content.
+
+Source content (may be truncated; do not assume omitted text was analyzed):
+${content}`
     }
 
     // Call AI
-    const { provider, result } = await analyzeWithAI(prompt, undefined, imageBase64)
+    const structuredImport = ['excel', 'csv', 'image', 'pdf', 'json', 'text', 'xml', 'doc'].includes(dataType)
+    const { provider, result } = await analyzeWithAI(
+      prompt,
+      undefined,
+      imageBase64,
+      structuredImport ? { jsonMode: true, maxTokens: 8192, temperature: 0.1 } : { temperature: 0.2 }
+    )
 
     // v6.19.1: Clean the AI response — strip markdown code fences if present
     let cleanedResult = result.trim()
@@ -516,7 +563,7 @@ Provide a structured analysis with:
       analysis._provider = provider
       analysis._rawResponse = result
       // v6.19.1: Ensure importData exists with all module arrays
-      if (!analysis.importData) analysis.importData = {}
+      if (!analysis.importData || typeof analysis.importData !== 'object' || Array.isArray(analysis.importData)) analysis.importData = {}
       const requiredModules = ['sales', 'purchases', 'expenses', 'products', 'parties', 'staff', 'bankTransactions']
       for (const mod of requiredModules) {
         if (!Array.isArray(analysis.importData[mod])) analysis.importData[mod] = []
@@ -528,8 +575,16 @@ Provide a structured analysis with:
       } else if (typeof analysis.confidence === 'number' && analysis.confidence > 1) {
         // If confidence is 0-100, convert to 0-1
         analysis.confidence = analysis.confidence / 100
-      } else if (typeof analysis.confidence !== 'number') {
+      } else if (typeof analysis.confidence !== 'number' || !Number.isFinite(analysis.confidence)) {
         analysis.confidence = 0.5
+      }
+      analysis.confidence = Math.max(0, Math.min(1, analysis.confidence))
+      analysis.warnings = Array.isArray(analysis.warnings) ? analysis.warnings.filter((item: unknown) => typeof item === 'string') : []
+      analysis.suggestions = Array.isArray(analysis.suggestions) ? analysis.suggestions.filter((item: unknown) => typeof item === 'string') : []
+      if (sourceTruncationWarnings.length > 0) {
+        analysis.warnings.unshift(...sourceTruncationWarnings)
+        analysis.partialExtraction = true
+        analysis.sourceTruncated = true
       }
       console.log(`[AI-Import] AI analysis complete. Provider: ${provider}. Records: sales=${analysis.importData.sales.length}, purchases=${analysis.importData.purchases.length}, expenses=${analysis.importData.expenses.length}, products=${analysis.importData.products.length}`)
     } catch {
@@ -540,7 +595,8 @@ Provide a structured analysis with:
         _provider: provider,
         _rawResponse: result,
         importData: { sales: [], purchases: [], expenses: [], products: [], parties: [], staff: [], bankTransactions: [] },
-        warnings: ['AI response could not be parsed as JSON. Showing raw summary.'],
+        warnings: ['AI response could not be parsed as JSON. Showing raw summary.', ...sourceTruncationWarnings],
+        partialExtraction: sourceTruncationWarnings.length > 0,
         suggestions: [],
       }
     }
@@ -557,7 +613,8 @@ Provide a structured analysis with:
       confidence: 0,
       summary: `File parsed (${dataType}) but AI analysis failed: ${aiError.message}. You can review the raw data below and try again.`,
       importData: { sales: [], purchases: [], expenses: [], products: [], parties: [], staff: [], bankTransactions: [] },
-      warnings: [`AI analysis failed: ${aiError.message}`],
+      warnings: [`AI analysis failed: ${aiError.message}`, ...sourceTruncationWarnings],
+      partialExtraction: sourceTruncationWarnings.length > 0,
       suggestions: ['Try uploading a clearer file, or convert to Excel/CSV for better results.'],
       _aiError: aiError.message,
       _parsedData: true,
@@ -713,6 +770,55 @@ function normalizeItems(raw: unknown): any[] {
   return []
 }
 
+function requireImportText(value: unknown, label: string): string {
+  const text = typeof value === 'string' ? value.trim() : ''
+  if (!text) throw new Error(`${label} is missing. Review the AI preview and correct the source data.`)
+  return text
+}
+
+function requireImportDate(value: unknown, label: string): Date {
+  if (typeof value !== 'string' && !(value instanceof Date)) {
+    throw new Error(`${label} is missing. Review the AI preview before importing.`)
+  }
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) throw new Error(`${label} is invalid. Use a valid date.`)
+  return date
+}
+
+function requireImportNumber(value: unknown, label: string, minimum = 0): number {
+  if (value === null || value === undefined || value === '') {
+    throw new Error(`${label} is missing. Review the AI preview before importing.`)
+  }
+  const number = Number(value)
+  if (!Number.isFinite(number) || number < minimum) {
+    throw new Error(`${label} must be a valid number greater than or equal to ${minimum}.`)
+  }
+  return roundTo2(number)
+}
+
+function requireImportQuantity(value: unknown, label: string, allowZero = false): number {
+  if (value === null || value === undefined || value === '') {
+    throw new Error(`${label} is missing. Review the AI preview before importing.`)
+  }
+  const quantity = Number(value)
+  if (!Number.isFinite(quantity) || (allowZero ? quantity < 0 : quantity <= 0)) {
+    throw new Error(`${label} must be a valid ${allowZero ? 'non-negative' : 'positive'} quantity.`)
+  }
+  return quantity
+}
+
+function validateImportItems(raw: unknown, label: string): any[] {
+  const items = normalizeItems(raw)
+  if (items.length === 0) throw new Error(`${label} has no line items.`)
+  return items.map((item, index) => {
+    if (!item || typeof item !== 'object') throw new Error(`${label} item ${index + 1} is invalid.`)
+    const name = requireImportText(item.name, `${label} item ${index + 1} name`)
+    const qty = requireImportQuantity(item.qty, `${label} item ${index + 1} quantity`)
+    const rate = requireImportNumber(item.rate ?? item.price, `${label} item ${index + 1} rate`, 0)
+    return { ...item, name, qty, rate }
+  })
+}
+
 async function syncInventoryForImportedSale(tx: any, tenantId: string, items: any[]): Promise<number> {
   let adjusted = 0
   for (const item of items) {
@@ -845,7 +951,7 @@ async function handleApplyImport(req: NextRequest, formData: FormData, tenantId:
   if (!tenantId) {
     return NextResponse.json({ error: 'No tenant ID provided' }, { status: 400 })
   }
-  const auth = await requireAuthAndTenant(req, tenantId)
+  const auth = await requireAuthAndRole(req, tenantId, ['DATA_ENTRY', 'JUNIOR_ADMIN', 'MAIN_ADMIN'])
   if (auth instanceof NextResponse) return auth
 
   const importDataRaw = formData.get('importData') as string
@@ -853,11 +959,27 @@ async function handleApplyImport(req: NextRequest, formData: FormData, tenantId:
     return NextResponse.json({ error: 'No importData provided' }, { status: 400 })
   }
 
+  if (importDataRaw.length > 5 * 1024 * 1024) {
+    return NextResponse.json({ error: 'Import payload exceeds the 5 MB limit. Split the source into smaller batches.' }, { status: 413 })
+  }
+
   let importData: any
   try {
     importData = JSON.parse(importDataRaw)
   } catch {
     return NextResponse.json({ error: 'importData is not valid JSON' }, { status: 400 })
+  }
+  if (!importData || typeof importData !== 'object' || Array.isArray(importData)) {
+    return NextResponse.json({ error: 'importData must be a JSON object containing module arrays.' }, { status: 400 })
+  }
+  const importModules = ['sales', 'purchases', 'expenses', 'products', 'parties', 'staff', 'bankTransactions'] as const
+  for (const module of importModules) {
+    if (importData[module] !== undefined && !Array.isArray(importData[module])) {
+      return NextResponse.json({ error: `Import module "${module}" must be an array.` }, { status: 400 })
+    }
+    if (Array.isArray(importData[module]) && importData[module].length > MAX_ROWS_PER_MODULE) {
+      return NextResponse.json({ error: `Import module "${module}" exceeds the ${MAX_ROWS_PER_MODULE}-record limit. Split the import into smaller batches.` }, { status: 413 })
+    }
   }
 
   const tid = auth.tenantId
@@ -887,6 +1009,13 @@ async function handleApplyImport(req: NextRequest, formData: FormData, tenantId:
       for (const s of sales) {
         try {
           const invoiceNumber = (s.invoiceNumber && String(s.invoiceNumber).trim()) || nextImpNumber('IMP-SALE')
+          const saleDate = requireImportDate(s.date, 'Sale date')
+          const partyName = requireImportText(s.partyName, 'Sale customer name')
+          const saleItems = validateImportItems(s.items, 'Sale')
+          const subtotal = requireImportNumber(s.subtotal, 'Sale subtotal')
+          const gstAmount = requireImportNumber(s.gstAmount ?? 0, 'Sale GST amount')
+          const totalAmount = requireImportNumber(s.totalAmount, 'Sale total')
+          const amountReceived = requireImportNumber(s.amountReceived ?? s.amountPaid ?? 0, 'Sale amount received')
           // v6.29.0: dedup — skip if (tenantId, invoiceNumber) already exists
           const existing = await db.sale.findFirst({
             where: { tenantId: tid, invoiceNumber, isDeleted: false },
@@ -899,18 +1028,14 @@ async function handleApplyImport(req: NextRequest, formData: FormData, tenantId:
           }
 
           const sale = await db.$transaction(async (tx) => {
-            const subtotal = roundTo2(Number(s.subtotal || 0))
-            const gstAmount = roundTo2(Number(s.gstAmount || 0))
-            const totalAmount = roundTo2(Number(s.totalAmount || 0))
-            const amountReceived = roundTo2(Number(s.amountReceived || s.amountPaid || 0))
             const created = await tx.sale.create({
               data: {
                 invoiceNumber,
-                date: s.date ? new Date(s.date) : new Date(),
-                partyName: s.partyName || 'Unknown',
+                date: saleDate,
+                partyName,
                 partyAddress: s.partyAddress || null,
                 partyGst: s.partyGst || null,
-                items: JSON.stringify(s.items || []),
+                items: JSON.stringify(saleItems),
                 subtotal,
                 gstAmount,
                 totalAmount,
@@ -945,7 +1070,7 @@ async function handleApplyImport(req: NextRequest, formData: FormData, tenantId:
             // imported sales never decreased stock). Throws on insufficient stock →
             // the whole record (Sale + JE + stock moves) rolls back and is
             // reported in results.sales.errors.
-            await syncInventoryForImportedSale(tx, tid, normalizeItems(s.items))
+            await syncInventoryForImportedSale(tx, tid, saleItems)
             return created
           })
           results.sales.created++
@@ -967,6 +1092,13 @@ async function handleApplyImport(req: NextRequest, formData: FormData, tenantId:
       for (const p of purchases) {
         try {
           const invoiceNumber = (p.invoiceNumber && String(p.invoiceNumber).trim()) || nextImpNumber('IMP-PUR')
+          const purchaseDate = requireImportDate(p.date, 'Purchase date')
+          const partyName = requireImportText(p.partyName, 'Purchase supplier name')
+          const purchaseItems = validateImportItems(p.items, 'Purchase')
+          const subtotal = requireImportNumber(p.subtotal, 'Purchase subtotal')
+          const gstAmount = requireImportNumber(p.gstAmount ?? 0, 'Purchase GST amount')
+          const totalAmount = requireImportNumber(p.totalAmount, 'Purchase total')
+          const amountPaid = requireImportNumber(p.amountPaid ?? 0, 'Purchase amount paid')
           const existing = await db.purchase.findFirst({
             where: { tenantId: tid, invoiceNumber, isDeleted: false },
             select: { id: true },
@@ -978,18 +1110,14 @@ async function handleApplyImport(req: NextRequest, formData: FormData, tenantId:
           }
 
           const purchase = await db.$transaction(async (tx) => {
-            const subtotal = roundTo2(Number(p.subtotal || 0))
-            const gstAmount = roundTo2(Number(p.gstAmount || 0))
-            const totalAmount = roundTo2(Number(p.totalAmount || 0))
-            const amountPaid = roundTo2(Number(p.amountPaid || 0))
             const created = await tx.purchase.create({
               data: {
                 invoiceNumber,
-                date: p.date ? new Date(p.date) : new Date(),
-                partyName: p.partyName || 'Unknown',
+                date: purchaseDate,
+                partyName,
                 partyAddress: p.partyAddress || null,
                 partyGst: p.partyGst || null,
-                items: JSON.stringify(p.items || []),
+                items: JSON.stringify(purchaseItems),
                 subtotal,
                 gstAmount,
                 totalAmount,
@@ -1015,7 +1143,7 @@ async function handleApplyImport(req: NextRequest, formData: FormData, tenantId:
             })
             // v6.30.9: synchronize inventory stock in the same tx (was missing —
             // imported purchases never increased stock or created items).
-            await syncInventoryForImportedPurchase(tx, tid, normalizeItems(p.items))
+            await syncInventoryForImportedPurchase(tx, tid, purchaseItems)
             return created
           })
           results.purchases.created++
@@ -1036,9 +1164,9 @@ async function handleApplyImport(req: NextRequest, formData: FormData, tenantId:
       initResult('expenses', expenses.length)
       for (const e of expenses) {
         try {
-          const description = e.description || 'Imported expense'
-          const amount = roundTo2(Number(e.amount || 0))
-          const date = e.date ? new Date(e.date) : new Date()
+          const description = requireImportText(e.description, 'Expense description')
+          const amount = requireImportNumber(e.amount, 'Expense amount', Number.EPSILON)
+          const date = requireImportDate(e.date, 'Expense date')
           // v6.29.0: dedup — skip if (tenantId, description, date, amount) already exists
           const existing = await db.expense.findFirst({
             where: { tenantId: tid, description, date, amount, isDeleted: false },
@@ -1091,11 +1219,18 @@ async function handleApplyImport(req: NextRequest, formData: FormData, tenantId:
       model: any,
       records: any[],
       buildRow: (r: any) => any,
+      findDuplicate?: (row: any) => Promise<any>,
     ) => {
       initResult(module, records.length)
       for (const rec of records) {
         try {
-          await model.create({ data: { ...buildRow(rec), tenantId: tid } })
+          const row = buildRow(rec)
+          if (findDuplicate && await findDuplicate(row)) {
+            results[module].skipped++
+            results[module].errors.push(`${module} record "${row.name || row.description || 'record'}": skipped as duplicate`)
+            continue
+          }
+          await model.create({ data: { ...row, tenantId: tid } })
           results[module].created++
         } catch (err: any) {
           results[module].failed++
@@ -1106,49 +1241,83 @@ async function handleApplyImport(req: NextRequest, formData: FormData, tenantId:
 
     if (Array.isArray(importData.products) && importData.products.length > 0) {
       await bulkCreateSimple('products', db.inventoryItem, importData.products, (p: any) => ({
-        name: p.name || 'Unnamed Product',
+        name: requireImportText(p.name, 'Product name'),
         hsnCode: p.hsnCode || null,
         category: p.category || null,
         unit: p.unit || 'PCS',
-        purchasePrice: Number(p.purchasePrice || 0),
-        salePrice: Number(p.salePrice || 0),
-        mrp: Number(p.mrp || 0),
-        currentStock: Number(p.currentStock || 0),
-        gstRate: Number(p.gstRate || 0),
-        value: Number(p.currentStock || 0) * Number(p.purchasePrice || 0),
+        purchasePrice: requireImportNumber(p.purchasePrice ?? 0, 'Product purchase price'),
+        salePrice: requireImportNumber(p.salePrice ?? 0, 'Product sale price'),
+        mrp: requireImportNumber(p.mrp ?? 0, 'Product MRP'),
+        currentStock: requireImportQuantity(p.currentStock ?? 0, 'Product current stock', true),
+        gstRate: requireImportNumber(p.gstRate ?? 0, 'Product GST rate'),
+        value: roundTo2(requireImportQuantity(p.currentStock ?? 0, 'Product current stock', true) * requireImportNumber(p.purchasePrice ?? 0, 'Product purchase price')),
         createdBy: uid,
-      }))
+      }), (row: any) => db.inventoryItem.findFirst({ where: { tenantId: tid, name: row.name, isDeleted: false }, select: { id: true } }))
     }
 
     if (Array.isArray(importData.parties) && importData.parties.length > 0) {
       await bulkCreateSimple('parties', db.party, importData.parties, (p: any) => ({
-        name: p.name || 'Unnamed Party',
-        type: p.type || 'CUSTOMER',
+        name: requireImportText(p.name, 'Party name'),
+        type: (() => {
+          const partyType = String(p.type || 'CUSTOMER').toUpperCase()
+          if (!['CUSTOMER', 'SUPPLIER'].includes(partyType)) throw new Error('Party type must be CUSTOMER or SUPPLIER.')
+          return partyType
+        })(),
         address: p.address || null,
         phone: p.phone || null,
         gstNumber: p.gstNumber || null,
-        currentBalance: Number(p.currentBalance || 0),
+        currentBalance: requireImportNumber(p.currentBalance ?? 0, 'Party current balance', -Number.MAX_SAFE_INTEGER),
+      }), (row: any) => db.party.findFirst({
+        where: {
+          tenantId: tid,
+          isDeleted: false,
+          OR: row.gstNumber ? [{ gstNumber: row.gstNumber }, { name: row.name }] : [{ name: row.name }],
+        },
+        select: { id: true },
       }))
     }
 
     if (Array.isArray(importData.staff) && importData.staff.length > 0) {
       await bulkCreateSimple('staff', db.staff, importData.staff, (s: any) => ({
-        name: s.name || 'Unnamed Staff',
+        name: requireImportText(s.name, 'Staff name'),
         role: s.role || 'Staff',
-        salary: Number(s.salary || 0),
+        salary: requireImportNumber(s.salary ?? 0, 'Staff salary'),
         phone: s.phone || null,
+      }), (row: any) => db.staff.findFirst({
+        where: {
+          tenantId: tid,
+          isDeleted: false,
+          OR: row.phone ? [{ phone: row.phone }] : [{ name: row.name }],
+        },
+        select: { id: true },
       }))
     }
 
     if (Array.isArray(importData.bankTransactions) && importData.bankTransactions.length > 0) {
-      await bulkCreateSimple('bankTransactions', db.bankTransaction, importData.bankTransactions, (b: any) => ({
-        date: b.date ? new Date(b.date) : new Date(),
-        description: b.description || 'Imported transaction',
-        deposit: Number(b.deposit || 0),
-        withdrawal: Number(b.withdrawal || 0),
-        balance: Number(b.balance || 0),
-        category: b.category || null,
-        bankName: b.bankName || null,
+      await bulkCreateSimple('bankTransactions', db.bankTransaction, importData.bankTransactions, (b: any) => {
+        const deposit = requireImportNumber(b.deposit ?? 0, 'Bank deposit')
+        const withdrawal = requireImportNumber(b.withdrawal ?? 0, 'Bank withdrawal')
+        if (deposit === 0 && withdrawal === 0) throw new Error('Bank transaction must have a deposit or withdrawal amount.')
+        return {
+          date: requireImportDate(b.date, 'Bank transaction date'),
+          description: requireImportText(b.description, 'Bank transaction description'),
+          deposit,
+          withdrawal,
+          balance: requireImportNumber(b.balance ?? 0, 'Bank balance', -Number.MAX_SAFE_INTEGER),
+          category: b.category || null,
+          bankName: b.bankName || null,
+        }
+      }, (row: any) => db.bankTransaction.findFirst({
+        where: {
+          tenantId: tid,
+          isDeleted: false,
+          date: row.date,
+          description: row.description,
+          deposit: row.deposit,
+          withdrawal: row.withdrawal,
+          balance: row.balance,
+        },
+        select: { id: true },
       }))
     }
 
@@ -1156,6 +1325,10 @@ async function handleApplyImport(req: NextRequest, formData: FormData, tenantId:
     const totalFailed = Object.values(results).reduce((sum, r) => sum + r.failed, 0)
     const totalSkipped = Object.values(results).reduce((sum, r) => sum + r.skipped, 0)
     const totalGLPosted = Object.values(results).reduce((sum, r) => sum + r.glPosted, 0)
+
+    if (Object.keys(results).length === 0) {
+      return NextResponse.json({ error: 'Select at least one module containing records before importing.' }, { status: 400 })
+    }
 
     let message: string
     if (totalFailed === 0 && totalSkipped === 0) {
@@ -1166,7 +1339,12 @@ async function handleApplyImport(req: NextRequest, formData: FormData, tenantId:
       message = `Imported ${totalCreated} record(s) with ${totalFailed} failure(s); ${totalSkipped} skipped as duplicates. GL entries posted: ${totalGLPosted}.`
     }
 
-    return NextResponse.json({ success: true, results, message })
+    return NextResponse.json({
+      success: totalFailed === 0,
+      partialSuccess: totalCreated > 0 && totalFailed > 0,
+      results,
+      message,
+    })
   } catch (err: any) {
     console.error('[AI-Import] apply failed:', err)
     return NextResponse.json({ error: `Import failed: ${err.message}`, results }, { status: 500 })
