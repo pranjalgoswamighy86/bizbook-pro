@@ -402,7 +402,7 @@ File: ${file.name}
 Type: ${dataType.toUpperCase()}
 ${categoryInstruction}
 
-${sheetSummary}
+${fullSheetSummary}
 
 CRITICAL: You must return a JSON object with the following structure. The "importData" field contains the extracted records that will be imported. Extract ONLY the rows explicitly supplied above. Never claim to have analyzed rows that were not supplied.
 
