@@ -8,32 +8,20 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { HardDrive, Loader2, Download, Upload, Clock, RefreshCw, Shield, Trash2, Calendar, FileSpreadsheet, Database, WifiOff, CheckCircle2, AlertCircle } from 'lucide-react'
+import { HardDrive, Loader2, Download, Clock, RefreshCw, Shield, Trash2, FileSpreadsheet, Database, WifiOff, CheckCircle2 } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import { formatDate } from '@/lib/formulas'
 import { authFetch } from '@/lib/auth-fetch'
 // v4.156: Offline cache + auto Excel backup
 import { getCacheStats, clearAllCachedData } from '@/lib/offline-db'
 
-interface BackupRecord {
-  name: string
-  size: number
-  created: string
-  reason: string
-}
-
-interface AutoBackupConfig {
-  enabled: boolean
-  frequency: 'daily' | 'weekly'
-  lastRun: string | null
-}
-
-// v4.156: Excel auto-backup file from /api/auto-backup
+// Tenant-scoped Excel backup file from /api/auto-backup
 interface ExcelBackupFile {
-  name: string
+  filename: string
   size: number
   created: string
-  reason: string
+  recordCount: number
+  trigger: string
 }
 
 // v4.156: Latest auto-backup info
@@ -48,12 +36,9 @@ interface LatestBackupInfo {
 export function BackupPage() {
   const { tenant, user } = useAppStore()
   const { toast } = useToast()
-  const [backups, setBackups] = useState<BackupRecord[]>([])
-  const [loading, setLoading] = useState(true)
   const [creating, setCreating] = useState(false)
-  const [autoConfig, setAutoConfig] = useState<AutoBackupConfig>({ enabled: false, frequency: 'daily', lastRun: null })
 
-  // v4.156: Excel auto-backup state
+  // Tenant-scoped Excel backup state
   const [excelBackups, setExcelBackups] = useState<ExcelBackupFile[]>([])
   const [latestBackup, setLatestBackup] = useState<LatestBackupInfo | null>(null)
   const [excelLoading, setExcelLoading] = useState(true)
@@ -72,14 +57,11 @@ export function BackupPage() {
   const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true)
   const [clearingCache, setClearingCache] = useState(false)
 
-  // Restore confirmation
-  const [restoreName, setRestoreName] = useState<string | null>(null)
   const [deleting, setDeleting] = useState<string | null>(null)
 
   useEffect(() => {
     if (!tenant) return
-    loadBackups()
-    loadExcelBackups()  // v4.156
+    loadExcelBackups()
     loadCacheStats()    // v4.156
   }, [tenant]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -94,40 +76,6 @@ export function BackupPage() {
       window.removeEventListener('offline', handleOffline)
     }
   }, [])
-
-  const loadBackups = async () => {
-    if (!tenant) return
-    setLoading(true)
-    try {
-      const res = await authFetch('/api/db-admin', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'list-backups', tenantId: tenant.id }),
-      })
-      if (res.ok) {
-        const data = await res.json()
-        setBackups(data.backups || [])
-        if (data.autoConfig) setAutoConfig(data.autoConfig)
-      }
-    } catch {
-      // Fallback: try backup list via the backup API
-      try {
-        const res = await authFetch('/api/backup', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'list-backups', tenantId: tenant.id }),
-        })
-        if (res.ok) {
-          const data = await res.json()
-          setBackups(data.backups || [])
-        }
-      } catch {
-        toast({ title: 'Error', description: 'Failed to load backups', variant: 'destructive' })
-      }
-    } finally {
-      setLoading(false)
-    }
-  }
 
   // v4.156: Load Excel auto-backup files from /api/auto-backup
   const loadExcelBackups = async () => {
@@ -250,7 +198,11 @@ export function BackupPage() {
       })
       if (res.ok) {
         toast({ title: 'Deleted', description: filename })
+        setDeleting(null)
         loadExcelBackups()
+      } else {
+        const error = await res.json().catch(() => ({}))
+        toast({ title: 'Delete Failed', description: error.error || 'Could not delete this backup', variant: 'destructive' })
       }
     } catch {
       toast({ title: 'Error', description: 'Failed to delete backup', variant: 'destructive' })
@@ -261,28 +213,29 @@ export function BackupPage() {
     if (!tenant) return
     setCreating(true)
     try {
-      const res = await authFetch('/api/db-admin', {
+      const res = await authFetch('/api/auto-backup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'backup' }),
+        body: JSON.stringify({ action: 'generate', tenantId: tenant.id, trigger: 'manual' }),
       })
-      if (res.ok) {
-        const data = await res.json()
-        if (data.success) {
-          toast({ title: 'Backup Created', description: `Saved to ${data.path}` })
-          loadBackups()
-        } else {
-          toast({ title: 'Backup Failed', description: data.error || 'Unknown error', variant: 'destructive' })
-        }
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok || !data.success) {
+        toast({ title: 'Backup Failed', description: data.error || 'Could not generate the company backup', variant: 'destructive' })
+        return
       }
+      toast({
+        title: 'Company Backup Created',
+        description: `${data.backup?.recordCount ?? 0} records saved to ${data.backup?.filename || 'Excel backup'}`,
+      })
+      await loadExcelBackups()
     } catch {
-      toast({ title: 'Error', description: 'Failed to create backup', variant: 'destructive' })
+      toast({ title: 'Error', description: 'Failed to create company backup', variant: 'destructive' })
     } finally {
       setCreating(false)
     }
   }
 
-  const handleDownloadBackup = async (backupName: string) => {
+  const handleDownloadBackup = async () => {
     if (!tenant) return
     try {
       const res = await authFetch('/api/backup', {
@@ -303,34 +256,6 @@ export function BackupPage() {
       }
     } catch {
       toast({ title: 'Error', description: 'Download failed', variant: 'destructive' })
-    }
-  }
-
-  const handleRestore = async () => {
-    if (!tenant || !restoreName) return
-    try {
-      toast({ title: 'Restore Started', description: 'Contact your administrator to restore from backup file manually.' })
-      setRestoreName(null)
-    } catch {
-      toast({ title: 'Error', description: 'Restore failed', variant: 'destructive' })
-    }
-  }
-
-  const handleDeleteBackup = async () => {
-    if (!deleting) return
-    try {
-      const res = await authFetch('/api/db-admin', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'delete-backup', filename: deleting }),
-      })
-      if (res.ok) {
-        toast({ title: 'Backup Deleted' })
-        setDeleting(null)
-        loadBackups()
-      }
-    } catch {
-      toast({ title: 'Error', description: 'Failed to delete backup', variant: 'destructive' })
     }
   }
 
@@ -367,8 +292,8 @@ export function BackupPage() {
                   <HardDrive className="h-5 w-5 text-emerald-600" />
                 </div>
                 <div className="flex-1">
-                  <p className="text-sm font-medium">Create Backup</p>
-                  <p className="text-xs text-muted-foreground">Manual database backup</p>
+                  <p className="text-sm font-medium">Create Company Backup</p>
+                  <p className="text-xs text-muted-foreground">Generate a tenant-scoped Excel snapshot</p>
                 </div>
                 <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 h-8" onClick={handleCreateBackup} disabled={creating}>
                   {creating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Create'}
@@ -386,7 +311,7 @@ export function BackupPage() {
                   <p className="text-sm font-medium">Export Data</p>
                   <p className="text-xs text-muted-foreground">JSON backup download</p>
                 </div>
-                <Button size="sm" variant="outline" className="h-8" onClick={() => handleDownloadBackup('json')}>
+                <Button size="sm" variant="outline" className="h-8" onClick={handleDownloadBackup}>
                   <Download className="h-3.5 w-3.5" />
                 </Button>
               </div>
@@ -401,11 +326,11 @@ export function BackupPage() {
                 <div className="flex-1">
                   <p className="text-sm font-medium">Auto Backup</p>
                   <p className="text-xs text-muted-foreground">
-                    {autoConfig.enabled ? `Enabled (${autoConfig.frequency})` : 'Not configured'}
+                    {latestBackup?.timestamp ? `Latest: ${formatDate(latestBackup.timestamp)}` : 'No snapshot yet'}
                   </p>
                 </div>
                 <Badge variant="outline" className="text-xs">
-                  {autoConfig.enabled ? 'Active' : 'Off'}
+                  Tenant-scoped
                 </Badge>
               </div>
             </CardContent>
@@ -417,11 +342,10 @@ export function BackupPage() {
           <CardHeader className="pb-2">
             <CardTitle className="text-base flex items-center gap-2">
               <FileSpreadsheet className="h-4 w-4 text-emerald-600" />
-              Auto Excel Backup — Saved on Your Device
+              Tenant-scoped Excel Backups
             </CardTitle>
             <p className="text-xs text-muted-foreground">
-              Every sale, purchase, and expense automatically generates a fresh Excel backup.
-              The file downloads silently to your device with a fixed filename (overwrites itself).
+              BizBook Pro keeps a business-specific Excel snapshot on the server. Download a copy to your device whenever you need an offline copy.
             </p>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -458,23 +382,15 @@ export function BackupPage() {
               </div>
             </div>
 
-            {/* v4.157: Single file indicator (no more history list) */}
             <div className="bg-emerald-50 dark:bg-emerald-950/50 rounded-lg p-3 border border-emerald-200 dark:border-emerald-800">
               <div className="flex items-start gap-2">
                 <FileSpreadsheet className="h-4 w-4 text-emerald-600 mt-0.5 shrink-0" />
                 <div className="text-xs">
                   <p className="font-semibold text-emerald-900 dark:text-emerald-100">
-                    Single File Auto-Overwrite Mode
+                    Recent Backup History
                   </p>
                   <p className="text-emerald-800 dark:text-emerald-200 mt-1">
-                    Every sale, purchase, and expense updates the <strong>same Excel file</strong> on the server:
-                    <code className="bg-emerald-100 dark:bg-emerald-900 px-1 mx-1 rounded">BizBook_Backup_Latest.xlsx</code>
-                    No clutter — one file per company, always up-to-date.
-                  </p>
-                  <p className="text-emerald-700 dark:text-emerald-300 mt-1">
-                    When you click "Download Excel Backup" above, the file saves to your device as
-                    <code className="bg-emerald-100 dark:bg-emerald-900 px-1 mx-1 rounded">{tenant?.name?.replace(/[^a-zA-Z0-9]/g, '_')}_BizBook_Backup.xlsx</code>
-                    — also a single file that overwrites itself.
+                    Up to 10 business-specific Excel snapshots are retained on the server. Use the history below to download an older snapshot or remove one you no longer need.
                   </p>
                 </div>
               </div>
@@ -484,11 +400,9 @@ export function BackupPage() {
             <div className="bg-emerald-100 dark:bg-emerald-950 rounded-lg p-3 text-xs text-emerald-800 dark:text-emerald-200 flex items-start gap-2">
               <CheckCircle2 className="h-4 w-4 mt-0.5 shrink-0" />
               <div>
-                <p className="font-semibold">Your data is always on your device</p>
+                <p className="font-semibold">Keep an offline copy of your business data</p>
                 <p className="mt-1">
-                  Every transaction downloads <code className="bg-emerald-200 dark:bg-emerald-900 px-1 rounded">{tenant?.name?.replace(/[^a-zA-Z0-9]/g, '_')}_BizBook_Backup.xlsx</code> to your Downloads folder.
-                  You can open it in Excel, Google Sheets, or LibreOffice at any time.
-                  Even if our servers go down permanently, you have a complete copy of your business data.
+                  Server snapshots are stored securely for this business. Click Download Excel Backup to save a separate copy to your device, and keep that offline copy somewhere safe.
                 </p>
               </div>
             </div>
@@ -595,31 +509,31 @@ export function BackupPage() {
           </CardContent>
         </Card>
 
-        {/* Backups List */}
+        {/* Tenant-scoped Excel Backup History */}
         <Card className="border-0 shadow-sm">
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
               <CardTitle className="text-base flex items-center gap-2">
                 <HardDrive className="h-4 w-4 text-emerald-600" />
-                Backup History
+                Company Backup History
               </CardTitle>
-              <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={loadBackups}>
+              <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={loadExcelBackups} disabled={excelLoading}>
                 <RefreshCw className="h-3 w-3 mr-1" /> Refresh
               </Button>
             </div>
           </CardHeader>
           <CardContent>
-            {loading ? (
+            {excelLoading ? (
               <div className="flex items-center justify-center py-12">
                 <Loader2 className="h-8 w-8 animate-spin text-emerald-600" />
               </div>
-            ) : backups.length === 0 ? (
+            ) : excelBackups.length === 0 ? (
               <div className="text-center py-12">
                 <HardDrive className="h-12 w-12 text-muted-foreground mx-auto mb-3" />
-                <p className="text-sm text-muted-foreground">No backups yet</p>
-                <p className="text-xs text-muted-foreground mt-1">Create your first backup to protect your data</p>
-                <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 mt-4" onClick={handleCreateBackup}>
-                  <HardDrive className="h-4 w-4 mr-1" /> Create Backup
+                <p className="text-sm text-muted-foreground">No company backups yet</p>
+                <p className="text-xs text-muted-foreground mt-1">Create a company backup to add the first snapshot to this list.</p>
+                <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 mt-4" onClick={handleCreateBackup} disabled={creating}>
+                  <HardDrive className="h-4 w-4 mr-1" /> Create Company Backup
                 </Button>
               </div>
             ) : (
@@ -630,30 +544,27 @@ export function BackupPage() {
                       <TableHead>Backup File</TableHead>
                       <TableHead>Date</TableHead>
                       <TableHead className="text-right">Size</TableHead>
-                      <TableHead>Reason</TableHead>
-                      <TableHead className="w-32">Actions</TableHead>
+                      <TableHead>Records</TableHead>
+                      <TableHead>Trigger</TableHead>
+                      <TableHead className="w-24">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {backups.map((backup, idx) => (
-                      <TableRow key={idx}>
-                        <TableCell className="font-mono text-xs">{backup.name}</TableCell>
+                    {excelBackups.map((backup) => (
+                      <TableRow key={backup.filename}>
+                        <TableCell className="font-mono text-xs">{backup.filename}</TableCell>
                         <TableCell className="text-sm">{formatDate(backup.created)}</TableCell>
                         <TableCell className="text-right text-sm">{formatFileSize(backup.size)}</TableCell>
+                        <TableCell className="text-sm">{backup.recordCount}</TableCell>
                         <TableCell>
-                          <Badge variant="outline" className="text-xs">
-                            {backup.reason}
-                          </Badge>
+                          <Badge variant="outline" className="text-xs">{backup.trigger || 'automatic'}</Badge>
                         </TableCell>
                         <TableCell>
                           <div className="flex items-center gap-1">
-                            <Button variant="ghost" size="sm" className="h-7 text-xs text-emerald-600" onClick={() => handleDownloadBackup(backup.name)}>
+                            <Button variant="ghost" size="sm" className="h-7 text-xs text-emerald-600" onClick={() => handleDownloadSpecificExcel(backup.filename)} title="Download backup">
                               <Download className="h-3.5 w-3.5" />
                             </Button>
-                            <Button variant="ghost" size="sm" className="h-7 text-xs text-amber-600" onClick={() => setRestoreName(backup.name)}>
-                              <Upload className="h-3.5 w-3.5" />
-                            </Button>
-                            <Button variant="ghost" size="sm" className="h-7 text-xs text-destructive" onClick={() => setDeleting(backup.name)}>
+                            <Button variant="ghost" size="sm" className="h-7 text-xs text-destructive" onClick={() => setDeleting(backup.filename)} title="Delete backup">
                               <Trash2 className="h-3.5 w-3.5" />
                             </Button>
                           </div>
@@ -675,38 +586,15 @@ export function BackupPage() {
               <div>
                 <h4 className="text-sm font-medium">Backup Information</h4>
                 <ul className="text-xs text-muted-foreground mt-1 space-y-1">
-                  <li>• <strong>Auto Excel Backup:</strong> Every sale, purchase, and expense auto-generates an Excel file on your device</li>
-                  <li>• <strong>Offline Cache:</strong> Your business data is cached in your browser for offline access</li>
-                  <li>• <strong>Server Backups:</strong> Last 10 Excel backups retained on server (below in Backup History)</li>
-                  <li>• <strong>JSON Backups:</strong> Full database export in JSON format (for migration)</li>
-                  <li>• To restore data, upload an Excel backup using AI Smart Import</li>
+                  <li>• <strong>Company backups:</strong> Up to 10 tenant-scoped Excel snapshots are retained on the server</li>
+                  <li>• <strong>Offline copy:</strong> Download an Excel or JSON backup and keep it in a safe location</li>
+                  <li>• <strong>Offline cache:</strong> Selected business data is cached in this browser for offline access</li>
+                  <li>• <strong>Restore/import:</strong> Upload a trusted Excel backup through AI Smart Import</li>
                 </ul>
               </div>
             </div>
           </CardContent>
         </Card>
-
-        {/* Restore Confirmation Dialog */}
-        <Dialog open={!!restoreName} onOpenChange={(open) => { if (!open) setRestoreName(null) }}>
-          <DialogContent className="sm:max-w-sm">
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
-                <Upload className="h-5 w-5 text-amber-600" />
-                Confirm Restore
-              </DialogTitle>
-            </DialogHeader>
-            <p className="text-sm text-muted-foreground">
-              Restoring from backup will replace all current data. This action cannot be undone.
-            </p>
-            <p className="text-sm font-medium mt-2">
-              Backup: {restoreName}
-            </p>
-            <DialogFooter className="gap-2">
-              <Button variant="outline" onClick={() => setRestoreName(null)}>Cancel</Button>
-              <Button variant="destructive" onClick={handleRestore}>Restore Backup</Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
 
         {/* Delete Confirmation Dialog */}
         <Dialog open={!!deleting} onOpenChange={(open) => { if (!open) setDeleting(null) }}>
@@ -719,7 +607,7 @@ export function BackupPage() {
             </p>
             <DialogFooter className="gap-2">
               <Button variant="outline" onClick={() => setDeleting(null)}>Cancel</Button>
-              <Button variant="destructive" onClick={handleDeleteBackup}>Delete</Button>
+              <Button variant="destructive" onClick={() => deleting && handleDeleteExcelBackup(deleting)}>Delete</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
