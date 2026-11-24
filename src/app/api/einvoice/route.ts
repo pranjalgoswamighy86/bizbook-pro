@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireAuthAndTenant, writeAuditLog } from '@/lib/api-helpers'
+import { requireAuthAndTenant, requireTenantRole, writeAuditLog } from '@/lib/api-helpers'
 import { db } from '@/lib/db-soft-delete'
 import {
   validateGSTIN,
@@ -48,6 +48,12 @@ export async function POST(req: NextRequest) {
     const requestAccess = await requireAuthAndTenant(req, requestedTenantId)
     if (requestAccess instanceof NextResponse) return requestAccess
     const tenantId = requestAccess.tenantId
+
+    const writeActions = ['update-status', 'cancel', 'submit-to-irp', 'update-purchase-status', 'cancel-irp']
+    if (writeActions.includes(action)) {
+      const roleAccess = await requireTenantRole(requestAccess.userId, tenantId, ['DATA_ENTRY', 'JUNIOR_ADMIN', 'MAIN_ADMIN'])
+      if (roleAccess instanceof NextResponse) return roleAccess
+    }
 
     if (action === 'generate-payload') {
       // Generate e-invoice JSON payload (INV-01 schema) for a sale
