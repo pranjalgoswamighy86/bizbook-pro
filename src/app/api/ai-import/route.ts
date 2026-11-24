@@ -39,7 +39,7 @@ const MAX_ROWS_PER_MODULE = 5000
  * quoted fields. Supports escaped double quotes (""), CRLF/LF, and BOM.
  */
 function parseDelimitedText(input: string, delimiter: string): string[][] {
-  const text = input.replace(/^\\uFEFF/, '')
+  const text = input.replace(/^\uFEFF/, '')
   const records: string[][] = []
   let record: string[] = []
   let field = ''
@@ -61,12 +61,12 @@ function parseDelimitedText(input: string, delimiter: string): string[][] {
       field = ''
       continue
     }
-    if (!inQuotes && (char === '\\n' || char === '\\r')) {
+    if (!inQuotes && (char === '\n' || char === '\r')) {
       record.push(field)
       field = ''
       if (record.some(value => value.trim() !== '')) records.push(record)
       record = []
-      if (char === '\\r' && text[i + 1] === '\\n') i++
+      if (char === '\r' && text[i + 1] === '\n') i++
       continue
     }
     field += char
