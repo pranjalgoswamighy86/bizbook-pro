@@ -50,7 +50,7 @@ interface FileEntry {
   error?: string
 }
 
-const FILE_TYPES_ACCEPTED = '.csv,.json,.xlsx,.xls,.pdf,.png,.jpg,.jpeg,.gif,.bmp,.webp,.txt,.tsv,.xml,.docx,.doc'
+const FILE_TYPES_ACCEPTED = '.csv,.json,.xlsx,.xls,.pdf,.png,.jpg,.jpeg,.gif,.bmp,.webp,.txt,.tsv,.xml,.docx'
 
 const MAX_RETRIES = 3
 const RETRY_DELAYS = [2000, 5000, 10000] // Exponential backoff: 2s, 5s, 10s
