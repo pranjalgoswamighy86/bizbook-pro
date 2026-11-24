@@ -69,7 +69,7 @@ export async function POST(req: NextRequest) {
     // Compress to ~25KB using sharp
     let quality = 80
     let width = 400
-    let compressedBuffer = buffer
+    let compressedBuffer: Uint8Array = buffer
 
     try {
       for (let attempt = 0; attempt < 10; attempt++) {
@@ -99,7 +99,7 @@ export async function POST(req: NextRequest) {
     // v6.27.4: Store as base64 DATA URI directly in the database.
     // This survives container restarts and works in any rendering context.
     const finalSizeKB = (compressedBuffer.length / 1024).toFixed(1)
-    const logoUrl = `data:image/jpeg;base64,${compressedBuffer.toString('base64')}`
+    const logoUrl = `data:image/jpeg;base64,${Buffer.from(compressedBuffer).toString('base64')}`
 
     await db.tenant.update({
       where: { id: tenantId },
