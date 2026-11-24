@@ -132,7 +132,7 @@ try {
 
   prisma.user.count().then(async (count) => {
     if (count === 0) {
-      console.warn('[SECURITY] Database is empty; no default administrator or password is created. Register an account using a verified email configured as ADMIN_EMAIL or INFRASTRUCTURE_OWNER_EMAIL, then sign in.');
+      console.warn('[SECURITY] Database is empty; no default administrator or password is created. Register an account using a verified email configured as ADMIN_EMAIL or INFRA_OWNER_EMAIL, then sign in.');
     } else {
       console.log('✓ Database has', count, 'users — skipping seed (data preserved)');
     }
