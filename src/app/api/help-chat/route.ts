@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { db } from '@/lib/db'
+import { db } from '@/lib/db-soft-delete'
 import { analyzeWithAI } from '@/lib/multi-ai'
 import { requireAuthAndTenant } from '@/lib/api-helpers'
 import { checkPersistentRateLimit } from '@/lib/rate-limit-persistent'
@@ -157,8 +157,8 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    const tenant = await db.tenant.findUnique({
-      where: { id: auth.tenantId },
+    const tenant = await db.tenant.findFirst({
+      where: { id: auth.tenantId, isDeleted: false },
       select: { name: true },
     })
     if (!tenant) {
