@@ -549,6 +549,7 @@ ${content}`
       const batchOutcomes: SourceRowResult[] = []
       const batchWarnings: string[] = []
       const batchProviders: string[] = []
+      const batchSuggestions: string[] = []
       let confidenceTotal = 0
       let confidenceCount = 0
 
@@ -594,7 +595,7 @@ SOURCE ROW ACCOUNTING REQUIREMENTS:
           confidenceCount++
         }
         if (Array.isArray(parsedBatch.warnings)) batchWarnings.push(...parsedBatch.warnings.filter((item: unknown) => typeof item === 'string'))
-        if (Array.isArray(parsedBatch.suggestions)) analysis = { ...(analysis || {}), suggestions: [...(analysis?.suggestions || []), ...parsedBatch.suggestions.filter((item: unknown) => typeof item === 'string')] }
+        if (Array.isArray(parsedBatch.suggestions)) batchSuggestions.push(...parsedBatch.suggestions.filter((item: unknown) => typeof item === 'string'))
         if (Array.isArray(parsedBatch.sourceRowResults)) {
           for (const outcome of parsedBatch.sourceRowResults) {
             if (outcome && typeof outcome.sheet === 'string' && Number.isInteger(outcome.row) &&
@@ -634,7 +635,7 @@ SOURCE ROW ACCOUNTING REQUIREMENTS:
           successfulBatches: successfulResults.length,
         },
         warnings: reconciliationWarnings,
-        suggestions: [],
+        suggestions: Array.from(new Set(batchSuggestions)),
       })
     } else {
       const response = await analyzeWithAI(
@@ -680,6 +681,11 @@ SOURCE ROW ACCOUNTING REQUIREMENTS:
       analysis.suggestions = Array.isArray(analysis.suggestions) ? analysis.suggestions.filter((item: unknown) => typeof item === 'string') : []
       if (analysis.sourceReconciliation) analysis.sourceReconciliation = analysis.sourceReconciliation
       if (Array.isArray(analysis.sourceRowResults)) analysis.sourceRowResults = analysis.sourceRowResults
+      if (analysis.sourceReconciliation &&
+        analysis.sourceReconciliation.accounted < analysis.sourceReconciliation.expected) {
+        analysis.partialExtraction = true
+        analysis.sourceTruncated = true
+      }
       if (sourceTruncationWarnings.length > 0) {
         analysis.warnings.unshift(...sourceTruncationWarnings)
         analysis.partialExtraction = true
