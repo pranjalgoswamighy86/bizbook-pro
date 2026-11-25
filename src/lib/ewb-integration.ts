@@ -34,7 +34,7 @@
 import crypto from 'crypto'
 import { isValidEwbNumber } from './gsp-response-policy'
 import { getIrpBaseUrl, isIrpConfigured } from './irp-integration'
-import type { TenantGspConfig } from './gsp-credentials'
+import type { TenantGspConfig } from './gsp-config-types'
 
 // EWB API endpoints (on the same GSP/IRP base URL as e-invoice)
 const EWB_GENERATE_BY_IRN = '/einvoice/api/v1/ewaybill/irn'
