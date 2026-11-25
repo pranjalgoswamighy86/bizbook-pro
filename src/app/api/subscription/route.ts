@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db-soft-delete'
 import { requireAuthAndTenant, requireAuthAndRole, writeAuditLog } from '@/lib/api-helpers'
-import { sumWalletRemainingSeconds } from '@/lib/subscription-wallet'
+import { allocateWalletUsage, sumWalletRemainingSeconds } from '@/lib/subscription-wallet'
 
 // ============================================================
 // Subscription Plans (from the pricing sheet)
@@ -399,50 +399,49 @@ export async function POST(req: NextRequest) {
       const finalRemaining = await db.$transaction(async (tx) => {
         let secondsLeft = secondsUsed
 
-        for (const wallet of walletSubscriptions) {
-          let attempts = 0
-          while (secondsLeft > 0 && attempts < 3) {
-            const current = await tx.subscription.findUnique({
-              where: { id: wallet.id },
-              select: { remainingSeconds: true },
-            })
-            const available = Math.max(0, current?.remainingSeconds ?? 0)
-            if (available === 0) break
+        let attempts = 0
+        const maxAttempts = Math.max(3, walletSubscriptions.length * 3)
+        while (secondsLeft > 0 && attempts < maxAttempts) {
+          // Re-read balances after each debit so a concurrent usage request
+          // cannot make this request rely on a stale allocation.
+          const currentWallets = await tx.subscription.findMany({
+            where: { tenantId: { in: walletTenantIds.length > 0 ? walletTenantIds : [tenantId] } },
+            orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+            select: { id: true, remainingSeconds: true },
+          })
+          const allocation = allocateWalletUsage(currentWallets, secondsLeft)[0]
+          if (!allocation) break
 
-            const deduction = Math.min(available, secondsLeft)
-            const changed = await tx.subscription.updateMany({
-              where: { id: wallet.id, remainingSeconds: { gte: deduction } },
-              data: { remainingSeconds: { decrement: deduction } },
-            })
-            if (changed.count === 0) {
-              attempts += 1
-              continue
-            }
-
-            secondsLeft -= deduction
-            const updated = await tx.subscription.findUnique({
-              where: { id: wallet.id },
-              select: { remainingSeconds: true },
-            })
-            const remainingAfter = updated?.remainingSeconds ?? 0
-            await tx.usageLog.create({
-              data: {
-                subscriptionId: wallet.id,
-                userId: access.userId,
-                userRole,
-                secondsUsed: deduction,
-                remainingAfter,
-              },
-            })
-            if (remainingAfter === 0) {
-              await tx.subscription.updateMany({
-                where: { id: wallet.id, remainingSeconds: 0, status: { not: 'CONVERTED_TO_VIEW_ONLY' } },
-                data: { status: 'CONVERTED_TO_VIEW_ONLY' },
-              })
-            }
-            break
+          const changed = await tx.subscription.updateMany({
+            where: { id: allocation.id, remainingSeconds: { gte: allocation.secondsToDeduct } },
+            data: { remainingSeconds: { decrement: allocation.secondsToDeduct } },
+          })
+          if (changed.count === 0) {
+            attempts += 1
+            continue
           }
-          if (secondsLeft <= 0) break
+
+          secondsLeft -= allocation.secondsToDeduct
+          const updated = await tx.subscription.findUnique({
+            where: { id: allocation.id },
+            select: { remainingSeconds: true },
+          })
+          const remainingAfter = updated?.remainingSeconds ?? 0
+          await tx.usageLog.create({
+            data: {
+              subscriptionId: allocation.id,
+              userId: access.userId,
+              userRole,
+              secondsUsed: allocation.secondsToDeduct,
+              remainingAfter,
+            },
+          })
+          if (remainingAfter === 0) {
+            await tx.subscription.updateMany({
+              where: { id: allocation.id, remainingSeconds: 0, status: { not: 'CONVERTED_TO_VIEW_ONLY' } },
+              data: { status: 'CONVERTED_TO_VIEW_ONLY' },
+            })
+          }
         }
 
         // Preserve the activity record even if the shared wallet is exhausted.
