@@ -70,8 +70,8 @@ export function calculateValuation(
   balanceSheet: { inventory: number; receivables: number; payables: number; cash: number },
 ): ValuationSnapshot {
   const history = [...yearlyData].sort((a, b) => a.year.localeCompare(b.year))
-  const latest = history.at(-1) ?? { year: '', revenue: 0, purchases: 0, expenses: 0, ebitda: 0, revenueGrowthPct: null, cashFlow: 0 }
-  const prior = history.at(-2)
+  const latest = history[history.length - 1] ?? { year: '', revenue: 0, purchases: 0, expenses: 0, ebitda: 0, revenueGrowthPct: null, cashFlow: 0 }
+  const prior = history[history.length - 2]
   const margin = latest.revenue > 0 ? latest.ebitda / latest.revenue : 0
   const growth = prior && prior.revenue > 0 ? clamp((latest.revenue - prior.revenue) / prior.revenue, -0.2, 0.5) : 0
   const wacc = 0.18
