@@ -32,6 +32,7 @@
  */
 
 import crypto from 'crypto'
+import { isValidIrpSuccessResult } from './gsp-response-policy'
 
 const IRP_SANDBOX_URL = 'https://einvoice1.traces.gov.in'
 const IRP_PRODUCTION_URL = 'https://einvoice.gst.gov.in'
@@ -162,13 +163,16 @@ export async function submitToIrp(inv01Payload: any, config: TenantGspConfig | n
     //   "Info": [...]
     // }
     if (data.Status === 1 || data.Status === '1') {
+      if (!isValidIrpSuccessResult(data.Result)) {
+        return { success: false, mode: 'LIVE', errorMessage: 'IRP returned success without a valid 64-character IRN and acknowledgement details.' }
+      }
       return {
         success: true,
         mode: 'LIVE',
-        irn: data.Result?.Irn,
-        ackNo: String(data.Result?.AckNo || ''),
-        ackDate: data.Result?.AckDt,
-        signedQrCode: data.Result?.SignedQRCode,
+        irn: data.Result.Irn.toUpperCase(),
+        ackNo: String(data.Result.AckNo),
+        ackDate: data.Result.AckDt,
+        signedQrCode: data.Result.SignedQRCode,
       }
     }
 
@@ -251,6 +255,9 @@ export async function cancelIrn(irn: string, reason: string, config: TenantGspCo
  * Get IRN details from IRP (e.g. to verify a pasted-back IRN is real).
  */
 export async function getIrnDetails(irn: string, config: TenantGspConfig | null): Promise<IrpSubmitResult & { data?: any }> {
+  if (typeof irn !== 'string' || !/^[A-Fa-f0-9]{64}$/.test(irn.trim())) {
+    return { success: false, mode: 'LIVE', errorMessage: 'A valid 64-character IRN is required.' }
+  }
   if (!config || !isIrpConfigured(config)) {
     return {
       success: false,
@@ -263,12 +270,13 @@ export async function getIrnDetails(irn: string, config: TenantGspConfig | null)
     const token = await getIrpAuthToken(config)
     const baseUrl = getIrpBaseUrl(config)
 
-    const res = await fetch(`${baseUrl}/einvoice/api/v1/einvoice/irn/${irn}`, {
+    const res = await fetch(`${baseUrl}/einvoice/api/v1/einvoice/irn/${encodeURIComponent(irn.trim().toUpperCase())}`, {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${token}`,
         'gsp-code': config.gspCode,
       },
+      signal: AbortSignal.timeout(20000),
     })
 
     if (!res.ok) {
