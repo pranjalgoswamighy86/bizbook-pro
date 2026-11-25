@@ -32,6 +32,7 @@
  */
 
 import crypto from 'crypto'
+import { isValidEwbNumber } from './gsp-response-policy'
 import { getIrpBaseUrl, isIrpConfigured } from './irp-integration'
 import type { TenantGspConfig } from './gsp-credentials'
 
@@ -152,10 +153,14 @@ export async function generateEwbByIrn(
 
     // NIC success: Status=1, Result contains EwbNo, EwbDate, EwbValidUpto
     if (data.Status === 1 || data.Status === '1') {
+      const ewbNo = String(data.Result?.EwbNo || '')
+      if (!isValidEwbNumber(ewbNo)) {
+        return { success: false, mode: 'LIVE', errorMessage: 'E-Way Bill service returned success without a valid 12-digit EWB number.' }
+      }
       return {
         success: true,
         mode: 'LIVE',
-        ewbNo: String(data.Result?.EwbNo || ''),
+        ewbNo,
         ewbDate: data.Result?.EwbDate,
         ewbValidUpto: data.Result?.EwbValidUpto,
       }
@@ -248,10 +253,14 @@ export async function generateEwbDirect(
     const data = await res.json()
 
     if (data.Status === 1 || data.Status === '1') {
+      const ewbNo = String(data.Result?.EwbNo || '')
+      if (!isValidEwbNumber(ewbNo)) {
+        return { success: false, mode: 'LIVE', errorMessage: 'E-Way Bill service returned success without a valid 12-digit EWB number.' }
+      }
       return {
         success: true,
         mode: 'LIVE',
-        ewbNo: String(data.Result?.EwbNo || ''),
+        ewbNo,
         ewbDate: data.Result?.EwbDate,
         ewbValidUpto: data.Result?.EwbValidUpto,
       }
@@ -390,12 +399,16 @@ export async function extendEwb(
 
     const data = await res.json()
     if (data.Status === 1 || data.Status === '1') {
+      const returnedEwbNo = String(data.Result?.EwbNo || ewbNo)
+      if (!isValidEwbNumber(returnedEwbNo) || typeof data.Result?.EwbValidUpto !== 'string' || !data.Result.EwbValidUpto.trim()) {
+        return { success: false, mode: 'LIVE', errorMessage: 'E-Way Bill service returned success without a valid EWB number and updated validity.' }
+      }
       return {
         success: true,
         mode: 'LIVE',
-        ewbNo: String(data.Result?.EwbNo || ewbNo),
+        ewbNo: returnedEwbNo,
         ewbDate: data.Result?.EwbDate,
-        ewbValidUpto: data.Result?.EwbValidUpto,
+        ewbValidUpto: data.Result.EwbValidUpto,
       }
     }
 
