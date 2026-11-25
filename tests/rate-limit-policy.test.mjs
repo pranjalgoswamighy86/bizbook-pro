@@ -1,6 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { decideRateLimit, rateLimitStoreUnavailable } from '../.test-build/rate-limit-policy.js'
+import rateLimitPolicy from '../.test-build/rate-limit-policy.js'
+
+const { decideRateLimit, rateLimitStoreUnavailable } = rateLimitPolicy
 
 test('allows requests up to the configured limit', () => {
   const result = decideRateLimit(10, 60_000, 10, 30_000)
