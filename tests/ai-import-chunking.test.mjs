@@ -31,11 +31,13 @@ test('reconciliation reports missing and invalid source-row outcomes', () => {
   const batches = chunkSpreadsheetRows({ Data: [{ a: 1 }, { a: 2 }] })
   const result = reconcileSourceRows(batches, [
     { sheet: 'Data', row: 2, status: 'extracted' },
+    { sheet: 'Data', row: 3, status: 'ambiguous' },
     { sheet: 'Other', row: 99, status: 'ignored' },
   ])
   assert.equal(result.expected, 2)
-  assert.equal(result.accounted, 1)
-  assert.deepEqual(result.missing, [{ sheet: 'Data', row: 3 }])
+  assert.equal(result.accounted, 2)
+  assert.equal(result.ambiguous, 1)
+  assert.deepEqual(result.missing, [])
   assert.equal(result.invalid.length, 1)
 })
 
