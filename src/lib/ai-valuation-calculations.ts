@@ -100,10 +100,10 @@ export function calculateValuation(
   const revenueMultiple = Math.max(0, latest.revenue * clamp(0.5 + margin, 0.25, 1.5))
   const ebitdaMultiple = Math.max(0, latest.ebitda * (latest.ebitda > 0 ? 4 : 0))
   const assetBased = Math.max(0, safe(balanceSheet.inventory) + safe(balanceSheet.receivables) + cash - payables)
-  const candidates = [dcfEquity, revenueMultiple, ebitdaMultiple, assetBased].filter(v => Number.isFinite(v) && v >= 0)
-  const central = candidates.length ? candidates.reduce((sum, value) => sum + value, 0) / candidates.length : 0
-  const low = Math.max(0, Math.min(...candidates) * 0.85)
-  const high = Math.max(low, Math.max(...candidates) * 1.15)
+  const coreEstimates = [dcfEquity, revenueMultiple].filter(v => Number.isFinite(v) && v >= 0)
+  const central = coreEstimates.length ? coreEstimates.reduce((sum, value) => sum + value, 0) / coreEstimates.length : 0
+  const low = Math.max(0, Math.min(...coreEstimates) * 0.85)
+  const high = Math.max(low, Math.max(...coreEstimates) * 1.15)
 
   const growthPct = prior && prior.revenue > 0 ? (latest.revenue - prior.revenue) / prior.revenue : null
   const growthTrend = growthPct === null ? 'Insufficient history' : growthPct > 0.05 ? 'Growing' : growthPct < -0.05 ? 'Declining' : 'Stable'
@@ -131,7 +131,7 @@ export function calculateValuation(
       valuationRange: { low, mid: central, high },
       financialHealthScore: healthScore,
       healthGrade,
-      valuationMethod: 'Weighted DCF, revenue, EBITDA and asset-based estimates',
+      valuationMethod: 'Equal blend of DCF and revenue multiple; EBITDA and asset-based estimates shown separately',
       growthTrend,
       summary,
       keyStrengths,
