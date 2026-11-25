@@ -10,5 +10,5 @@ export function isValidIrpSuccessResult(result: unknown): result is { Irn: strin
 }
 
 export function isValidEwbNumber(value: unknown): value is string {
-  return typeof value === 'string' && /^\\d{12}$/.test(value.trim())
+  return typeof value === 'string' && /^\d{12}$/.test(value.trim())
 }
