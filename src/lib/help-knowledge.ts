@@ -59,6 +59,16 @@ export const HELP_FAQS = [
     keywords: ['review', 'confirm', 'import', 'duplicate', 'backup'],
   },
   {
+    q: 'Why did AI Smart Import reject or skip a record?',
+    a: 'Open the import results and read the error reported for each failed or skipped record. Common causes include missing or invalid dates, party names, quantities, rates, line items, or insufficient stock. Correct the source data, review duplicate warnings, and retry only after confirming that successful records will not be imported again.',
+    keywords: ['failed', 'error', 'skipped', 'validation', 'stock', 'retry', 'ai import'],
+  },
+  {
+    q: 'Can I import a scanned PDF with AI Smart Import?',
+    a: 'Searchable PDFs can be read from their text. Scanned PDFs need image rendering; if the upload reports that rendering failed, convert the PDF to a searchable PDF or upload clear page images. A scanned multi-page PDF may be analyzed from page 1 only, so read the partial-extraction warning and process the remaining pages separately.',
+    keywords: ['scanned', 'pdf', 'ocr', 'image', 'pages', 'ai import'],
+  },
+  {
     q: 'Does entering a GSTIN automatically verify and fill party details?',
     a: 'The GSTIN field performs local format, state-code, PAN-structure and checksum validation. This does not prove that a GST registration is active and does not fetch the legal name or address. Verify the taxpayer on the official GST Portal and enter the confirmed party details in BizBook Pro.',
     keywords: ['gstin', 'party', 'customer', 'supplier', 'lookup', 'details'],
@@ -208,6 +218,19 @@ export const HELP_GUIDES = [
       'Submit manual JSON through the E-Way Bill service selected by the business',
       'Record the exact 12-digit EWB number, generation date/time and validity date/time returned by the service',
       'Confirm the EWB status on the sale',
+    ],
+  },
+  {
+    icon: 'file-text',
+    title: 'Resolve AI Smart Import warnings and failed records',
+    steps: [
+      'Open AI Smart Import and read every warning before confirming an import',
+      'If a spreadsheet warning says only the first 30 rows per sheet were analyzed, split the original file into smaller batches',
+      'If a scanned PDF cannot be rendered, convert it to a searchable PDF or upload clear page images; process additional pages separately when the preview is partial',
+      'Review failed-record messages and correct missing dates, party names, item descriptions, quantities, rates and totals in the source or preview',
+      'Check duplicate and stock warnings before retrying so that successful records are not imported twice',
+      'Create or confirm a recent backup before a large re-import',
+      'After importing, compare created, skipped and failed counts and reconcile totals against the original source',
     ],
   },
   {
