@@ -288,13 +288,17 @@ export async function getIrnDetails(irn: string, config: TenantGspConfig | null)
     }
 
     const data = await res.json()
+    const success = data.Status === 1 || data.Status === '1'
+    if (success && !isValidIrpSuccessResult(data.Result)) {
+      return { success: false, mode: 'LIVE', errorMessage: 'IRP returned an incomplete IRN lookup response.' }
+    }
     return {
-      success: data.Status === 1 || data.Status === '1',
+      success,
       mode: 'LIVE',
-      irn: data.Result?.Irn,
-      ackNo: String(data.Result?.AckNo || ''),
-      ackDate: data.Result?.AckDt,
-      signedQrCode: data.Result?.SignedQRCode,
+      irn: success ? data.Result.Irn.toUpperCase() : undefined,
+      ackNo: success ? String(data.Result.AckNo) : undefined,
+      ackDate: success ? data.Result.AckDt : undefined,
+      signedQrCode: success ? data.Result.SignedQRCode : undefined,
       data: data.Result,
     }
   } catch (err: any) {
