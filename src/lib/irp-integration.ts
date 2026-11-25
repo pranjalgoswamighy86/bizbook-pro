@@ -37,7 +37,7 @@ import { isValidIrpSuccessResult } from './gsp-response-policy'
 const IRP_SANDBOX_URL = 'https://einvoice1.traces.gov.in'
 const IRP_PRODUCTION_URL = 'https://einvoice.gst.gov.in'
 
-import type { TenantGspConfig } from './gsp-credentials'
+import type { TenantGspConfig } from './gsp-config-types'
 
 export function getIrpBaseUrl(config: TenantGspConfig): string {
   return config.irpEnv === 'production' ? IRP_PRODUCTION_URL : IRP_SANDBOX_URL
