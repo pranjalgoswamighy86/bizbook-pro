@@ -45,6 +45,12 @@ const eslintConfig = [...nextCoreWebVitals, ...nextTypescript, {
     "no-useless-escape": "off",
   },
 }, {
+  // The repository uses CommonJS for Node/Electron .js scripts. Keep require()
+  // valid there; TypeScript application files remain subject to the rule.
+  files: ["**/*.js"],
+  languageOptions: { sourceType: "commonjs" },
+  rules: { "@typescript-eslint/no-require-imports": "off" },
+}, {
   ignores: ["node_modules/**", ".next/**", "out/**", "build/**", "next-env.d.ts", "examples/**", "skills"]
 }];
 

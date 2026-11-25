@@ -40,7 +40,7 @@ export function Creditors() {
     setCreditors(data.creditors || [])
     setTotalPayable(data.totalPayable || 0)
     setLoading(false)
-  }, [tenant?.id, searchQuery])
+  }, [tenant, searchQuery])
 
   useEffect(() => { fetchCreditors() }, [fetchCreditors])
 

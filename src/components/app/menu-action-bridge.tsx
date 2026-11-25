@@ -42,7 +42,9 @@ export function MenuActionBridge() {
   // Keep latest values in refs so the registered callbacks always see
   // fresh state without needing to re-register (which would leak listeners).
   const stateRef = useRef({ isAuthenticated, setView, currentView, toast })
-  stateRef.current = { isAuthenticated, setView, currentView, toast }
+  useEffect(() => {
+    stateRef.current = { isAuthenticated, setView, currentView, toast }
+  }, [isAuthenticated, setView, currentView, toast])
 
   // Pending actions received before the app was ready to handle them.
   const pendingRef = useRef<string[]>([])

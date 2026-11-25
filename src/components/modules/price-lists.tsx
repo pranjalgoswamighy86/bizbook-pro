@@ -75,7 +75,7 @@ export function PriceLists() {
     if (!tenant) return
     loadPriceLists()
     loadInventoryItems()
-  }, [tenant]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [tenant])
 
   const loadPriceLists = async () => {
     if (!tenant) return

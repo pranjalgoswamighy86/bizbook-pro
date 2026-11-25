@@ -22,7 +22,18 @@
  */
 export function roundTo2(value: number): number {
   if (!Number.isFinite(value)) return 0
-  return Number(value.toFixed(2))
+
+  // Shift the decimal exponent before rounding. Number#toFixed rounds the
+  // binary approximation, so values such as 1.005 can incorrectly become 1.00.
+  const sign = Math.sign(value)
+  const absolute = Math.abs(value)
+  if (absolute >= Number.MAX_SAFE_INTEGER / 100) return value
+
+  const [coefficient, exponent = '0'] = absolute.toString().split('e')
+  const shifted = Number(`${coefficient}e${Number(exponent) + 2}`)
+  if (!Number.isFinite(shifted)) return value
+
+  return sign * Math.floor(shifted + 0.5) / 100
 }
 
 /**

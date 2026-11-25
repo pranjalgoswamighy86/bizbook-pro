@@ -42,14 +42,14 @@ const DEFAULT_CONFIG: ZaiConfig = {
   ...(process.env.ZAI_TOKEN ? { token: process.env.ZAI_TOKEN } : {}),
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+
 let cachedClient: any | null = null
 let sdkLoadAttempted = false
 let sdkLoadError: string | null = null
 
 // Dynamically load the SDK so the build does not fail when the package is missing.
 // We use eval('require') to bypass Next.js's static analysis of the import.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+
 async function loadZaiSdk(): Promise<any> {
   if (sdkLoadAttempted) {
     if (sdkLoadError) throw new Error(sdkLoadError)
@@ -58,7 +58,7 @@ async function loadZaiSdk(): Promise<any> {
   sdkLoadAttempted = true
   try {
     // Dynamic require — works in Node runtime (server-side only)
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
+
     const mod = await import(/* @vite-ignore */ 'z-ai-web-dev-sdk').catch(() => null as any)
     if (!mod || !mod.default) {
       sdkLoadError = 'z-ai-web-dev-sdk is not installed. Run: npm install z-ai-web-dev-sdk'
@@ -77,7 +77,7 @@ async function loadZaiSdk(): Promise<any> {
  * Falls back to direct constructor with DEFAULT_CONFIG if file is missing.
  * Throws if the SDK package is not installed.
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+
 export async function getZaiClient(): Promise<any> {
   if (cachedClient) return cachedClient
 
@@ -95,7 +95,7 @@ export async function getZaiClient(): Promise<any> {
   // Fallback: use the constructor directly with our config
   // This bypasses the file lookup and works on Railway
   try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
     cachedClient = new ZAISdk(DEFAULT_CONFIG as any)
     console.log('[ZAI] Client initialized via fallback config (baseUrl:', DEFAULT_CONFIG.baseUrl + ')')
     return cachedClient

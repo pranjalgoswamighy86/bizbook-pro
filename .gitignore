@@ -115,3 +115,6 @@ temp/
 *.log
 *.tsbuildinfo
 tsconfig.tsbuildinfo
+
+# Temporary TypeScript output for unit tests
+.test-build/

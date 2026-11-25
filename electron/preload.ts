@@ -10,7 +10,7 @@
  *   - All listeners use a tracked-set so we can remove them on cleanup.
  */
 
-const { contextBridge, ipcRenderer } = require('electron')
+import { contextBridge, ipcRenderer } from 'electron'
 
 contextBridge.exposeInMainWorld('electron', {
   // App info

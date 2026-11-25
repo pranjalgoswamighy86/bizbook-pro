@@ -117,31 +117,6 @@ export function BackupImportDialog({ open, onOpenChange, companyName }: BackupIm
   const [importResults, setImportResults] = useState<any>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  // Auto-trigger file picker when dialog opens
-  const hasAutoTriggered = useRef(false)
-  const handleOpenAutoFilePicker = useCallback(() => {
-    if (hasAutoTriggered.current) return
-    hasAutoTriggered.current = true
-    // Small delay to let dialog render
-    setTimeout(() => handleSelectFile(), 300)
-  }, [])
-
-  // Reset auto-trigger flag when dialog closes
-  useEffect(() => {
-    if (!open) {
-      hasAutoTriggered.current = false
-      setStep('prompt')
-      setSelectedFile(null)
-      setAnalysis(null)
-      setSelectedModules(new Set())
-      setErrorMessage('')
-      setImportResults(null)
-    } else {
-      // Auto-trigger file picker when dialog opens
-      handleOpenAutoFilePicker()
-    }
-  }, [open, handleOpenAutoFilePicker])
-
   const resetAndClose = useCallback(() => {
     setStep('prompt')
     setSelectedFile(null)
@@ -162,44 +137,8 @@ export function BackupImportDialog({ open, onOpenChange, companyName }: BackupIm
     resetAndClose()
   }
 
-  /** Open file picker — uses File System Access API if available, otherwise fallback to file input */
-  const handleSelectFile = async () => {
-    // Try the modern File System Access API first
-    if ('showOpenFilePicker' in window) {
-      try {
-        const [fileHandle] = await (window as any).showOpenFilePicker({
-          types: [{
-            description: 'Excel Backup Files',
-            accept: {
-              'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
-              'application/vnd.ms-excel': ['.xls'],
-            },
-          }],
-          multiple: false,
-        })
-        const file = await fileHandle.getFile()
-        processFile(file)
-        return
-      } catch (err: any) {
-        // User cancelled the picker
-        if (err.name === 'AbortError') return
-        // Fall through to regular file input
-      }
-    }
-
-    // Fallback: trigger hidden file input
-    fileInputRef.current?.click()
-  }
-
-  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files.length > 0) {
-      processFile(e.target.files[0])
-      e.target.value = ''
-    }
-  }
-
   /** Process the selected file — start AI analysis */
-  const processFile = async (file: File) => {
+  const processFile = useCallback(async (file: File) => {
     if (!tenant) return
 
     setSelectedFile(file)
@@ -280,7 +219,68 @@ export function BackupImportDialog({ open, onOpenChange, companyName }: BackupIm
         : (error.message || 'Network error'))
       setStep('error')
     }
+  }, [tenant, toast, resetAndClose])
+
+  /** Open file picker — uses File System Access API if available, otherwise fallback to file input */
+  const handleSelectFile = useCallback(async () => {
+    // Try the modern File System Access API first
+    if ('showOpenFilePicker' in window) {
+      try {
+        const [fileHandle] = await (window as any).showOpenFilePicker({
+          types: [{
+            description: 'Excel Backup Files',
+            accept: {
+              'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
+              'application/vnd.ms-excel': ['.xls'],
+            },
+          }],
+          multiple: false,
+        })
+        const file = await fileHandle.getFile()
+        processFile(file)
+        return
+      } catch (err: any) {
+        // User cancelled the picker
+        if (err.name === 'AbortError') return
+        // Fall through to regular file input
+      }
+    }
+
+    // Fallback: trigger hidden file input
+    fileInputRef.current?.click()
+  }, [processFile])
+
+
+  // Auto-trigger the picker once per open cycle. Keep the timer cancellable
+  // and use the latest tenant-bound callbacks instead of a stale empty-deps closure.
+  const hasAutoTriggered = useRef(false)
+  useEffect(() => {
+    if (!open) {
+      hasAutoTriggered.current = false
+      setStep('prompt')
+      setSelectedFile(null)
+      setAnalysis(null)
+      setSelectedModules(new Set())
+      setErrorMessage('')
+      setImportResults(null)
+      return
+    }
+
+    if (hasAutoTriggered.current) return
+    const timer = setTimeout(() => {
+      hasAutoTriggered.current = true
+      void handleSelectFile()
+    }, 300)
+
+    return () => clearTimeout(timer)
+  }, [open, handleSelectFile])
+  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      processFile(e.target.files[0])
+      e.target.value = ''
+    }
   }
+
 
   /** Import the analyzed data into BizBook */
   const handleImport = async () => {
