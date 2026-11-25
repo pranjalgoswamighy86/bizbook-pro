@@ -80,6 +80,8 @@ jobs:
             src/components/app/sidebar.tsx \
             src/components/modules/ai-import.tsx \
             src/lib/help-knowledge.ts \
+            src/lib/rate-limit-persistent.ts \
+            src/lib/rate-limit-policy.ts \
             src/lib/multi-ai.ts \
             src/lib/version.ts \
             next.config.ts \
