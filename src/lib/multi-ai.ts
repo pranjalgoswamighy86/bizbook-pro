@@ -220,6 +220,11 @@ export async function analyzeWithAI(
   if (process.env.DEEPSEEK_API_KEY) providers.push(new DeepSeekProvider());
   if (process.env.ANTHROPIC_API_KEY) providers.push(new ClaudeProvider());
 
+  const isPdfDocument = Boolean(imageBase64?.startsWith('data:application/pdf;'))
+  if (isPdfDocument && !process.env.GEMINI_API_KEY) {
+    throw new Error('Scanned PDF import requires GEMINI_API_KEY because the configured image-only providers cannot process multi-page PDF documents.')
+  }
+
   if (providers.length === 0) {
     // v6.14: Fallback to ZAI if no other provider is configured
     // (ZAI is still used internally for development)
@@ -250,11 +255,6 @@ export async function analyzeWithAI(
     } catch (zaiErr: any) {
       throw new Error('No AI provider configured. Set GEMINI_API_KEY (recommended, free) or OPENAI_API_KEY. ZAI fallback also failed: ' + zaiErr.message)
     }
-  }
-
-  const isPdfDocument = Boolean(imageBase64?.startsWith('data:application/pdf;'))
-  if (isPdfDocument && !process.env.GEMINI_API_KEY) {
-    throw new Error('Scanned PDF import requires GEMINI_API_KEY because the configured image-only providers cannot process multi-page PDF documents.')
   }
 
   let lastError: Error | null = null;
