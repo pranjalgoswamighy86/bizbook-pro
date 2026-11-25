@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { analyzeWithAI } from '@/lib/multi-ai'
 import { requireAuthAndTenant } from '@/lib/api-helpers'
-import { checkRateLimit } from '@/lib/rate-limit'
+import { checkPersistentRateLimit } from '@/lib/rate-limit-persistent'
 import { APP_VERSION } from '@/lib/version'
 import { HELP_FAQS, HELP_GUIDES } from '@/lib/help-knowledge'
 
@@ -134,18 +134,26 @@ export async function POST(req: NextRequest) {
     const auth = await requireAuthAndTenant(req, tenantId)
     if (auth instanceof NextResponse) return auth
 
-    // v6.30.8: Rate limit — 10 msgs per minute per user (chat-specific bucket).
-    // Blocks AI credit abuse without affecting legitimate back-and-forth.
-    const rlKey = `chat:${auth.userId}`
-    const rl = checkRateLimit(rlKey, { maxRequests: 10, windowMs: 60 * 1000 })
+    // Shared PostgreSQL-backed limit: 10 messages per minute per user.
+    // The atomic upsert keeps the cap consistent across Railway replicas and restarts.
+    const rl = await checkPersistentRateLimit(`chat:${auth.userId}`, {
+      maxRequests: 10,
+      windowMs: 60 * 1000,
+    })
     if (!rl.allowed) {
+      const unavailable = rl.reason === 'db-unavailable'
       return NextResponse.json(
         {
-          error: `You're sending messages too quickly. Please wait ${rl.retryAfterSeconds}s and try again.`,
-          code: 'RATE_LIMITED',
+          error: unavailable
+            ? 'Support chat is temporarily unavailable. Please try again shortly.'
+            : `You're sending messages too quickly. Please wait ${rl.retryAfterSeconds}s and try again.`,
+          code: unavailable ? 'RATE_LIMIT_UNAVAILABLE' : 'RATE_LIMITED',
           retryAfterSeconds: rl.retryAfterSeconds,
         },
-        { status: 429, headers: { 'Retry-After': String(rl.retryAfterSeconds) } }
+        {
+          status: rl.statusCode,
+          headers: { 'Retry-After': String(rl.retryAfterSeconds) },
+        }
       )
     }
 
