@@ -4,11 +4,6 @@ import { analyzeWithAI } from '@/lib/multi-ai'
 import { requireAuthAndTenant } from '@/lib/api-helpers'
 import { aggregateFinancialYears, calculateValuation, normalizeAiValuationSummary } from '@/lib/ai-valuation-calculations'
 
-function getFinancialYearStart(date: Date): Date {
-  const year = date.getFullYear()
-  return new Date(year, date.getMonth() >= 3 ? 3 : 3, date.getMonth() >= 3 ? year : year - 1)
-}
-
 function getFinancialYearLabel(startYear: number): string {
   return `FY ${startYear}-${String(startYear + 1).slice(-2)}`
 }
@@ -21,7 +16,7 @@ export async function POST(req: NextRequest) {
     if (auth instanceof NextResponse) return auth
 
     const now = new Date()
-    const currentStart = new Date(now.getFullYear(), now.getMonth() >= 3 ? 3 : 3, now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1)
+    const currentStart = new Date(now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1, 3, 1)
     const firstYearStart = new Date(currentStart.getFullYear() - 2, 3, 1)
     const years = [firstYearStart.getFullYear(), firstYearStart.getFullYear() + 1, firstYearStart.getFullYear() + 2]
     const fyRanges = years.map((startYear) => ({
@@ -83,7 +78,7 @@ export async function POST(req: NextRequest) {
     const yearInputs = fyRanges.map(({ startYear, start, end }) => {
       const inRange = <T extends { date: Date }>(rows: T[]) => rows.filter(row => row.date >= start && row.date < end)
       return {
-        year: getFinancialYearLabel(startYear),
+        year: startYear === currentStart.getFullYear() ? `${getFinancialYearLabel(startYear)} (YTD)` : getFinancialYearLabel(startYear),
         revenue: inRange(sales).reduce((sum, row) => sum + row.totalAmount, 0),
         purchases: inRange(purchases).reduce((sum, row) => sum + row.totalAmount, 0),
         expenses: inRange(expenses).reduce((sum, row) => sum + row.amount, 0),
@@ -119,7 +114,12 @@ export async function POST(req: NextRequest) {
       note: 'Approximate snapshot from inventory at purchase cost, debtor/creditor balances, latest bank statement balances and FY-to-date cash receipts/payments. Opening cash and complete liabilities are not available in these source models.',
     }
 
-    const computed = calculateValuation(yearlyData, balanceSheet)
+    const completeYearInputs = yearInputs.filter((year) => {
+      const yearStart = years[yearInputs.indexOf(year)]
+      return yearStart + 1 <= now.getFullYear() || (now.getMonth() >= 3 && yearStart < now.getFullYear())
+    })
+    const completeYearData = aggregateFinancialYears(completeYearInputs)
+    const computed = calculateValuation(completeYearData.length ? completeYearData : yearlyData, balanceSheet)
     let aiProvider = 'none'
     let qualitative = normalizeAiValuationSummary(null)
     const aiPrompt = [
@@ -154,7 +154,7 @@ export async function POST(req: NextRequest) {
       success: true,
       valuation,
       dcf: computed.dcf,
-      yearlyData: computed.yearlyData,
+      yearlyData,
       balanceSheet,
       aiProvider,
       disclaimer: 'Indicative estimate only—not a certified valuation, audited financial statement or professional financial advice.',
