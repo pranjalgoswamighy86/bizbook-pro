@@ -280,7 +280,7 @@ export function AIValuationPage() {
                     <p className="font-bold">₹{(balanceSheet.payables / 100000).toFixed(2)}L</p>
                   </div>
                   <div className="bg-violet-50 dark:bg-violet-950 p-2 rounded">
-                    <p className="text-[10px] text-muted-foreground">Cash</p>
+                    <p className="text-[10px] text-muted-foreground">Bank Balance (snapshot)</p>
                     <p className="font-bold">₹{(balanceSheet.cash / 100000).toFixed(2)}L</p>
                   </div>
                   <div className="bg-amber-50 dark:bg-amber-950 p-2 rounded">
