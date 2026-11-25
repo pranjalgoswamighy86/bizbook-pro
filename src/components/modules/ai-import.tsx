@@ -40,6 +40,7 @@ interface AnalysisResult {
   warnings: string[]
   suggestions: string[]
   partialExtraction?: boolean
+  sourceReconciliation?: { expected: number; accounted: number; ambiguous?: number }
 }
 
 interface FileEntry {
@@ -355,6 +356,17 @@ export function AIImportPage() {
       mergedDocType = uniqueTypes.size === 1 ? allTypes[0] as DetectedDocumentType : 'mixed_data'
     }
 
+    const sourceReconciliation = successful.reduce((total, entry) => {
+      const current = entry.analysis?.sourceReconciliation
+      if (current) {
+        total.expected += current.expected || 0
+        total.accounted += current.accounted || 0
+        total.ambiguous += current.ambiguous || 0
+      }
+      return total
+    }, { expected: 0, accounted: 0, ambiguous: 0 })
+    const hasSourceReconciliation = successful.some(entry => !!entry.analysis?.sourceReconciliation)
+
     const merged: AnalysisResult = {
       fileName: `${successful.length} files merged`,
       fileType: 'multi-file',
@@ -366,6 +378,7 @@ export function AIImportPage() {
       importData: { sales: [], purchases: [], expenses: [], products: [], parties: [], staff: [], bankTransactions: [] },
       warnings: [], suggestions: [],
       partialExtraction: successful.some(f => f.analysis?.partialExtraction === true),
+      ...(hasSourceReconciliation ? { sourceReconciliation } : {}),
     }
 
     const modules = ['sales', 'purchases', 'expenses', 'products', 'parties', 'staff', 'bankTransactions'] as const
@@ -862,12 +875,12 @@ export function AIImportPage() {
                       <AlertTriangle className="h-4 w-4 mt-0.5 text-amber-700 flex-shrink-0" />
                       <div>
                         <p className="text-sm font-semibold text-amber-800 dark:text-amber-200">Partial spreadsheet analysis — not a complete import</p>
-                        <p className="text-xs text-amber-800 dark:text-amber-200">Some source content was not sent to the AI because of file-analysis limits. Read the warnings below for the exact limit. Spreadsheet analysis currently sends only the first 30 rows per sheet; scanned multi-page PDFs may include only page 1. Split large files into smaller batches before a complete migration.</p>
+                        <p className="text-xs text-amber-800 dark:text-amber-200">The AI could not fully reconcile all source rows, or marked some rows ambiguous. Review the row counts and warnings below before importing. Spreadsheet rows are analyzed in bounded batches; a partial result is never presented as a complete import.</p>
                       </div>
                     </div>
                     <label className="flex items-start gap-2 text-xs font-medium text-amber-900 dark:text-amber-100">
                       <Checkbox checked={acknowledgePartialExtraction} onCheckedChange={(checked) => setAcknowledgePartialExtraction(checked === true)} />
-                      <span>I understand this preview/export contains only the analyzed sample and may omit source rows.</span>
+                      <span>I have reviewed the incomplete or ambiguous source rows and understand this preview may omit records.</span>
                     </label>
                   </div>
                 )}
