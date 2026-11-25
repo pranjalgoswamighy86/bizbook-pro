@@ -5,6 +5,8 @@
  * 64 hexadecimal characters. There is deliberately no plaintext fallback.
  */
 import crypto from 'crypto'
+import type { TenantGspConfig } from './gsp-config-types'
+export type { TenantGspConfig } from './gsp-config-types'
 import { db } from '@/lib/db-soft-delete'
 
 const ALGORITHM = 'aes-256-gcm'
@@ -44,16 +46,6 @@ export function decryptCredential(value: string): string {
   } catch {
     throw new Error('Unable to decrypt stored GSP credentials. Verify the configured key and credential record.')
   }
-}
-
-export interface TenantGspConfig {
-  tenantId: string
-  gspCode: string
-  gspClientId: string
-  gspClientSecret: string
-  gspUsername: string
-  gspPassword: string
-  irpEnv: string
 }
 
 export async function loadTenantGspConfig(tenantId: string): Promise<TenantGspConfig | null> {
