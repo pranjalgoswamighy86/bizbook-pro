@@ -50,7 +50,7 @@ export const HELP_FAQS = [
   },
   {
     q: 'Does AI Smart Import always read every row in a spreadsheet?',
-    a: 'The current spreadsheet analysis sends a sample of up to 30 rows per sheet to the AI model. Larger sheets can therefore have rows that are not included in the AI preview. Check the explicit partial-extraction warning and do not treat a sample preview as a complete migration. Split the file into smaller batches or use a verified import workflow for the remaining rows.',
+    a: 'Spreadsheet rows are analyzed in bounded batches rather than stopping at a 30-row sample. The current upload limit is 1 MB and the import limit is 5,000 rows. Review the row-level results and reconciliation warnings: invalid, ambiguous or failed rows may still need correction, and an AI preview is not a substitute for checking the source totals.',
     keywords: ['rows', 'spreadsheet', 'excel', 'partial', 'missing', 'import'],
   },
   {
@@ -65,7 +65,7 @@ export const HELP_FAQS = [
   },
   {
     q: 'Can I import a scanned PDF with AI Smart Import?',
-    a: 'Searchable PDFs can be read from their text. Scanned PDFs need image rendering; if the upload reports that rendering failed, convert the PDF to a searchable PDF or upload clear page images. A scanned multi-page PDF may be analyzed from page 1 only, so read the partial-extraction warning and process the remaining pages separately.',
+    a: 'Searchable PDFs use their embedded text, while scanned PDFs are sent to Gemini document vision with the original PDF so the model can inspect all pages. The current PDF limit is 20 pages (for searchable and scanned PDFs) and the upload limit is 1 MB. Searchable PDF text is also bounded to 30,000 characters; follow any truncation warning. Review every page in the preview: faint, rotated or unreadable scans can still produce incomplete results. Files over the page limit are rejected rather than silently truncated.',
     keywords: ['scanned', 'pdf', 'ocr', 'image', 'pages', 'ai import'],
   },
   {
@@ -75,12 +75,12 @@ export const HELP_FAQS = [
   },
   {
     q: 'How do I generate an E-Invoice (IRN)?',
-    a: 'Open the relevant B2B sale in Sale Register and choose the E-Invoice action. Complete any missing seller/buyer address PIN details and verify GSTIN, HSN, invoice date, item values and tax totals. If this business has its own GSP credentials configured, use the live generation option. Otherwise download the GST INV-01 JSON, submit it through the IRP selected by the business, then record the returned IRN and acknowledgement details. BizBook Pro does not choose a provider for the business.',
+    a: 'Open the relevant B2B sale in Sale Register and choose the E-Invoice action. Seller name, GSTIN and registered address are loaded automatically from the selected company profile; update Company Profile / Settings if any of these are missing or incorrect. Verify the buyer GSTIN and address, six-digit PIN codes, HSN, invoice date, item values and tax totals. If this company has its own GSP credentials configured, use live generation. Otherwise download the GST INV-01 JSON, submit it through the IRP selected by the business, then record the returned IRN and acknowledgement details.',
     keywords: ['e-invoice', 'einvoice', 'irn', 'irp', 'gst', 'pin'],
   },
   {
     q: 'How do I generate an E-Way Bill?',
-    a: 'Open the relevant sale in Sale Register and choose EWB. Enter the transport distance and the required vehicle, transporter and transport-document details. Use the business’s configured GSP for live generation, or download the EWB JSON and submit it through the service selected by the business. Record the EWB number, generation time and validity exactly as returned by that service.',
+    a: 'Open the relevant sale in Sale Register and choose EWB. Enter the transport distance and required vehicle or transporter details. The ₹50,000 threshold is the general mandatory threshold; the software also allows a user to request voluntary generation for a lower-value consignment where applicable. Use this company’s configured GSP for live generation, or download the EWB JSON and submit it through the service selected by the business. Record the EWB number, generation time and validity exactly as returned by that service.',
     keywords: ['eway', 'e-way', 'ewb', 'vehicle', 'transporter', 'distance'],
   },
   {
@@ -177,7 +177,7 @@ export const HELP_GUIDES = [
       'Choose the closest document category, or leave auto-detect selected',
       'Wait for analysis and inspect the detected type, confidence and warnings',
       'Check every row shown in the preview, especially dates, quantities, GST and totals',
-      'If a spreadsheet warning says only 30 rows per sheet were analyzed, split the source into smaller batches; do not assume remaining rows were imported',
+      'Keep each upload within the 1 MB and 5,000-row limits; spreadsheet rows are analyzed in batches and the results include row-level reconciliation',
       'Select the intended modules and confirm the import only after reviewing the data',
       'Check the import results and reconcile totals against the source file',
     ],
@@ -198,8 +198,8 @@ export const HELP_GUIDES = [
     icon: 'file-text',
     title: 'Generate an E-Invoice',
     steps: [
-      'Confirm the business GSTIN and the buyer GSTIN on the sale',
-      'Verify the seller and buyer registered addresses, valid PIN codes and item HSN details',
+      'Confirm the selected company is correct. Seller name, GSTIN and registered address are loaded from its Company Profile; confirm the buyer GSTIN on the sale',
+      'Verify the seller address and GSTIN in Company Profile, the buyer registered address and both six-digit PIN codes, and the item HSN details',
       'Check invoice number, date, taxable values, tax split and grand total',
       'Open the E-Invoice action in Sale Register',
       'Use the tenant’s configured GSP for live generation, or download GST INV-01 JSON',
@@ -225,8 +225,8 @@ export const HELP_GUIDES = [
     title: 'Resolve AI Smart Import warnings and failed records',
     steps: [
       'Open AI Smart Import and read every warning before confirming an import',
-      'If a spreadsheet warning says only the first 30 rows per sheet were analyzed, split the original file into smaller batches',
-      'If a scanned PDF cannot be rendered, convert it to a searchable PDF or upload clear page images; process additional pages separately when the preview is partial',
+      'Keep the file within the 1 MB and 5,000-row limits; inspect row-level extracted, ignored, ambiguous and failed results instead of assuming a partial preview is complete',
+      'Keep every PDF (searchable or scanned) within 20 pages and 1 MB. The original PDF is analyzed across its pages, but inspect every page and correct any unreadable or incomplete extraction warning',
       'Review failed-record messages and correct missing dates, party names, item descriptions, quantities, rates and totals in the source or preview',
       'Check duplicate and stock warnings before retrying so that successful records are not imported twice',
       'Create or confirm a recent backup before a large re-import',

@@ -76,9 +76,14 @@ test('shared help knowledge contains unique FAQ and guide titles', () => {
   assert.ok(HELP_GUIDES.length >= 11)
 })
 
-test('AI Smart Import support covers partial spreadsheets, scanned PDFs and failed records', () => {
-  assert.ok(HELP_FAQS.some(faq => /30 rows per sheet/.test(faq.a)))
-  assert.ok(HELP_FAQS.some(faq => /scanned multi-page PDF/.test(faq.a)))
+test('AI Smart Import support matches current spreadsheet and scanned-PDF limits', () => {
+  assert.ok(HELP_FAQS.some(faq => /bounded batches/.test(faq.a) && /5,000 rows/.test(faq.a)))
+  assert.ok(HELP_FAQS.some(faq => /all pages/.test(faq.a) && /20 pages/.test(faq.a)))
   assert.ok(HELP_FAQS.some(faq => /failed or skipped record/.test(faq.a)))
   assert.ok(HELP_GUIDES.some(guide => guide.title === 'Resolve AI Smart Import warnings and failed records'))
+})
+
+test('E-Invoice help explains seller profile auto-fill and EWB voluntary generation', () => {
+  assert.ok(HELP_FAQS.some(faq => /Seller name, GSTIN and registered address are loaded automatically/.test(faq.a)))
+  assert.ok(HELP_FAQS.some(faq => /voluntary generation/.test(faq.a)))
 })

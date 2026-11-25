@@ -137,14 +137,9 @@ export async function POST(req: NextRequest) {
         }, { status: 400 })
       }
 
-      // EWB threshold check: mandatory only for consignments >= Rs.50,000
-      if (sale.totalAmount < 50000) {
-        return NextResponse.json({
-          error: `E-Way Bill is mandatory only for consignments of Rs.50,000 or more. This invoice total is Rs.${sale.totalAmount.toFixed(2)}. You may still generate one voluntarily.`,
-          code: 'BELOW_THRESHOLD',
-          threshold: 50000,
-        }, { status: 400 })
-      }
+      // The general ₹50,000 threshold determines when an EWB is mandatory,
+      // not whether a user may voluntarily generate one for a lower-value
+      // consignment. This action is an explicit user request, so do not block it.
 
       // If the sale has an IRN, generate Part-B-only payload (by IRN)
       if (sale.einvoiceIrn && sale.einvoiceStatus === 'GENERATED') {

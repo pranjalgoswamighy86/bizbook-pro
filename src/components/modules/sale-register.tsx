@@ -15,7 +15,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { formatCurrency, formatDate, getDateFilterRange } from '@/lib/formulas'
-import { isInterStateSupply, roundTo2, validateGSTIN } from '@/lib/gst-utils'
+import { extractPinCode, isInterStateSupply, roundTo2, validateGSTIN } from '@/lib/gst-utils'
 import { generateInvoiceHtml } from '@/lib/invoice-templates'
 import { Plus, Pencil, Trash2, Eye, ChevronDown, X, Loader2, CheckCircle2, Printer, Package, FileCheck, Sparkles, Truck } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
@@ -1842,11 +1842,18 @@ export function SaleRegister() {
               <p className="text-muted-foreground">
                 BizBook Pro can generate the IRN through this tenant&apos;s configured GSP credentials, or prepare a GST INV-01 JSON file for upload to the IRP chosen by the business. It will not redirect you to a fixed IRP portal.
               </p>
+              <div className="rounded-lg border bg-muted/30 p-3 text-sm">
+                <div className="font-medium mb-1">Seller details — loaded from the selected company profile</div>
+                <div><span className="text-muted-foreground">Company:</span> {tenant?.name || 'Not configured'}</div>
+                <div><span className="text-muted-foreground">GSTIN:</span> {tenant?.gstNumber || 'Missing — update the GSTIN in Company Profile / Settings'}</div>
+                <div><span className="text-muted-foreground">Registered address:</span> {tenant?.address || 'Missing — update the address in Company Profile / Settings'}</div>
+                <p className="text-xs text-muted-foreground mt-1">These seller details are taken automatically from this selected company. You do not need to enter them again here.</p>
+              </div>
               <div className="grid gap-3 sm:grid-cols-2">
-                <div className="space-y-1">
-                  <Label htmlFor="einvoice-seller-pin">Seller registered-address PIN (if missing above)</Label>
+                {!extractPinCode(tenant?.address) && <div className="space-y-1">
+                  <Label htmlFor="einvoice-seller-pin">Seller registered-address PIN (only if it is missing from the company address)</Label>
                   <Input id="einvoice-seller-pin" inputMode="numeric" maxLength={6} value={sellerPinCode} onChange={e => setSellerPinCode(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="6-digit PIN" />
-                </div>
+                </div>}
                 <div className="space-y-1">
                   <Label htmlFor="einvoice-buyer-pin">Buyer billing-address PIN (if missing above)</Label>
                   <Input id="einvoice-buyer-pin" inputMode="numeric" maxLength={6} value={buyerPinCode} onChange={e => setBuyerPinCode(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="6-digit PIN" />
