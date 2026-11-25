@@ -63,6 +63,7 @@ export async function POST(req: NextRequest) {
       db.bankTransaction.findMany({
         where: { tenantId: auth.tenantId },
         orderBy: { date: 'desc' },
+        distinct: ['bankName', 'accountNumber'],
         select: { date: true, bankName: true, accountNumber: true, balance: true },
       }),
       db.receipt.findMany({
