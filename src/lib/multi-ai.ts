@@ -220,6 +220,11 @@ export async function analyzeWithAI(
   if (process.env.DEEPSEEK_API_KEY) providers.push(new DeepSeekProvider());
   if (process.env.ANTHROPIC_API_KEY) providers.push(new ClaudeProvider());
 
+  const isPdfDocument = Boolean(imageBase64?.startsWith('data:application/pdf;'))
+  if (isPdfDocument && !process.env.GEMINI_API_KEY) {
+    throw new Error('Scanned PDF import requires GEMINI_API_KEY because the configured image-only providers cannot process multi-page PDF documents.')
+  }
+
   if (providers.length === 0) {
     // v6.14: Fallback to ZAI if no other provider is configured
     // (ZAI is still used internally for development)
@@ -254,6 +259,9 @@ export async function analyzeWithAI(
 
   let lastError: Error | null = null;
   for (const provider of providers) {
+    // Only Gemini's document-capable inline_data path is used for PDF input.
+    // Do not pass application/pdf to image_url providers or silently drop pages.
+    if (isPdfDocument && provider.name !== 'Gemini') continue;
     try {
       let result: string;
       if (imageBase64 && provider.analyzeVision) {
@@ -266,6 +274,10 @@ export async function analyzeWithAI(
       console.warn(`[${provider.name}] failed:`, err.message);
       lastError = err;
     }
+  }
+
+  if (isPdfDocument) {
+    throw lastError || new Error('Gemini could not analyze this scanned PDF. No image-only fallback was attempted, to avoid dropping pages.')
   }
 
   // v6.19.1: ALL configured providers failed — fall back to ZAI as last resort

@@ -5,6 +5,7 @@ import { requireAuthAndTenant, requireAuthAndRole } from '@/lib/api-helpers'
 import { postSaleJE, postPurchaseJE, postExpenseJE } from '@/lib/gl-posting'
 import { roundTo2 } from '@/lib/gst-utils'
 import { chunkSpreadsheetRows, mergeSpreadsheetImportData, reconcileSourceRows, type SourceRowResult, type SpreadsheetBatch } from '@/lib/ai-import-chunking'
+import { isLikelyScannedPdf, preparePdfText, MAX_PDF_IMPORT_PAGES, MAX_PDF_IMPORT_TEXT_CHARS } from '@/lib/pdf-import-policy'
 
 // ============================================================
 // AI Smart Import API — v6.29.0
@@ -251,63 +252,46 @@ async function handleFileUpload(req: NextRequest) {
       if (buffer.length > 10000) sourceTruncationWarnings.push('Text source exceeds the 10,000-character AI context limit; later content is not included in the preview.')
       console.log(`[AI-Import] Parsed text: ${buffer.length} bytes`)
     } else if (['pdf'].includes(ext)) {
-      // v6.27.5: PDF — extract real text with pdf-parse (was a placeholder before)
+      // Extract embedded text first; scanned PDFs are sent as the original
+      // multi-page PDF to Gemini's document-capable inline_data endpoint.
       try {
         const pdfParseModule: any = await import('pdf-parse')
         const pdfParse = pdfParseModule.default || pdfParseModule
         const pdfData = await pdfParse(buffer)
-        parsedData = {
-          content: pdfData.text || '',
-          numpages: pdfData.numpages,
-          info: pdfData.info,
+        const pageCount = Number(pdfData.numpages || 0)
+        if (!Number.isInteger(pageCount) || pageCount < 1) {
+          return NextResponse.json({ error: 'This PDF has no readable pages or is invalid.' }, { status: 422 })
         }
+        if (pageCount > MAX_PDF_IMPORT_PAGES) {
+          return NextResponse.json({
+            error: `PDF has ${pageCount} pages. The AI import limit is ${MAX_PDF_IMPORT_PAGES} pages per file. Split the PDF and upload the parts separately.`,
+            code: 'PDF_PAGE_LIMIT',
+            pageCount,
+            maxPages: MAX_PDF_IMPORT_PAGES,
+          }, { status: 413 })
+        }
+        const extractedText = String(pdfData.text || '')
+        parsedData = { content: extractedText, numpages: pageCount, info: pdfData.info }
         dataType = 'pdf'
-        if ((pdfData.text?.length || 0) > 10000) sourceTruncationWarnings.push('PDF text exceeds the 10,000-character AI context limit; later content is not included in the preview.')
-        console.log(`[AI-Import] Parsed PDF: ${pdfData.numpages} pages, ${pdfData.text?.length || 0} chars`)
-        // If text extraction yielded nothing (scanned PDF), fall through to image-vision path
-        // by treating the first page as an image. We mark dataType so the AI prompt builder
-        // can route to vision.
-        if (!pdfData.text || pdfData.text.trim().length < 20) {
-          if ((pdfData.numpages || 0) > 1) sourceTruncationWarnings.push('Scanned PDF: only page 1 is sent to vision analysis. Other pages are not included in this preview.')
-          console.warn('[AI-Import] PDF text extraction yielded empty content (likely scanned). Falling back to vision AI.')
-          // Convert first page to PNG via pdfjs-dist and feed to vision model.
-          // Note: page rendering requires a canvas implementation. In the Next.js
-          // server runtime we may not have node-canvas installed, so this is a
-          // best-effort fallback. If it fails, the AI will receive the empty
-          // content string and the user can convert to image manually.
-          try {
-            const pdfjs: any = await import('pdfjs-dist/legacy/build/pdf.mjs')
-            const loadingTask = pdfjs.getDocument({ data: new Uint8Array(buffer) })
-            const pdfDoc = await loadingTask.promise
-            const page = await pdfDoc.getPage(1)
-            const viewport = page.getViewport({ scale: 2 })
-            // Node-canvas fallback: render to a viewport and extract via canvas
-            // In Next.js server runtime, use the offscreen canvas if available
-            const Canvas = (global as any).canvas
-            if (Canvas) {
-              const ctx = Canvas.createCanvas(viewport.width, viewport.height)
-              const renderContext: any = { canvasContext: ctx, viewport }
-              await page.render(renderContext).promise
-              const pngBuffer = ctx.toBuffer('image/png')
-              parsedData = {
-                content: '[Scanned PDF — rendered page 1 as image for vision analysis]',
-                base64: `data:image/png;base64,${pngBuffer.toString('base64')}`,
-                fileName: file.name,
-              }
-            }
-          } catch (renderErr: any) {
-            console.warn('[AI-Import] PDF page-render fallback failed:', renderErr?.message)
+        if (extractedText.length > MAX_PDF_IMPORT_TEXT_CHARS) {
+          sourceTruncationWarnings.push(`PDF text exceeds the ${MAX_PDF_IMPORT_TEXT_CHARS.toLocaleString()}-character AI context limit; later text is not included in this preview.`)
+        }
+        console.log(`[AI-Import] Parsed PDF: ${pageCount} pages, ${extractedText.length} chars`)
+
+        if (isLikelyScannedPdf(extractedText, pageCount)) {
+          console.warn(`[AI-Import] Scanned PDF detected; submitting all ${pageCount} pages to Gemini document vision.`)
+          parsedData = {
+            content: `[Scanned PDF: all ${pageCount} pages are supplied to document vision analysis]`,
+            base64: `data:application/pdf;base64,${buffer.toString('base64')}`,
+            fileName: file.name,
+            numpages: pageCount,
           }
-          if (!parsedData?.base64) {
-            return NextResponse.json({
-              error: 'This PDF appears to be scanned, but the server could not render its first page for AI analysis. Convert it to a searchable PDF or upload the pages as images.',
-            }, { status: 422 })
-          }
+          sourceTruncationWarnings.push(`Scanned PDF: all ${pageCount} pages are sent for AI vision analysis. Verify every page in the preview before importing.`)
         }
       } catch (pdfErr: any) {
-        console.error('[AI-Import] pdf-parse failed:', pdfErr)
+        console.error('[AI-Import] PDF parsing failed:', pdfErr)
         return NextResponse.json({
-          error: 'BizBook Pro could not extract text from this PDF. If it is scanned, convert it to a searchable PDF or upload the pages as images before trying again.',
+          error: 'BizBook Pro could not read this PDF. Confirm that it is a valid, non-password-protected PDF and try again.',
         }, { status: 422 })
       }
     } else if (['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp'].includes(ext)) {
@@ -469,8 +453,8 @@ RULES:
 - If you cannot determine the document type, use "unknown" and put data in the most likely module.
 - Do NOT wrap the JSON in markdown code fences. Return raw JSON only.`
     } else if (dataType === 'image' || (dataType === 'pdf' && parsedData?.base64)) {
-      // v6.27.5: vision AI for images AND scanned PDFs that have been rendered to an image
-      prompt = `Analyze this business document/image and extract:
+      // Vision AI for images and scanned PDFs. Gemini receives the original PDF so it can inspect every page.
+      prompt = `Analyze every page of this business document/image and extract:
 1. Document type (invoice, receipt, purchase order, etc.)
 2. Key fields (invoice number, date, party name, items, amounts, tax)
 3. Data quality and readability
@@ -498,11 +482,11 @@ File: ${file.name}
 ${categoryInstruction}`
       imageBase64 = parsedData.base64
     } else {
-      const rawContent = typeof parsedData === 'string' ? parsedData : JSON.stringify(parsedData)
+      const rawContent = dataType === 'pdf' ? String(parsedData?.content || '') : (typeof parsedData === 'string' ? parsedData : JSON.stringify(parsedData))
       if ((rawContent || '').length > 10000 && !sourceTruncationWarnings.some(warning => warning.includes('10,000-character AI context limit'))) {
         sourceTruncationWarnings.push('Extracted text exceeds the 10,000-character AI context limit; later content is not included in the preview.')
       }
-      const content = (rawContent || '').substring(0, 10000)
+      const content = dataType === 'pdf' ? preparePdfText(rawContent || '').content : (rawContent || '').substring(0, 10000)
       prompt = `Analyze this business data file and extract importable records for BizBook Pro.
 
 File: ${file.name}
