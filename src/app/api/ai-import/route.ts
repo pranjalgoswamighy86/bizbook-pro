@@ -65,7 +65,7 @@ function parseDelimitedText(input: string, delimiter: string): string[][] {
     if (!inQuotes && (char === '\n' || char === '\r')) {
       record.push(field)
       field = ''
-      if (record.some(value => value.trim() !== '')) records.push(record)
+      records.push(record)
       record = []
       if (char === '\r' && text[i + 1] === '\n') i++
       continue
@@ -76,6 +76,10 @@ function parseDelimitedText(input: string, delimiter: string): string[][] {
   if (inQuotes) throw new Error('Invalid CSV/TSV: quoted field was not closed')
   record.push(field)
   if (record.some(value => value.trim() !== '')) records.push(record)
+  // Ignore leading/trailing empty lines, but preserve internal blank records so
+  // spreadsheet source-row numbers remain stable during reconciliation.
+  while (records.length && records[0].every(value => value.trim() === '')) records.shift()
+  while (records.length && records[records.length - 1].every(value => value.trim() === '')) records.pop()
   return records
 }
 
@@ -191,7 +195,7 @@ async function handleFileUpload(req: NextRequest) {
 
       for (const sheetName of workbook.SheetNames) {
         const sheet = workbook.Sheets[sheetName]
-        sheets[sheetName] = XLSX.utils.sheet_to_json(sheet, { raw: false, defval: '' })
+        sheets[sheetName] = XLSX.utils.sheet_to_json(sheet, { raw: false, defval: '', blankrows: true })
       }
 
       // v6.29.0: Row-count cap — reject files with > 5,000 total rows before
@@ -683,8 +687,6 @@ SOURCE ROW ACCOUNTING REQUIREMENTS:
       analysis.confidence = Math.max(0, Math.min(1, analysis.confidence))
       analysis.warnings = Array.isArray(analysis.warnings) ? analysis.warnings.filter((item: unknown) => typeof item === 'string') : []
       analysis.suggestions = Array.isArray(analysis.suggestions) ? analysis.suggestions.filter((item: unknown) => typeof item === 'string') : []
-      if (analysis.sourceReconciliation) analysis.sourceReconciliation = analysis.sourceReconciliation
-      if (Array.isArray(analysis.sourceRowResults)) analysis.sourceRowResults = analysis.sourceRowResults
       if (analysis.sourceReconciliation &&
         (analysis.sourceReconciliation.accounted < analysis.sourceReconciliation.expected || analysis.sourceReconciliation.ambiguous > 0)) {
         analysis.partialExtraction = true
