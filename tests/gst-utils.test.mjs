@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import gstUtils from '../.test-build/gst-utils.js'
+import helpKnowledge from '../.test-build/help-knowledge.js'
 
 const {
   roundTo2,
@@ -61,4 +62,23 @@ test('HSN validation enforces numeric lengths and B2B minimums', () => {
   assert.equal(validateHSN('12', true).valid, false)
   assert.equal(validateHSN('12', false).valid, true)
   assert.equal(validateHSN('12AB', false).valid, false)
+})
+
+
+const { HELP_FAQS, HELP_GUIDES } = helpKnowledge
+
+test('shared help knowledge contains unique FAQ and guide titles', () => {
+  const faqTitles = HELP_FAQS.map(faq => faq.q)
+  const guideTitles = HELP_GUIDES.map(guide => guide.title)
+  assert.equal(new Set(faqTitles).size, faqTitles.length)
+  assert.equal(new Set(guideTitles).size, guideTitles.length)
+  assert.ok(HELP_FAQS.length >= 21)
+  assert.ok(HELP_GUIDES.length >= 11)
+})
+
+test('AI Smart Import support covers partial spreadsheets, scanned PDFs and failed records', () => {
+  assert.ok(HELP_FAQS.some(faq => /30 rows per sheet/.test(faq.a)))
+  assert.ok(HELP_FAQS.some(faq => /scanned multi-page PDF/.test(faq.a)))
+  assert.ok(HELP_FAQS.some(faq => /failed or skipped record/.test(faq.a)))
+  assert.ok(HELP_GUIDES.some(guide => guide.title === 'Resolve AI Smart Import warnings and failed records'))
 })

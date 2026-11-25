@@ -201,9 +201,8 @@ export function getSessionTokenFromRequest(req: NextRequest): string | undefined
  *   - sameSite: 'lax'  → Works for same-origin requests AND top-level
  *                        navigations. Doesn't require `secure`, so it
  *                        works on both HTTP and HTTPS.
- *   - secure: false    → Works on both HTTP (dev) and HTTPS (production).
- *                        The preview URL is HTTPS but some internal hops
- *                        may be HTTP, so we don't enforce Secure.
+ *   - secure           → Enabled in production so browsers send the session
+ *                        cookie only over HTTPS; disabled for local HTTP dev.
  *   - path: '/'        → Cookie sent for all routes
  *   - maxAge: 7 days   → Session expiry
  *
@@ -215,7 +214,7 @@ export function setSessionCookie(res: NextResponse, token: string): void {
   res.cookies.set(SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite: 'lax',
-    secure: false,
+    secure: process.env.NODE_ENV === 'production',
     maxAge: SESSION_MAX_AGE_SECONDS,
     path: '/',
   })
@@ -230,7 +229,7 @@ export function clearSessionCookie(res: NextResponse): void {
   res.cookies.set(SESSION_COOKIE, '', {
     httpOnly: true,
     sameSite: 'lax',
-    secure: false,
+    secure: process.env.NODE_ENV === 'production',
     maxAge: 0,
     path: '/',
   })

@@ -59,8 +59,8 @@
 // generation below Rs.50,000 is now allowed. getEffectiveGspConfig() falls
 // back to env vars for backward compat. Set GSP_CREDENTIALS_ENCRYPTION_KEY
 // env var to enable encryption at rest.
-// v6.33.0: AI import structured JSON output, truthful partial-source warnings,
+// v6.34.0: AI import structured JSON output, truthful partial-source warnings,
 // edit-role enforcement, scanned-PDF safeguards; shared multilingual Help FAQ
 // retrieval, expanded guides, human-review escalation and provider model config.
-export const APP_VERSION = 'v6.33.0'
+export const APP_VERSION = 'v6.34.0'
 export const APP_BUILD_DATE = '2026-11-25'
