@@ -876,6 +876,7 @@ export function AIImportPage() {
                       <div>
                         <p className="text-sm font-semibold text-amber-800 dark:text-amber-200">Partial spreadsheet analysis — not a complete import</p>
                         <p className="text-xs text-amber-800 dark:text-amber-200">The AI could not fully reconcile all source rows, or marked some rows ambiguous. Review the row counts and warnings below before importing. Spreadsheet rows are analyzed in bounded batches; a partial result is never presented as a complete import.</p>
+                        {mergedAnalysis.sourceReconciliation && <p className="text-xs text-amber-800 dark:text-amber-200">AI accounted for {mergedAnalysis.sourceReconciliation.accounted} of {mergedAnalysis.sourceReconciliation.expected} source rows{mergedAnalysis.sourceReconciliation.ambiguous ? `; ${mergedAnalysis.sourceReconciliation.ambiguous} marked ambiguous` : ''}.</p>}
                       </div>
                     </div>
                     <label className="flex items-start gap-2 text-xs font-medium text-amber-900 dark:text-amber-100">
