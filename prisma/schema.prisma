@@ -875,3 +875,15 @@ model AutocompleteIndex {
   @@unique([tenantId, fieldType, value])
   @@index([tenantId, fieldType, lastUsedAt])
 }
+
+
+// Persistent shared rate-limit buckets for multi-instance API protection.
+// One row per logical key; expired rows are pruned opportunistically.
+model RateLimitBucket {
+  key       String   @id
+  count     Int      @default(0)
+  resetAt   DateTime
+  updatedAt DateTime @updatedAt
+
+  @@index([resetAt])
+}
