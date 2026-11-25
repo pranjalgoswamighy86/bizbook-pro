@@ -5,7 +5,7 @@ import { requireAuthAndTenant, requireAuthAndRole } from '@/lib/api-helpers'
 import { postSaleJE, postPurchaseJE, postExpenseJE } from '@/lib/gl-posting'
 import { roundTo2 } from '@/lib/gst-utils'
 import { chunkSpreadsheetRows, mergeSpreadsheetImportData, reconcileSourceRows, type SourceRowResult, type SpreadsheetBatch } from '@/lib/ai-import-chunking'
-import { isLikelyScannedPdf } from '@/lib/pdf-import-policy'
+import { isLikelyScannedPdf, preparePdfText, MAX_PDF_IMPORT_PAGES, MAX_PDF_IMPORT_TEXT_CHARS } from '@/lib/pdf-import-policy'
 
 // ============================================================
 // AI Smart Import API — v6.29.0
@@ -35,8 +35,6 @@ import { isLikelyScannedPdf } from '@/lib/pdf-import-policy'
 // 1 MB is enough for ~10k rows of typical sales CSV data.
 const MAX_FILE_SIZE_BYTES = 1 * 1024 * 1024 // 1 MB
 const MAX_ROWS_PER_MODULE = 5000
-const MAX_PDF_PAGES = 20
-const MAX_PDF_TEXT_CHARS = 30000
 
 /**
  * Parse CSV/TSV records without splitting delimiters or line breaks inside
@@ -264,19 +262,19 @@ async function handleFileUpload(req: NextRequest) {
         if (!Number.isInteger(pageCount) || pageCount < 1) {
           return NextResponse.json({ error: 'This PDF has no readable pages or is invalid.' }, { status: 422 })
         }
-        if (pageCount > MAX_PDF_PAGES) {
+        if (pageCount > MAX_PDF_IMPORT_PAGES) {
           return NextResponse.json({
-            error: `PDF has ${pageCount} pages. The AI import limit is ${MAX_PDF_PAGES} pages per file. Split the PDF and upload the parts separately.`,
+            error: `PDF has ${pageCount} pages. The AI import limit is ${MAX_PDF_IMPORT_PAGES} pages per file. Split the PDF and upload the parts separately.`,
             code: 'PDF_PAGE_LIMIT',
             pageCount,
-            maxPages: MAX_PDF_PAGES,
+            maxPages: MAX_PDF_IMPORT_PAGES,
           }, { status: 413 })
         }
         const extractedText = String(pdfData.text || '')
         parsedData = { content: extractedText, numpages: pageCount, info: pdfData.info }
         dataType = 'pdf'
-        if (extractedText.length > MAX_PDF_TEXT_CHARS) {
-          sourceTruncationWarnings.push(`PDF text exceeds the ${MAX_PDF_TEXT_CHARS.toLocaleString()}-character AI context limit; later text is not included in this preview.`)
+        if (extractedText.length > MAX_PDF_IMPORT_TEXT_CHARS) {
+          sourceTruncationWarnings.push(`PDF text exceeds the ${MAX_PDF_IMPORT_TEXT_CHARS.toLocaleString()}-character AI context limit; later text is not included in this preview.`)
         }
         console.log(`[AI-Import] Parsed PDF: ${pageCount} pages, ${extractedText.length} chars`)
 
@@ -484,12 +482,11 @@ File: ${file.name}
 ${categoryInstruction}`
       imageBase64 = parsedData.base64
     } else {
-      const rawContent = typeof parsedData === 'string' ? parsedData : JSON.stringify(parsedData)
+      const rawContent = dataType === 'pdf' ? String(parsedData?.content || '') : (typeof parsedData === 'string' ? parsedData : JSON.stringify(parsedData))
       if ((rawContent || '').length > 10000 && !sourceTruncationWarnings.some(warning => warning.includes('10,000-character AI context limit'))) {
         sourceTruncationWarnings.push('Extracted text exceeds the 10,000-character AI context limit; later content is not included in the preview.')
       }
-      const contextLimit = dataType === 'pdf' ? MAX_PDF_TEXT_CHARS : 10000
-      const content = (rawContent || '').substring(0, contextLimit)
+      const content = dataType === 'pdf' ? preparePdfText(rawContent || '').content : (rawContent || '').substring(0, 10000)
       prompt = `Analyze this business data file and extract importable records for BizBook Pro.
 
 File: ${file.name}
