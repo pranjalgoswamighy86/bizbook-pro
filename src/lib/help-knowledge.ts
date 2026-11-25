@@ -80,7 +80,7 @@ export const HELP_FAQS = [
   },
   {
     q: 'How do I generate an E-Way Bill?',
-    a: 'Open the relevant sale in Sale Register and choose EWB. Enter the transport distance and the required vehicle, transporter and transport-document details. Use the business’s configured GSP for live generation, or download the EWB JSON and submit it through the service selected by the business. Record the EWB number, generation time and validity exactly as returned by that service.',
+    a: 'Open the relevant sale in Sale Register and choose EWB. Enter the transport distance and required vehicle or transporter details. The ₹50,000 threshold is the general mandatory threshold; the software also allows a user to request voluntary generation for a lower-value consignment where applicable. Use this company’s configured GSP for live generation, or download the EWB JSON and submit it through the service selected by the business. Record the EWB number, generation time and validity exactly as returned by that service.',
     keywords: ['eway', 'e-way', 'ewb', 'vehicle', 'transporter', 'distance'],
   },
   {
