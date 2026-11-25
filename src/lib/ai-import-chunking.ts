@@ -80,7 +80,7 @@ export interface SourceRowResult extends SpreadsheetSourceRow {
 export function reconcileSourceRows(
   batches: SpreadsheetBatch[],
   outcomes: SourceRowResult[],
-): { expected: number; accounted: number; missing: SpreadsheetSourceRow[]; invalid: SourceRowResult[] } {
+): { expected: number; accounted: number; ambiguous: number; missing: SpreadsheetSourceRow[]; invalid: SourceRowResult[] } {
   const expected = new Set(batches.flatMap(batch => batch.sourceRows.map(row => `${row.sheet}\u0000${row.row}`)))
   const accounted = new Set<string>()
   const invalid: SourceRowResult[] = []
@@ -93,7 +93,8 @@ export function reconcileSourceRows(
     accounted.add(key)
   }
   const missing = batches.flatMap(batch => batch.sourceRows).filter(row => !accounted.has(`${row.sheet}\u0000${row.row}`))
-  return { expected: expected.size, accounted: accounted.size, missing, invalid }
+  const ambiguous = outcomes.filter(outcome => outcome.status === 'ambiguous' && expected.has(`${outcome.sheet}\u0000${outcome.row}`)).length
+  return { expected: expected.size, accounted: accounted.size, ambiguous, missing, invalid }
 }
 
 /** Merge model outputs, de-duplicating only when the model supplied source IDs. */
