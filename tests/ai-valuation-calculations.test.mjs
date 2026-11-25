@@ -27,7 +27,6 @@ test('returns complete, bounded valuation and frontend-compatible DCF fields', (
   assert.equal(result.dcf.projectionYears, 5)
   assert.equal(result.dcf.projections.length, 5)
   for (const field of ['dcf', 'revenueMultiple', 'ebitdaMultiple', 'assetBased']) assert.ok(Number.isFinite(result.dcf.dcfPerMethod[field]))
-  for (const field of ['inventory', 'receivables', 'payables', 'cash', 'workingCapital']) assert.ok(field in result.dcf || field in { inventory: 0, receivables: 0, payables: 0, cash: 0, workingCapital: 0 })
   assert.equal(result.yearlyData[1].year, 'FY 2025-26')
 })
 
