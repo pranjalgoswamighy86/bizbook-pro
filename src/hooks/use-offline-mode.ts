@@ -44,6 +44,53 @@ export function useOfflineMode(tenantId?: string) {
   })
 
   // ============================================================
+  // Sync pending writes to server
+  // ============================================================
+  async function syncPendingWrites(tid: string) {
+    setState(s => ({ ...s, syncing: true }))
+    try {
+      const pending = await getPendingWrites(tid)
+      console.log(`[OfflineMode] Syncing ${pending.length} pending writes...`)
+
+      for (const write of pending) {
+        try {
+          const res = await authFetch(write.endpoint, {
+            method: write.method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(write.body),
+          })
+          if (res.ok) {
+            await deletePendingWrite(write.id!)
+            console.log(`[OfflineMode] ✓ Synced: ${write.entityType} ${write.action}`)
+          } else {
+            const errText = await res.text().catch(() => 'Unknown error')
+            await updatePendingWriteRetry(write.id!, write.retryCount + 1, errText.slice(0, 200))
+            console.warn(`[OfflineMode] ✗ Sync failed (${write.id}): ${res.status} ${errText.slice(0, 100)}`)
+            // Stop on first failure — try again later
+            break
+          }
+        } catch (err: any) {
+          await updatePendingWriteRetry(write.id!, write.retryCount + 1, err?.message)
+          break
+        }
+      }
+
+      const stats = await getCacheStats(tid)
+      setState(s => ({
+        ...s,
+        syncing: false,
+        lastSyncAt: Date.now(),
+        pendingCount: stats.pendingWrites,
+        cacheStats: stats,
+      }))
+    } catch (err) {
+      console.error('[OfflineMode] syncPendingWrites failed:', err)
+      setState(s => ({ ...s, syncing: false }))
+    }
+  }
+
+
+  // ============================================================
   // Online/offline event listeners
   // ============================================================
   useEffect(() => {
@@ -92,52 +139,6 @@ export function useOfflineMode(tenantId?: string) {
   useEffect(() => {
     refreshStats()
   }, [refreshStats, state.isOnline])
-
-  // ============================================================
-  // Sync pending writes to server
-  // ============================================================
-  async function syncPendingWrites(tid: string) {
-    setState(s => ({ ...s, syncing: true }))
-    try {
-      const pending = await getPendingWrites(tid)
-      console.log(`[OfflineMode] Syncing ${pending.length} pending writes...`)
-
-      for (const write of pending) {
-        try {
-          const res = await authFetch(write.endpoint, {
-            method: write.method,
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(write.body),
-          })
-          if (res.ok) {
-            await deletePendingWrite(write.id!)
-            console.log(`[OfflineMode] ✓ Synced: ${write.entityType} ${write.action}`)
-          } else {
-            const errText = await res.text().catch(() => 'Unknown error')
-            await updatePendingWriteRetry(write.id!, write.retryCount + 1, errText.slice(0, 200))
-            console.warn(`[OfflineMode] ✗ Sync failed (${write.id}): ${res.status} ${errText.slice(0, 100)}`)
-            // Stop on first failure — try again later
-            break
-          }
-        } catch (err: any) {
-          await updatePendingWriteRetry(write.id!, write.retryCount + 1, err?.message)
-          break
-        }
-      }
-
-      const stats = await getCacheStats(tid)
-      setState(s => ({
-        ...s,
-        syncing: false,
-        lastSyncAt: Date.now(),
-        pendingCount: stats.pendingWrites,
-        cacheStats: stats,
-      }))
-    } catch (err) {
-      console.error('[OfflineMode] syncPendingWrites failed:', err)
-      setState(s => ({ ...s, syncing: false }))
-    }
-  }
 
   // ============================================================
   // Clear cache
