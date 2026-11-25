@@ -7,6 +7,7 @@
 import type { TenantGspConfig } from './gsp-config-types'
 export type { TenantGspConfig } from './gsp-config-types'
 import { db } from '@/lib/db-soft-delete'
+import { decryptCredential, encryptCredential } from './gsp-credential-crypto'
 export { decryptCredential, encryptCredential, isEncryptionActive } from './gsp-credential-crypto'
 export async function loadTenantGspConfig(tenantId: string): Promise<TenantGspConfig | null> {
   const tenant = await db.tenant.findFirst({
