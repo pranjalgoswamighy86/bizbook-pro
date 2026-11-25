@@ -84,7 +84,7 @@ export async function POST(req: NextRequest) {
         expenses: inRange(expenses).reduce((sum, row) => sum + row.amount, 0),
       }
     })
-    const yearlyData = aggregateFinancialYears(yearInputs)
+    const yearlyData = aggregateFinancialYears(yearInputs).map((row) => row.year.endsWith('(YTD)') ? { ...row, revenueGrowthPct: null } : row)
 
     const inventoryValue = inventory.reduce((sum, item) => sum + Math.max(0, item.currentStock) * Math.max(0, item.purchasePrice), 0)
     const receivables = debtors.reduce((sum, row) => sum + Math.max(0, row.currentBalance), 0)
@@ -93,7 +93,7 @@ export async function POST(req: NextRequest) {
     // Bank statement balances are snapshots; use the newest record per account to avoid summing history.
     const latestBankBalances = new Map<string, number>()
     for (const transaction of bankTransactions) {
-      const accountKey = transaction.accountNumber || transaction.bankName || 'unspecified-account'
+      const accountKey = `${transaction.bankName || 'unknown-bank'}:${transaction.accountNumber || 'unspecified-account'}`
       if (!latestBankBalances.has(accountKey)) latestBankBalances.set(accountKey, transaction.balance)
     }
     const bankCash = [...latestBankBalances.values()].reduce((sum, value) => sum + value, 0)
