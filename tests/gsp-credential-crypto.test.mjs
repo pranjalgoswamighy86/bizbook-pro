@@ -14,7 +14,7 @@ async function withKey(value, run) {
   if (value === undefined) delete process.env[ENV_KEY]
   else process.env[ENV_KEY] = value
   try {
-    await run()
+    return await run()
   } finally {
     if (previous === undefined) delete process.env[ENV_KEY]
     else process.env[ENV_KEY] = previous
