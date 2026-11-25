@@ -28,7 +28,7 @@
     "electron:pack": "npm run build && npm run electron:compile && electron-builder --config electron-builder.yml --dir",
     "electron:build": "npm run build && npm run electron:compile && electron-builder --config electron-builder.yml --publish never",
     "electron:dist": "npm run electron:build",
-    "test": "tsc src/lib/gsp-credential-crypto.ts src/lib/gsp-response-policy.ts src/lib/irp-integration.ts src/lib/ewb-integration.ts src/lib/gst-utils.ts src/lib/help-knowledge.ts src/lib/rate-limit-policy.ts src/lib/ai-import-chunking.ts src/lib/pdf-import-policy.ts src/lib/subscription-wallet.ts --target ES2020 --module commonjs --outDir .test-build --skipLibCheck --esModuleInterop && node --test tests/*.test.mjs"
+    "test": "tsc src/lib/gsp-credential-crypto.ts src/lib/gsp-response-policy.ts src/lib/irp-integration.ts src/lib/ewb-integration.ts src/lib/gst-utils.ts src/lib/help-knowledge.ts src/lib/rate-limit-policy.ts src/lib/ai-import-chunking.ts src/lib/pdf-import-policy.ts src/lib/subscription-wallet.ts src/lib/ai-valuation-calculations.ts --target ES2020 --module commonjs --outDir .test-build --skipLibCheck --esModuleInterop && node --test tests/*.test.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
