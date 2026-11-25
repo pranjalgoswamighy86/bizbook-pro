@@ -99,7 +99,7 @@ export async function POST(req: NextRequest) {
     const bankCash = [...latestBankBalances.values()].reduce((sum, value) => sum + value, 0)
     // Cash is an FY-to-date flow estimate; opening cash is unavailable in these models.
     const cashFlowCash = cashReceipts.reduce((sum, row) => sum + row.amount, 0) - cashPayments.reduce((sum, row) => sum + row.amount, 0)
-    const cash = bankCash + cashFlowCash
+    const cash = bankCash
     const balanceSheet = {
       inventory: inventoryValue,
       receivables,
@@ -111,7 +111,7 @@ export async function POST(req: NextRequest) {
       assets: inventoryValue + receivables + cash,
       liabilities: payables,
       netWorth: inventoryValue + receivables + cash - payables,
-      note: 'Approximate snapshot from inventory at purchase cost, debtor/creditor balances, latest bank statement balances and FY-to-date cash receipts/payments. Opening cash and complete liabilities are not available in these source models.',
+      note: 'Approximate snapshot from inventory at purchase cost, debtor/creditor balances and latest bank statement balances. Cash-mode receipt/payment totals are FY-to-date flows only (not an opening/current cash balance) and are reported separately. Opening cash and complete liabilities are not available in these source models.',
     }
 
     const completeYearInputs = yearInputs.filter((year) => {
