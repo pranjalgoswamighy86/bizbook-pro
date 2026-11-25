@@ -65,7 +65,7 @@ export const HELP_FAQS = [
   },
   {
     q: 'Can I import a scanned PDF with AI Smart Import?',
-    a: 'Searchable PDFs use their embedded text, while scanned PDFs are sent to Gemini document vision with the original PDF so the model can inspect all pages. The current scanned-PDF limit is 20 pages and the upload limit is 1 MB. Review every page in the preview: faint, rotated or unreadable scans can still produce incomplete results. Files over the page limit are rejected rather than silently truncated.',
+    a: 'Searchable PDFs use their embedded text, while scanned PDFs are sent to Gemini document vision with the original PDF so the model can inspect all pages. The current PDF limit is 20 pages (for searchable and scanned PDFs) and the upload limit is 1 MB. Searchable PDF text is also bounded to 30,000 characters; follow any truncation warning. Review every page in the preview: faint, rotated or unreadable scans can still produce incomplete results. Files over the page limit are rejected rather than silently truncated.',
     keywords: ['scanned', 'pdf', 'ocr', 'image', 'pages', 'ai import'],
   },
   {
@@ -226,7 +226,7 @@ export const HELP_GUIDES = [
     steps: [
       'Open AI Smart Import and read every warning before confirming an import',
       'Keep the file within the 1 MB and 5,000-row limits; inspect row-level extracted, ignored, ambiguous and failed results instead of assuming a partial preview is complete',
-      'For scanned PDFs, keep the document within 20 pages and 1 MB. The original PDF is analyzed across its pages, but inspect every page and correct any unreadable or incomplete extraction warning',
+      'Keep every PDF (searchable or scanned) within 20 pages and 1 MB. The original PDF is analyzed across its pages, but inspect every page and correct any unreadable or incomplete extraction warning',
       'Review failed-record messages and correct missing dates, party names, item descriptions, quantities, rates and totals in the source or preview',
       'Check duplicate and stock warnings before retrying so that successful records are not imported twice',
       'Create or confirm a recent backup before a large re-import',
