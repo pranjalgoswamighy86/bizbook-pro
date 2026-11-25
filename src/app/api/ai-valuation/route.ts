@@ -116,7 +116,7 @@ export async function POST(req: NextRequest) {
 
     const completeYearInputs = yearInputs.filter((year) => {
       const yearStart = years[yearInputs.indexOf(year)]
-      return yearStart + 1 <= now.getFullYear() || (now.getMonth() >= 3 && yearStart < now.getFullYear())
+      return new Date(yearStart + 1, 3, 1) <= now
     })
     const completeYearData = aggregateFinancialYears(completeYearInputs)
     const computed = calculateValuation(completeYearData.length ? completeYearData : yearlyData, balanceSheet)
