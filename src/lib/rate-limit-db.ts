@@ -151,13 +151,15 @@ export async function checkLoginRateLimit(
       remaining: LOGIN_CONFIG.maxEmailAttempts - emailFailCount - 1,
     }
   } catch (err) {
-    // FAIL-SAFE: any error (table missing, DB down, Prisma client stale) → allow
-    console.error('[RATE-LIMIT-DB] Check failed (allowing request as fail-safe):', err)
+    // Fail closed when the persistent security store is unavailable. Allowing
+    // authentication here would disable brute-force protection during an outage.
+    // Return a short retry window so clients can recover after the database returns.
+    console.error('[RATE-LIMIT-DB] Check failed; denying authentication until the store is available:', err)
     return {
-      allowed: true,
-      retryAfterSeconds: 0,
+      allowed: false,
+      retryAfterSeconds: 30,
       reason: 'db-unavailable',
-      remaining: LOGIN_CONFIG.maxEmailAttempts - 1,
+      remaining: 0,
     }
   }
 }
@@ -183,8 +185,10 @@ export async function recordLoginAttempt(
       },
     })
   } catch (err) {
-    // Non-blocking — if we can't record, the rate limiter just won't count this attempt
-    console.error('[RATE-LIMIT-DB] Failed to record attempt (non-blocking):', err)
+    // Do not silently lose failed-login counters. Propagate the error so the
+    // calling authentication route cannot continue as if the attempt was recorded.
+    console.error('[RATE-LIMIT-DB] Failed to persist login attempt:', err)
+    throw err
   }
 }
 
