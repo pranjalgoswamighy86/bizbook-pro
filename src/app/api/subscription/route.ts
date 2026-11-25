@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db-soft-delete'
 import { requireAuthAndTenant, requireAuthAndRole, writeAuditLog } from '@/lib/api-helpers'
+import { sumWalletRemainingSeconds } from '@/lib/subscription-wallet'
 
 // ============================================================
 // Subscription Plans (from the pricing sheet)
@@ -94,12 +95,14 @@ export async function POST(req: NextRequest) {
       })
       const allOwnerTenantIds = ownerUserTenants.map(ut => ut.tenantId)
 
-      // v6.10: Find subscription from ANY of the owner's companies
-      // Use the FIRST one that has a subscription (this is the "wallet")
-      let subscription = await db.subscription.findFirst({
+      // Legacy migrations can leave a wallet row on more than one company.
+      // Read every owner-company row and present/deduct their combined balance.
+      let walletSubscriptions = await db.subscription.findMany({
         where: { tenantId: { in: allOwnerTenantIds.length > 0 ? allOwnerTenantIds : [tenantId] } },
         include: { recharges: { orderBy: { createdAt: 'desc' }, take: 10 } },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       })
+      let subscription = walletSubscriptions[0] || null
 
       // If no subscription exists, create ONE for this tenant (the wallet)
       if (!subscription) {
@@ -141,14 +144,19 @@ export async function POST(req: NextRequest) {
           include: { recharges: true },
         })
 
+        walletSubscriptions = [subscription]
         console.log(`[SUBSCRIPTION] Created/updated free tier (${freeHours}Hrs) — TENANT WALLET for tenant ${tenantId}`)
       }
 
-      // v6.10: The wallet is the subscription we just found.
-      // ALL companies see the SAME remainingSeconds from this wallet.
-      // No per-company splitting. No summing. Just ONE number.
-      const walletRemainingSeconds = subscription.remainingSeconds
-      const walletStatus = subscription.status
+      // Pool every legacy company wallet row. New accounts still have one row;
+      // migrated multi-company accounts now show the true combined balance.
+      const walletRemainingSeconds = sumWalletRemainingSeconds(walletSubscriptions)
+      const walletStatus = walletRemainingSeconds > 0
+        ? 'ACTIVE'
+        : walletSubscriptions.some(s => s.status === 'EXPIRED') ? 'EXPIRED' : 'CONVERTED_TO_VIEW_ONLY'
+      const walletRecharges = walletSubscriptions.flatMap(s => s.recharges)
+        .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+        .slice(0, 10)
 
       // v6.6: Count ACTUAL non-view-only users GLOBALLY across ALL companies
       // (reuse allOwnerTenantIds from the wallet lookup above)
@@ -171,28 +179,28 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({
         subscription: {
           id: subscription.id,
-          planHours: subscription.planHours,
-          planName: subscription.planName,
+          planHours: walletSubscriptions.reduce((sum, s) => sum + s.planHours, 0),
+          planName: walletSubscriptions.length > 1 ? 'Shared multi-company wallet' : subscription.planName,
           // v6.10: ALL companies see the SAME wallet balance
           remainingHours: Math.floor(walletRemainingSeconds / 3600),
           remainingMinutes: Math.floor((walletRemainingSeconds % 3600) / 60),
           remainingSeconds: walletRemainingSeconds,
           status: walletStatus,
-          isFreeTier: subscription.isFreeTier,
-          freeTierHours: subscription.freeTierHours,
-          mainAdminHours: subscription.mainAdminHours,
-          juniorAdminHours: subscription.juniorAdminHours,
-          dataEntryHours: subscription.dataEntryHours,
-          viewOnlyHours: subscription.viewOnlyHours,
-          startDate: subscription.startDate.toISOString(),
-          endDate: subscription.endDate?.toISOString() || null,
-          extraJuniorAdminSlots: (subscription as any).extraJuniorAdminSlots || 0,
-          extraDataEntrySlots: (subscription as any).extraDataEntrySlots || 0,
-          maxUsersAllowed: (subscription as any).maxUsersAllowed || null,
+          isFreeTier: walletSubscriptions.every(s => s.isFreeTier),
+          freeTierHours: walletSubscriptions.reduce((sum, s) => sum + s.freeTierHours, 0),
+          mainAdminHours: walletSubscriptions.reduce((sum, s) => sum + s.mainAdminHours, 0),
+          juniorAdminHours: walletSubscriptions.reduce((sum, s) => sum + s.juniorAdminHours, 0),
+          dataEntryHours: walletSubscriptions.reduce((sum, s) => sum + s.dataEntryHours, 0),
+          viewOnlyHours: walletSubscriptions.reduce((sum, s) => sum + s.viewOnlyHours, 0),
+          startDate: walletSubscriptions.reduce((earliest, s) => s.startDate < earliest ? s.startDate : earliest, subscription.startDate).toISOString(),
+          endDate: walletSubscriptions.reduce<Date | null>((latest, s) => !s.endDate ? latest : (!latest || s.endDate > latest ? s.endDate : latest), null)?.toISOString() || null,
+          extraJuniorAdminSlots: walletSubscriptions.reduce((sum, s) => sum + ((s as any).extraJuniorAdminSlots || 0), 0),
+          extraDataEntrySlots: walletSubscriptions.reduce((sum, s) => sum + ((s as any).extraDataEntrySlots || 0), 0),
+          maxUsersAllowed: walletSubscriptions.reduce((sum, s) => sum + ((s as any).maxUsersAllowed || 0), 0) || null,
           actualNonViewOnlyCount,
           actualExtraIds,
           hasExtraUsers,
-          mrp: subscription.mrp,
+          mrp: walletSubscriptions.reduce((sum, s) => sum + s.mrp, 0),
           includedSlots: {
             mainAdmin: 1,
             juniorAdmin: 1,
@@ -200,7 +208,7 @@ export async function POST(req: NextRequest) {
             viewOnly: 'Unlimited',
           },
         },
-        recharges: subscription.recharges.map(r => ({
+        recharges: walletRecharges.map(r => ({
           id: r.id,
           planName: r.planName,
           planHours: r.planHours,
@@ -359,123 +367,114 @@ export async function POST(req: NextRequest) {
       const access = await requireAuthAndTenant(req, tenantId)
       if (access instanceof NextResponse) return access
 
-      const { secondsUsed, userRole } = body
-      if (!secondsUsed || secondsUsed <= 0) {
-        return NextResponse.json({ error: 'secondsUsed must be positive' }, { status: 400 })
+      const secondsUsed = Number(body.secondsUsed)
+      // The server-side tenant membership is authoritative; never trust a role
+      // supplied by the browser to decide whether usage is billable.
+      const userRole = access.role
+      if (!Number.isInteger(secondsUsed) || secondsUsed <= 0 || secondsUsed > 600) {
+        return NextResponse.json({ error: 'secondsUsed must be a whole number between 1 and 600.' }, { status: 400 })
       }
 
-      // Only deduct from non-VIEW_ONLY users
       if (userRole === 'VIEW_ONLY') {
         return NextResponse.json({ success: true, message: 'View Only users are free' })
       }
 
-      // v6.10: Find the TENANT WALLET (single subscription, not per-company)
-      // The wallet is ONE subscription record. All companies read/write to it.
       const walletOwnerTenants = await db.userTenant.findMany({
         where: { userId: access.userId, role: 'MAIN_ADMIN', isOwner: true },
         select: { tenantId: true },
       })
       const walletTenantIds = walletOwnerTenants.map(ut => ut.tenantId)
-
-      const walletSubscription = await db.subscription.findFirst({
+      const walletSubscriptions = await db.subscription.findMany({
         where: { tenantId: { in: walletTenantIds.length > 0 ? walletTenantIds : [tenantId] } },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       })
 
-      if (!walletSubscription) {
+      if (walletSubscriptions.length === 0) {
         return NextResponse.json({ error: 'No subscription found' }, { status: 404 })
       }
 
-      // v6.10: Deduct from the SINGLE wallet (not per-company)
-      // v6.29.5: CRITICAL FIX — atomic conditional decrement.
-      //
-      // PREVIOUS BUG: read walletRemaining, compute newRemaining, then write
-      // newRemaining in a separate update. Two concurrent AI imports could
-      // both read the same walletRemaining (say 3600s), both compute 3500s,
-      // and the second write would overwrite the first → lost update =
-      // free AI time (one import not billed).
-      //
-      // FIX: use updateMany with a WHERE clause that requires
-      // remainingSeconds >= secondsUsed. This makes the decrement atomic at
-      // the DB level — Postgres row-level locking ensures only one of the
-      // two concurrent requests succeeds in decrementing; the other finds
-      // remainingSeconds < secondsUsed (already decremented) and affects 0
-      // rows. We then re-read to get the authoritative post-update value.
-      //
-      // Edge case: if wallet had LESS than secondsUsed remaining (partial
-      // exhaustion), the update also affects 0 rows — but in that case we
-      // want to clamp to 0 (don't reject the AI work the user already did).
-      // So we fall back to a second updateMany that clamps to 0 if the
-      // remaining balance is below the requested deduction.
-      const wasActive = walletSubscription.status !== 'CONVERTED_TO_VIEW_ONLY'
+      const wasActive = walletSubscriptions.some(s => s.status !== 'CONVERTED_TO_VIEW_ONLY')
+      // Consume across every company wallet in a stable order. Conditional
+      // decrements prevent balances becoming negative under concurrent requests.
+      const finalRemaining = await db.$transaction(async (tx) => {
+        let secondsLeft = secondsUsed
 
-      // Attempt 1: full atomic decrement (only succeeds if enough balance)
-      const fullDecrement = await db.subscription.updateMany({
-        where: {
-          id: walletSubscription.id,
-          remainingSeconds: { gte: secondsUsed },
-        },
-        data: {
-          remainingSeconds: { decrement: secondsUsed },
-        },
-      })
+        for (const wallet of walletSubscriptions) {
+          let attempts = 0
+          while (secondsLeft > 0 && attempts < 3) {
+            const current = await tx.subscription.findUnique({
+              where: { id: wallet.id },
+              select: { remainingSeconds: true },
+            })
+            const available = Math.max(0, current?.remainingSeconds ?? 0)
+            if (available === 0) break
 
-      let finalRemaining: number
-      if (fullDecrement.count > 0) {
-        // Decrement succeeded — re-read to get the authoritative value
-        const updated = await db.subscription.findUnique({
-          where: { id: walletSubscription.id },
-          select: { remainingSeconds: true },
-        })
-        finalRemaining = updated?.remainingSeconds ?? 0
-      } else {
-        // Either: (a) someone else decremented first (race lost — their
-        // decrement won, ours is a no-op, which is correct), or (b) the
-        // wallet had less than secondsUsed remaining (partial exhaustion).
-        // For (b), clamp to 0. For (a), the re-read below gives us the
-        // other request's post-decrement value.
-        const current = await db.subscription.findUnique({
-          where: { id: walletSubscription.id },
-          select: { remainingSeconds: true },
-        })
-        const currentRemaining = current?.remainingSeconds ?? 0
-        if (currentRemaining < secondsUsed && currentRemaining > 0) {
-          // Partial exhaustion — clamp the remaining balance to 0
-          await db.subscription.updateMany({
-            where: { id: walletSubscription.id, remainingSeconds: { lt: secondsUsed } },
-            data: { remainingSeconds: 0 },
-          })
-          finalRemaining = 0
-        } else {
-          // Race lost — the other request already decremented (or wallet
-          // was already at 0). Use the current value as-is.
-          finalRemaining = currentRemaining
+            const deduction = Math.min(available, secondsLeft)
+            const changed = await tx.subscription.updateMany({
+              where: { id: wallet.id, remainingSeconds: { gte: deduction } },
+              data: { remainingSeconds: { decrement: deduction } },
+            })
+            if (changed.count === 0) {
+              attempts += 1
+              continue
+            }
+
+            secondsLeft -= deduction
+            const updated = await tx.subscription.findUnique({
+              where: { id: wallet.id },
+              select: { remainingSeconds: true },
+            })
+            const remainingAfter = updated?.remainingSeconds ?? 0
+            await tx.usageLog.create({
+              data: {
+                subscriptionId: wallet.id,
+                userId: access.userId,
+                userRole,
+                secondsUsed: deduction,
+                remainingAfter,
+              },
+            })
+            if (remainingAfter === 0) {
+              await tx.subscription.updateMany({
+                where: { id: wallet.id, remainingSeconds: 0, status: { not: 'CONVERTED_TO_VIEW_ONLY' } },
+                data: { status: 'CONVERTED_TO_VIEW_ONLY' },
+              })
+            }
+            break
+          }
+          if (secondsLeft <= 0) break
         }
-      }
+
+        // Preserve the activity record even if the shared wallet is exhausted.
+        // Only available seconds are debited; the overrun is never made negative.
+        if (secondsLeft > 0) {
+          await tx.usageLog.create({
+            data: {
+              subscriptionId: walletSubscriptions[walletSubscriptions.length - 1].id,
+              userId: access.userId,
+              userRole,
+              secondsUsed: secondsLeft,
+              remainingAfter: 0,
+            },
+          })
+        }
+
+        const refreshed = await tx.subscription.findMany({
+          where: { tenantId: { in: walletTenantIds.length > 0 ? walletTenantIds : [tenantId] } },
+          select: { remainingSeconds: true },
+        })
+        const combinedRemaining = sumWalletRemainingSeconds(refreshed)
+        if (combinedRemaining === 0) {
+          await tx.subscription.updateMany({
+            where: { tenantId: { in: walletTenantIds.length > 0 ? walletTenantIds : [tenantId] } },
+            data: { status: 'CONVERTED_TO_VIEW_ONLY' },
+          })
+        }
+        return combinedRemaining
+      })
 
       const isNowExhausted = finalRemaining === 0
-      const newStatus = isNowExhausted ? 'CONVERTED_TO_VIEW_ONLY' : walletSubscription.status
-
-      // Update status (separate from the atomic decrement above, since
-      // status doesn't need to be in the race-critical path)
-      if (newStatus !== walletSubscription.status) {
-        await db.subscription.update({
-          where: { id: walletSubscription.id },
-          data: { status: newStatus },
-        })
-      }
-
-      // Log usage
-      await db.usageLog.create({
-        data: {
-          subscriptionId: walletSubscription.id,
-          userId: access.userId,
-          userRole,
-          secondsUsed,
-          remainingAfter: finalRemaining,
-        },
-      })
-
-      console.log(`[WALLET] Tenant used ${secondsUsed}s. Wallet remaining: ${finalRemaining}s (status: ${newStatus})`)
+      const newStatus = isNowExhausted ? 'CONVERTED_TO_VIEW_ONLY' : 'ACTIVE'
 
       // v6.5: Check usage limit (maxSecondsPerMonth) for this user in this tenant
       const userTenant = await db.userTenant.findUnique({
