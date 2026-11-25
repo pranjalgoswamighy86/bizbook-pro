@@ -1,21 +1,20 @@
-export const MAX_PDF_IMPORT_PAGES = 20
-export const MAX_PDF_IMPORT_TEXT_CHARS = 30000
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import { isLikelyScannedPdf, preparePdfText, MAX_PDF_IMPORT_PAGES, MAX_PDF_IMPORT_TEXT_CHARS } from '../.test-build/pdf-import-policy.js'
 
-/**
- * Treat a PDF as scanned when its embedded text is too sparse for its page
- * count. This also catches image-only and mostly-image PDFs with tiny metadata.
- */
-export function isLikelyScannedPdf(text: string, pageCount: number): boolean {
-  const normalizedLength = String(text || '').replace(/\\s/g, '').length
-  return normalizedLength < Math.max(20, Math.max(1, pageCount) * 20)
-}
+test('PDF import limits are bounded for page count and text context', () => {
+  assert.equal(MAX_PDF_IMPORT_PAGES, 20)
+  assert.equal(MAX_PDF_IMPORT_TEXT_CHARS, 30000)
+})
 
-/** Return a bounded text preview and an explicit truncation flag. */
-export function preparePdfText(text: string, maxChars = MAX_PDF_IMPORT_TEXT_CHARS): {
-  content: string
-  truncated: boolean
-} {
-  const source = String(text || '')
-  const limit = Math.max(0, Math.floor(maxChars))
-  return { content: source.slice(0, limit), truncated: source.length > limit }
-}
+test('detects image-only and sparse-text scanned PDFs', () => {
+  assert.equal(isLikelyScannedPdf('', 3), true)
+  assert.equal(isLikelyScannedPdf('Invoice number 1', 2), true)
+  assert.equal(isLikelyScannedPdf('A'.repeat(100), 2), false)
+})
+
+test('keeps searchable PDF text within the configured context limit and reports truncation', () => {
+  const text = 'x'.repeat(12)
+  assert.deepEqual(preparePdfText(text, 5), { content: 'xxxxx', truncated: true })
+  assert.deepEqual(preparePdfText('short', 5), { content: 'short', truncated: false })
+})
