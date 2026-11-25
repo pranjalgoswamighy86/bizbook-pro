@@ -4,7 +4,9 @@
  * GSP_CREDENTIALS_ENCRYPTION_KEY must be exactly 32 random bytes encoded as
  * 64 hexadecimal characters. There is deliberately no plaintext fallback.
  */
-import { decryptCredential, encryptCredential, isEncryptionActive } from './gsp-credential-crypto'
+import type { TenantGspConfig } from './gsp-config-types'
+export type { TenantGspConfig } from './gsp-config-types'
+import { db } from '@/lib/db-soft-delete'
 export { decryptCredential, encryptCredential, isEncryptionActive } from './gsp-credential-crypto'
 export async function loadTenantGspConfig(tenantId: string): Promise<TenantGspConfig | null> {
   const tenant = await db.tenant.findFirst({
