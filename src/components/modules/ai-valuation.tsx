@@ -177,7 +177,7 @@ export function AIValuationPage() {
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm flex items-center gap-2">
                   <TrendingUp className="h-4 w-4 text-blue-600" />
-                  DCF Valuation Breakdown
+                  Illustrative DCF Valuation (5-year)
                 </CardTitle>
               </CardHeader>
               <CardContent className="pt-0 space-y-3">
@@ -237,10 +237,10 @@ export function AIValuationPage() {
                       <tr className="border-b">
                         <th className="text-left p-1">Year</th>
                         <th className="text-right p-1">Revenue</th>
-                        <th className="text-right p-1">EBITDA</th>
+                        <th className="text-right p-1">EBITDA (proxy)</th>
                         <th className="text-right p-1">Margin</th>
                         <th className="text-right p-1">Growth</th>
-                        <th className="text-right p-1">Cash Flow</th>
+                        <th className="text-right p-1">Cash Flow (proxy)</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -280,7 +280,7 @@ export function AIValuationPage() {
                     <p className="font-bold">₹{(balanceSheet.payables / 100000).toFixed(2)}L</p>
                   </div>
                   <div className="bg-violet-50 dark:bg-violet-950 p-2 rounded">
-                    <p className="text-[10px] text-muted-foreground">Cash</p>
+                    <p className="text-[10px] text-muted-foreground">Bank Balance (snapshot)</p>
                     <p className="font-bold">₹{(balanceSheet.cash / 100000).toFixed(2)}L</p>
                   </div>
                   <div className="bg-amber-50 dark:bg-amber-950 p-2 rounded">
