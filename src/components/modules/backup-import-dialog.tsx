@@ -117,31 +117,6 @@ export function BackupImportDialog({ open, onOpenChange, companyName }: BackupIm
   const [importResults, setImportResults] = useState<any>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  // Auto-trigger file picker when dialog opens
-  const hasAutoTriggered = useRef(false)
-  const handleOpenAutoFilePicker = useCallback(() => {
-    if (hasAutoTriggered.current) return
-    hasAutoTriggered.current = true
-    // Small delay to let dialog render
-    setTimeout(() => handleSelectFile(), 300)
-  }, [])
-
-  // Reset auto-trigger flag when dialog closes
-  useEffect(() => {
-    if (!open) {
-      hasAutoTriggered.current = false
-      setStep('prompt')
-      setSelectedFile(null)
-      setAnalysis(null)
-      setSelectedModules(new Set())
-      setErrorMessage('')
-      setImportResults(null)
-    } else {
-      // Auto-trigger file picker when dialog opens
-      handleOpenAutoFilePicker()
-    }
-  }, [open, handleOpenAutoFilePicker])
-
   const resetAndClose = useCallback(() => {
     setStep('prompt')
     setSelectedFile(null)
@@ -191,6 +166,32 @@ export function BackupImportDialog({ open, onOpenChange, companyName }: BackupIm
     fileInputRef.current?.click()
   }
 
+
+
+  // Auto-trigger file picker when dialog opens
+  const hasAutoTriggered = useRef(false)
+  const handleOpenAutoFilePicker = useCallback(() => {
+    if (hasAutoTriggered.current) return
+    hasAutoTriggered.current = true
+    // Small delay to let dialog render
+    setTimeout(() => handleSelectFile(), 300)
+  }, [])
+
+  // Reset auto-trigger flag when dialog closes
+  useEffect(() => {
+    if (!open) {
+      hasAutoTriggered.current = false
+      setStep('prompt')
+      setSelectedFile(null)
+      setAnalysis(null)
+      setSelectedModules(new Set())
+      setErrorMessage('')
+      setImportResults(null)
+    } else {
+      // Auto-trigger file picker when dialog opens
+      handleOpenAutoFilePicker()
+    }
+  }, [open, handleOpenAutoFilePicker])
   const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
       processFile(e.target.files[0])
