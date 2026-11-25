@@ -613,6 +613,9 @@ SOURCE ROW ACCOUNTING REQUIREMENTS:
         ...(reconciliation.missing.length
           ? [`Row reconciliation incomplete: ${reconciliation.missing.length} of ${reconciliation.expected} source rows have no explicit AI outcome. Review the preview before importing.`]
           : []),
+        ...(reconciliation.ambiguous
+          ? [`${reconciliation.ambiguous} source row(s) were marked ambiguous by AI and need manual review.`]
+          : []),
         ...(reconciliation.invalid.length
           ? [`AI returned ${reconciliation.invalid.length} invalid or out-of-batch source row reference(s); these were not counted as reconciled.`]
           : []),
@@ -629,6 +632,7 @@ SOURCE ROW ACCOUNTING REQUIREMENTS:
         sourceReconciliation: {
           expected: reconciliation.expected,
           accounted: reconciliation.accounted,
+          ambiguous: reconciliation.ambiguous,
           missing: reconciliation.missing,
           invalid: reconciliation.invalid.length,
           batches: spreadsheetBatches.length,
@@ -682,7 +686,7 @@ SOURCE ROW ACCOUNTING REQUIREMENTS:
       if (analysis.sourceReconciliation) analysis.sourceReconciliation = analysis.sourceReconciliation
       if (Array.isArray(analysis.sourceRowResults)) analysis.sourceRowResults = analysis.sourceRowResults
       if (analysis.sourceReconciliation &&
-        analysis.sourceReconciliation.accounted < analysis.sourceReconciliation.expected) {
+        (analysis.sourceReconciliation.accounted < analysis.sourceReconciliation.expected || analysis.sourceReconciliation.ambiguous > 0)) {
         analysis.partialExtraction = true
         analysis.sourceTruncated = true
       }
