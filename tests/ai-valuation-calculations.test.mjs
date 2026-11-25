@@ -20,8 +20,11 @@ test('returns complete, bounded valuation and frontend-compatible DCF fields', (
   ])
   const result = calculateValuation(yearly, { inventory: 100000, receivables: 150000, payables: 60000, cash: 90000 })
   assert.ok(Number.isFinite(result.valuation.valuationRange.mid))
-  assert.ok(result.valuation.valuationRange.low <= result.valuation.valuationRange.mid)
-  assert.ok(result.valuation.valuationRange.mid <= result.valuation.valuationRange.high)
+  const dcfEstimate = result.dcf.dcfPerMethod.dcf
+  const revenueEstimate = result.dcf.dcfPerMethod.revenueMultiple
+  assert.equal(result.valuation.valuationRange.mid, (dcfEstimate + revenueEstimate) / 2)
+  assert.equal(result.valuation.valuationRange.low, Math.min(dcfEstimate, revenueEstimate) * 0.85)
+  assert.equal(result.valuation.valuationRange.high, Math.max(dcfEstimate, revenueEstimate) * 1.15)
   assert.ok(result.valuation.financialHealthScore >= 0 && result.valuation.financialHealthScore <= 100)
   assert.ok(['A', 'B', 'C', 'D'].includes(result.valuation.healthGrade))
   assert.equal(result.dcf.projectionYears, 5)
