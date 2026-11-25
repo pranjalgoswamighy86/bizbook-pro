@@ -4,6 +4,7 @@ import { analyzeWithAI } from '@/lib/multi-ai'
 import { requireAuthAndTenant, requireAuthAndRole } from '@/lib/api-helpers'
 import { postSaleJE, postPurchaseJE, postExpenseJE } from '@/lib/gl-posting'
 import { roundTo2 } from '@/lib/gst-utils'
+import { chunkSpreadsheetRows, mergeSpreadsheetImportData, reconcileSourceRows, type SourceRowResult, type SpreadsheetBatch } from '@/lib/ai-import-chunking'
 
 // ============================================================
 // AI Smart Import API — v6.29.0
@@ -64,7 +65,7 @@ function parseDelimitedText(input: string, delimiter: string): string[][] {
     if (!inQuotes && (char === '\n' || char === '\r')) {
       record.push(field)
       field = ''
-      if (record.some(value => value.trim() !== '')) records.push(record)
+      records.push(record)
       record = []
       if (char === '\r' && text[i + 1] === '\n') i++
       continue
@@ -75,6 +76,10 @@ function parseDelimitedText(input: string, delimiter: string): string[][] {
   if (inQuotes) throw new Error('Invalid CSV/TSV: quoted field was not closed')
   record.push(field)
   if (record.some(value => value.trim() !== '')) records.push(record)
+  // Ignore leading/trailing empty lines, but preserve internal blank records so
+  // spreadsheet source-row numbers remain stable during reconciliation.
+  while (records.length && records[0].every(value => value.trim() === '')) records.shift()
+  while (records.length && records[records.length - 1].every(value => value.trim() === '')) records.pop()
   return records
 }
 
@@ -190,7 +195,7 @@ async function handleFileUpload(req: NextRequest) {
 
       for (const sheetName of workbook.SheetNames) {
         const sheet = workbook.Sheets[sheetName]
-        sheets[sheetName] = XLSX.utils.sheet_to_json(sheet, { raw: false, defval: '' })
+        sheets[sheetName] = XLSX.utils.sheet_to_json(sheet, { raw: false, defval: '', blankrows: true })
       }
 
       // v6.29.0: Row-count cap — reject files with > 5,000 total rows before
@@ -352,6 +357,8 @@ async function handleFileUpload(req: NextRequest) {
   // AI Analysis
   // ============================================================
   let analysis: any = null
+  let spreadsheetBatches: SpreadsheetBatch[] = []
+  let spreadsheetBatchPromptSummary = ''
 
   // v6.19: Build category hint for the AI prompt
   // When the user selects a category (not 'auto'), tell the AI to extract data for that specific category
@@ -380,25 +387,14 @@ async function handleFileUpload(req: NextRequest) {
       // For spreadsheets, summarize the data structure and content
       // v6.19.1: Truncate to avoid Gemini 400 errors on large files (303+ rows)
       const sheets = parsedData as Record<string, any[]>
-      const MAX_ROWS_PER_SHEET = 30 // Truncate to 30 sample rows per sheet (was 5, but headers + 30 rows is safe for all providers)
-      const MAX_TOTAL_CHARS = 20000
-      const completeSheetSummary = Object.entries(sheets).map(([name, rows]) => {
-        const headers = rows.length > 0 ? Object.keys(rows[0]) : []
-        const sampleRows = rows.slice(0, MAX_ROWS_PER_SHEET)
-        if (rows.length > MAX_ROWS_PER_SHEET) {
-          sourceTruncationWarnings.push(`Sheet "${name}": only the first ${MAX_ROWS_PER_SHEET} of ${rows.length} rows were analyzed; ${rows.length - MAX_ROWS_PER_SHEET} rows were not sent to the AI and are NOT included in the import preview.`)
-        }
-        const truncatedNote = rows.length > MAX_ROWS_PER_SHEET
-          ? `\nIMPORTANT: ONLY the first ${MAX_ROWS_PER_SHEET} rows are included below. The remaining ${rows.length - MAX_ROWS_PER_SHEET} rows were not analyzed.`
-          : ''
-        return `Sheet "${name}": ${rows.length} rows, columns: ${headers.join(', ')}${truncatedNote}
-Rows supplied to the model (${sampleRows.length}):
-${JSON.stringify(sampleRows, null, 2)}`
-      }).join('\n\n')
-      if (completeSheetSummary.length > MAX_TOTAL_CHARS) {
-        sourceTruncationWarnings.push(`Spreadsheet preview text exceeded ${MAX_TOTAL_CHARS} characters; the AI received only the first ${MAX_TOTAL_CHARS} characters. The remaining content was not analyzed.`)
+      // Analyze every parsed row in bounded batches instead of sending a
+      // 30-row sample or truncating a single oversized prompt.
+      spreadsheetBatches = chunkSpreadsheetRows(sheets, { maxRows: 15, maxChars: 14000 })
+      spreadsheetBatchPromptSummary = spreadsheetBatches[0]?.summary || 'No data rows were found in the spreadsheet.'
+      if (spreadsheetBatches.length > 1) {
+        console.log(`[AI-Import] Split ${Object.values(sheets).reduce((n, rows) => n + rows.length, 0)} rows into ${spreadsheetBatches.length} AI batches`)
       }
-      const fullSheetSummary = completeSheetSummary.substring(0, MAX_TOTAL_CHARS)
+      const fullSheetSummary = spreadsheetBatchPromptSummary
 
       prompt = `Analyze this business data file and extract records for import into BizBook Pro.
 
@@ -546,14 +542,119 @@ Source content (may be truncated; do not assume omitted text was analyzed):
 ${content}`
     }
 
-    // Call AI
+    // Spreadsheet batches are processed sequentially to bound provider load.
+    // Each failed/invalid batch gets one retry; successful batches are never rerun.
     const structuredImport = ['excel', 'csv', 'image', 'pdf', 'json', 'text', 'xml', 'doc'].includes(dataType)
-    const { provider, result } = await analyzeWithAI(
-      prompt,
-      undefined,
-      imageBase64,
-      structuredImport ? { jsonMode: true, maxTokens: 8192, temperature: 0.1 } : { temperature: 0.2 }
-    )
+    let provider: string
+    let result: string
+    if (spreadsheetBatches.length > 0) {
+      const moduleKeys = ['sales', 'purchases', 'expenses', 'products', 'parties', 'staff', 'bankTransactions']
+      const successfulResults: Array<Record<string, unknown>> = []
+      const batchOutcomes: SourceRowResult[] = []
+      const batchWarnings: string[] = []
+      const batchProviders: string[] = []
+      const batchSuggestions: string[] = []
+      let confidenceTotal = 0
+      let confidenceCount = 0
+
+      for (const batch of spreadsheetBatches) {
+        let parsedBatch: Record<string, any> | null = null
+        let lastBatchError = 'AI returned invalid JSON'
+        for (let attempt = 0; attempt < 2 && !parsedBatch; attempt++) {
+          try {
+            const batchPrompt = prompt.replace(spreadsheetBatchPromptSummary, batch.summary) + `
+
+SOURCE ROW ACCOUNTING REQUIREMENTS:
+- Each supplied row includes a "__bizbookSource" object with its exact "sheet" and 1-based "row".
+- For every imported record, include "_sourceRows": [{"sheet":"exact sheet name","row":2}] listing all source rows used to create it. Never invent or alter these identifiers.
+- Also return "sourceRowResults": one entry for EVERY supplied row, with exact sheet and row and status "extracted", "ignored", or "ambiguous"; include a short reason for ignored/ambiguous rows.
+- Use "extracted" only when the row's information is represented in one or more imported records. Use "ignored" for headings, totals, blank-like, or unrelated rows. Use "ambiguous" when data cannot be safely interpreted.
+- Do not claim any source row was processed unless it is explicitly listed in sourceRowResults.
+- Preserve all distinct source records. Do not collapse identical-looking transactions unless they are clearly the same source record.`
+            const response = await analyzeWithAI(
+              batchPrompt,
+              undefined,
+              undefined,
+              { jsonMode: true, maxTokens: 8192, temperature: 0.1 }
+            )
+            batchProviders.push(response.provider)
+            let cleaned = response.result.trim()
+            if (cleaned.startsWith('```')) cleaned = cleaned.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '')
+            const candidate = JSON.parse(cleaned)
+            if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) throw new Error('AI batch response was not a JSON object')
+            parsedBatch = candidate
+          } catch (error: any) {
+            lastBatchError = error?.message || String(error)
+            if (attempt === 0) console.warn(`[AI-Import] ${batch.id} failed; retrying once: ${lastBatchError}`)
+          }
+        }
+
+        if (!parsedBatch) {
+          batchWarnings.push(`${batch.id} failed after one retry: ${lastBatchError}`)
+          continue
+        }
+        successfulResults.push(parsedBatch)
+        if (typeof parsedBatch.confidence === 'number' && Number.isFinite(parsedBatch.confidence)) {
+          confidenceTotal += Math.max(0, Math.min(1, parsedBatch.confidence > 1 ? parsedBatch.confidence / 100 : parsedBatch.confidence))
+          confidenceCount++
+        }
+        if (Array.isArray(parsedBatch.warnings)) batchWarnings.push(...parsedBatch.warnings.filter((item: unknown) => typeof item === 'string'))
+        if (Array.isArray(parsedBatch.suggestions)) batchSuggestions.push(...parsedBatch.suggestions.filter((item: unknown) => typeof item === 'string'))
+        if (Array.isArray(parsedBatch.sourceRowResults)) {
+          for (const outcome of parsedBatch.sourceRowResults) {
+            if (outcome && typeof outcome.sheet === 'string' && Number.isInteger(outcome.row) &&
+              ['extracted', 'ignored', 'ambiguous'].includes(outcome.status)) {
+              batchOutcomes.push(outcome as SourceRowResult)
+            }
+          }
+        }
+      }
+
+      const reconciliation = reconcileSourceRows(spreadsheetBatches, batchOutcomes)
+      const mergedImportData = mergeSpreadsheetImportData(successfulResults, moduleKeys)
+      const reconciliationWarnings = [
+        ...batchWarnings,
+        ...(reconciliation.missing.length
+          ? [`Row reconciliation incomplete: ${reconciliation.missing.length} of ${reconciliation.expected} source rows have no explicit AI outcome. Review the preview before importing.`]
+          : []),
+        ...(reconciliation.ambiguous
+          ? [`${reconciliation.ambiguous} source row(s) were marked ambiguous by AI and need manual review.`]
+          : []),
+        ...(reconciliation.invalid.length
+          ? [`AI returned ${reconciliation.invalid.length} invalid or out-of-batch source row reference(s); these were not counted as reconciled.`]
+          : []),
+      ]
+      provider = Array.from(new Set(batchProviders)).join(', ') || 'Unavailable'
+      result = JSON.stringify({
+        detectedDocumentType: successfulResults.find(item => item.detectedDocumentType)?.detectedDocumentType || 'unknown',
+        detectedBusiness: successfulResults.find(item => item.detectedBusiness)?.detectedBusiness || null,
+        detectedGSTIN: successfulResults.find(item => item.detectedGSTIN)?.detectedGSTIN || null,
+        summary: `Analyzed ${reconciliation.accounted} of ${reconciliation.expected} spreadsheet source rows across ${spreadsheetBatches.length} batches.`,
+        confidence: confidenceCount ? confidenceTotal / confidenceCount : 0,
+        importData: mergedImportData,
+        sourceRowResults: batchOutcomes,
+        sourceReconciliation: {
+          expected: reconciliation.expected,
+          accounted: reconciliation.accounted,
+          ambiguous: reconciliation.ambiguous,
+          missing: reconciliation.missing,
+          invalid: reconciliation.invalid.length,
+          batches: spreadsheetBatches.length,
+          successfulBatches: successfulResults.length,
+        },
+        warnings: reconciliationWarnings,
+        suggestions: Array.from(new Set(batchSuggestions)),
+      })
+    } else {
+      const response = await analyzeWithAI(
+        prompt,
+        undefined,
+        imageBase64,
+        structuredImport ? { jsonMode: true, maxTokens: 8192, temperature: 0.1 } : { temperature: 0.2 }
+      )
+      provider = response.provider
+      result = response.result
+    }
 
     // v6.19.1: Clean the AI response — strip markdown code fences if present
     let cleanedResult = result.trim()
@@ -586,6 +687,11 @@ ${content}`
       analysis.confidence = Math.max(0, Math.min(1, analysis.confidence))
       analysis.warnings = Array.isArray(analysis.warnings) ? analysis.warnings.filter((item: unknown) => typeof item === 'string') : []
       analysis.suggestions = Array.isArray(analysis.suggestions) ? analysis.suggestions.filter((item: unknown) => typeof item === 'string') : []
+      if (analysis.sourceReconciliation &&
+        (analysis.sourceReconciliation.accounted < analysis.sourceReconciliation.expected || analysis.sourceReconciliation.ambiguous > 0)) {
+        analysis.partialExtraction = true
+        analysis.sourceTruncated = true
+      }
       if (sourceTruncationWarnings.length > 0) {
         analysis.warnings.unshift(...sourceTruncationWarnings)
         analysis.partialExtraction = true
@@ -603,6 +709,7 @@ ${content}`
         warnings: ['AI response could not be parsed as JSON. Showing raw summary.', ...sourceTruncationWarnings],
         partialExtraction: sourceTruncationWarnings.length > 0,
         suggestions: [],
+        ...(spreadsheetBatches.length ? { sourceReconciliation: { expected: spreadsheetBatches.reduce((n, batch) => n + batch.sourceRows.length, 0), accounted: 0, missing: spreadsheetBatches.flatMap(batch => batch.sourceRows), batches: spreadsheetBatches.length, successfulBatches: 0 } } : {}),
       }
     }
 
