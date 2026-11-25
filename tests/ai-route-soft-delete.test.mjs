@@ -25,5 +25,8 @@ test('AI valuation route is implemented and uses soft-delete client and auth ten
   assert.match(route, /aggregateFinancialYears/)
   assert.match(route, /calculateValuation/)
   assert.match(route, /success: true/)
+  assert.match(route, /distinct: \['bankName', 'accountNumber'\]/)
+  assert.match(route, /const cash = bankCash/)
+  assert.match(route, /select: \{ amount: true \}/)
   assert.doesNotMatch(route, /No search query provided/)
 })
