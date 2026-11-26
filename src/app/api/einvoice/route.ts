@@ -62,12 +62,12 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'Sale ID required' }, { status: 400 })
       }
 
-      const sale = await db.sale.findUnique({ where: { id: saleId } })
+      const sale = await db.sale.findFirst({ where: { id: saleId, tenantId, isDeleted: false } })
       if (!sale || sale.tenantId !== tenantId) {
         return NextResponse.json({ error: 'Sale not found' }, { status: 404 })
       }
 
-      const tenant = await db.tenant.findUnique({ where: { id: tenantId } })
+      const tenant = await db.tenant.findFirst({ where: { id: tenantId, isDeleted: false } })
       if (!tenant) {
         return NextResponse.json({ error: 'Business not found' }, { status: 404 })
       }
@@ -270,7 +270,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'Sale ID required' }, { status: 400 })
       }
 
-      const sale = await db.sale.findUnique({ where: { id: saleId } })
+      const sale = await db.sale.findFirst({ where: { id: saleId, tenantId, isDeleted: false } })
       if (!sale || sale.tenantId !== access.tenantId) {
         return NextResponse.json({ error: 'Sale not found' }, { status: 404 })
       }
@@ -294,7 +294,7 @@ export async function POST(req: NextRequest) {
       if (qrCodeText) updateData.einvoiceQrCodeText = qrCodeText
 
       const updated = await db.sale.update({
-        where: { id: saleId },
+        where: { id: saleId, tenantId, isDeleted: false },
         data: updateData,
       })
 
@@ -307,7 +307,7 @@ export async function POST(req: NextRequest) {
       if (!saleId) return NextResponse.json({ error: 'Sale ID required' }, { status: 400 })
       const reasonCode = String(reason || '1')
       if (!/^[1-6]$/.test(reasonCode)) return NextResponse.json({ error: 'Invalid IRP cancellation reason. Use a reason code from 1 to 6.' }, { status: 400 })
-      const sale = await db.sale.findUnique({ where: { id: saleId } })
+      const sale = await db.sale.findFirst({ where: { id: saleId, tenantId, isDeleted: false } })
       if (!sale || sale.tenantId !== tenantId) return NextResponse.json({ error: 'Sale not found' }, { status: 404 })
       if (!sale.einvoiceIrn || sale.einvoiceStatus !== 'GENERATED') return NextResponse.json({ error: 'Only an active IRP-generated invoice can be cancelled.' }, { status: 400 })
       if (!sale.einvoiceAckDate) return NextResponse.json({ error: 'Acknowledgement date is missing; verify the IRP record before cancellation.' }, { status: 400 })
@@ -318,7 +318,7 @@ export async function POST(req: NextRequest) {
       const gspConfig = await getEffectiveGspConfig(tenantId)
       const result = await cancelIrn(sale.einvoiceIrn, reasonCode, gspConfig)
       if (!result.success) return NextResponse.json({ success: false, mode: result.mode, error: result.errorMessage || 'IRP cancellation failed' }, { status: 502 })
-      const updated = await db.sale.update({ where: { id: saleId }, data: { einvoiceStatus: 'CANCELLED' } })
+      const updated = await db.sale.update({ where: { id: saleId, tenantId, isDeleted: false }, data: { einvoiceStatus: 'CANCELLED' } })
       await writeAuditLog({
         tenantId, userId: requestAccess.userId, userName: requestAccess.user?.name || 'Unknown',
         action: 'UPDATE', entityType: 'E-Invoice', entityId: saleId,
@@ -345,7 +345,7 @@ export async function POST(req: NextRequest) {
       const { purchaseId, irn, ackNo, ackDate, qrCodeText, status } = body
       if (!purchaseId) return NextResponse.json({ error: 'Purchase ID required' }, { status: 400 })
 
-      const purchase = await db.purchase.findUnique({ where: { id: purchaseId } })
+      const purchase = await db.purchase.findFirst({ where: { id: purchaseId, tenantId: access.tenantId, isDeleted: false } })
       if (!purchase || purchase.tenantId !== access.tenantId) return NextResponse.json({ error: 'Purchase not found' }, { status: 404 })
 
       if (status && status !== 'GENERATED') return NextResponse.json({ error: 'Only GENERATED status can be recorded for a supplier-issued IRN.' }, { status: 400 })
@@ -364,7 +364,7 @@ export async function POST(req: NextRequest) {
       if (ackDate) updateData.einvoiceAckDate = ackDate
       if (qrCodeText) updateData.einvoiceQrCodeText = qrCodeText
 
-      const updated = await db.purchase.update({ where: { id: purchaseId }, data: updateData })
+      const updated = await db.purchase.update({ where: { id: purchaseId, tenantId: access.tenantId, isDeleted: false }, data: updateData })
       return NextResponse.json({ purchase: updated })
     }
 
@@ -379,8 +379,8 @@ export async function POST(req: NextRequest) {
       if (!type || !id) return NextResponse.json({ error: 'Type and ID required' }, { status: 400 })
 
       if (type === 'sale') {
-        const sale = await db.sale.findUnique({
-          where: { id },
+        const sale = await db.sale.findFirst({
+          where: { id, tenantId, isDeleted: false },
           select: {
             tenantId: true, einvoiceIrn: true, einvoiceAckNo: true, einvoiceAckDate: true,
             einvoiceQrCodeText: true, einvoiceStatus: true, invoiceNumber: true,
@@ -391,8 +391,8 @@ export async function POST(req: NextRequest) {
       }
 
       if (type === 'purchase') {
-        const purchase = await db.purchase.findUnique({
-          where: { id },
+        const purchase = await db.purchase.findFirst({
+          where: { id, tenantId, isDeleted: false },
           select: {
             tenantId: true, einvoiceIrn: true, einvoiceAckNo: true, einvoiceAckDate: true,
             einvoiceQrCodeText: true, einvoiceStatus: true, invoiceNumber: true,
@@ -415,7 +415,7 @@ export async function POST(req: NextRequest) {
       const { saleId } = body
       if (!saleId) return NextResponse.json({ error: 'Sale ID required' }, { status: 400 })
 
-      const sale = await db.sale.findUnique({ where: { id: saleId } })
+      const sale = await db.sale.findFirst({ where: { id: saleId, tenantId, isDeleted: false } })
       if (!sale || sale.tenantId !== tenantId) return NextResponse.json({ error: 'Sale not found' }, { status: 404 })
 
       // Already submitted?
@@ -427,7 +427,7 @@ export async function POST(req: NextRequest) {
         }, { status: 400 })
       }
 
-      const tenant = await db.tenant.findUnique({ where: { id: tenantId } })
+      const tenant = await db.tenant.findFirst({ where: { id: tenantId, isDeleted: false } })
       if (!tenant?.gstNumber) {
         return NextResponse.json({ error: 'Company GSTIN not configured. Update Settings first.' }, { status: 400 })
       }
@@ -557,7 +557,7 @@ export async function POST(req: NextRequest) {
       if (irpResult.success && irpResult.irn) {
         // Persist IRN + AckNo + AckDate + SignedQR
         const updated = await db.sale.update({
-          where: { id: saleId },
+          where: { id: saleId, tenantId, isDeleted: false },
           data: {
             einvoiceIrn: irpResult.irn,
             einvoiceAckNo: irpResult.ackNo,
@@ -608,7 +608,7 @@ export async function POST(req: NextRequest) {
       const { saleId, reason } = body
       if (!saleId) return NextResponse.json({ error: 'Sale ID required' }, { status: 400 })
 
-      const sale = await db.sale.findUnique({ where: { id: saleId } })
+      const sale = await db.sale.findFirst({ where: { id: saleId, tenantId, isDeleted: false } })
       if (!sale || sale.tenantId !== tenantId) return NextResponse.json({ error: 'Sale not found' }, { status: 404 })
 
       if (!sale.einvoiceIrn) {
@@ -635,7 +635,7 @@ export async function POST(req: NextRequest) {
 
       if (cancelResult.success) {
         const updated = await db.sale.update({
-          where: { id: saleId },
+          where: { id: saleId, tenantId, isDeleted: false },
           data: { einvoiceStatus: 'CANCELLED' },
         })
 
