@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { rawDb } from '@/lib/db-soft-delete'
 import { verifyPassword } from '@/lib/auth'
 import { isSuperAdminEmail, isInfrastructureOwnerEmail } from '@/lib/rbac/enforce-v2'
+import { checkLoginRateLimit, clearLoginAttempts, getClientIP, recordLoginAttempt } from '@/lib/rate-limit-db'
 import { buildBackupRecords } from '@/lib/backup-utils'
 
 export const maxDuration = 300
@@ -16,6 +17,11 @@ export async function POST(req: NextRequest) {
 
     const email = body.email.trim().toLowerCase()
     const password = body.password
+    const clientIP = getClientIP(req)
+    const rateLimit = await checkLoginRateLimit(email, clientIP)
+    if (!rateLimit.allowed) {
+      return NextResponse.json({ error: 'Too many backup authentication attempts. Please try again later.' }, { status: 429, headers: { 'Retry-After': String(rateLimit.retryAfterSeconds) } })
+    }
     const user = await rawDb.user.findFirst({
       where: { email: { equals: email, mode: 'insensitive' } },
       select: {
@@ -34,8 +40,11 @@ export async function POST(req: NextRequest) {
     // embedded in an uploaded backup file.
     const passwordValid = user ? verifyPassword(password, user.password) : false
     if (!user || !passwordValid || !user.isActive || user.isDeleted) {
+      await recordLoginAttempt(email, clientIP, false)
       return NextResponse.json({ error: 'Invalid email or password.' }, { status: 401 })
     }
+    await recordLoginAttempt(email, clientIP, true)
+    await clearLoginAttempts(email)
 
     const isPlatformAdmin = (
       isSuperAdminEmail(user.email) && user.role === 'SUPER_ADMIN'
