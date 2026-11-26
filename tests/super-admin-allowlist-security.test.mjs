@@ -25,7 +25,31 @@ test('Help & Support authorization uses the shared server-side allowlist', () =>
 })
 
 test('subscription list and modification use the same shared allowlist', () => {
-  assert.equal(subscriptionRoute.split('isSystemAdminEmail(access.user?.email)').length - 1, 2)
+  assert.equal(subscriptionRoute.split('isSystemAdminEmail(access.email)').length - 1, 2)
   assert.ok(subscriptionRoute.includes("from '@/lib/system-admin'"))
   assert.ok(!subscriptionRoute.includes('const SYSTEM_ADMIN_EMAILS'))
+})
+
+
+test('platform-wide subscription administration does not require a workspace role', () => {
+  const listStart = subscriptionRoute.indexOf("if (action === 'admin-list-all')")
+  const modifyStart = subscriptionRoute.indexOf("if (action === 'admin-modify')")
+  assert.ok(listStart >= 0)
+  assert.ok(modifyStart > listStart)
+  const listBlock = subscriptionRoute.slice(listStart, modifyStart)
+  const modifyBlock = subscriptionRoute.slice(modifyStart, modifyStart + 1200)
+  assert.match(listBlock, /const access = await requireAuth\(req\)/)
+  assert.match(listBlock, /isSystemAdminEmail\(access\.email\)/)
+  assert.doesNotMatch(listBlock, /requireAuthAndRole/)
+  assert.match(modifyBlock, /const access = await requireAuth\(req\)/)
+  assert.match(modifyBlock, /isSystemAdminEmail\(access\.email\)/)
+  assert.doesNotMatch(modifyBlock, /requireAuthAndRole/)
+})
+
+test('Super Admin subscription UI does not depend on a selected tenant', () => {
+  const panel = readFileSync('src/components/modules/super-admin-subscriptions.tsx', 'utf8')
+  assert.ok(panel.includes('if (!user?.email)'))
+  assert.ok(!panel.includes('tenant?.id'))
+  assert.ok(!panel.includes('tenant.id'))
+  assert.ok(panel.includes("action: 'admin-list-all'"))
 })
