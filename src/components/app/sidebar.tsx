@@ -110,8 +110,30 @@ export function AppSidebar() {
   // v6.17: Which tab the HelpModal opens on. F1 / "AI Support Chat" menu
   // action sets this to 'chat' via the global openHelpChat() event.
   const [helpInitialTab, setHelpInitialTab] = useState<'faq' | 'guides' | 'chat' | 'management'>('faq')
-  // Use the role delivered by the authenticated session; server APIs still enforce admin access.
-  const isSuperAdmin = user?.role === 'SUPER_ADMIN'
+  // Resolve system-admin visibility from the same server-side allowlist used by
+  // support management. The persisted tenant role can be MAIN_ADMIN even when
+  // this account is a deployment-configured SUPER_ADMIN.
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false)
+  useEffect(() => {
+    if (!user?.id) {
+      setIsSuperAdmin(false)
+      return
+    }
+    let active = true
+    authFetch('/api/help-tickets', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'access' }),
+    })
+      .then(async (response) => {
+        if (!response.ok) return false
+        const data = await response.json()
+        return data.allowed === true
+      })
+      .then((allowed) => { if (active) setIsSuperAdmin(allowed) })
+      .catch(() => { if (active) setIsSuperAdmin(false) })
+    return () => { active = false }
+  }, [user?.id])
 
   // Detect mobile screen size
   // Use 900px breakpoint so that small screens like 800x600
