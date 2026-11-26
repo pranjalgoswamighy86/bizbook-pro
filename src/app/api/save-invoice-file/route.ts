@@ -1,46 +1,109 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { writeFile, mkdir } from 'fs/promises'
+import { randomUUID } from 'crypto'
+import { mkdir, writeFile } from 'fs/promises'
 import { join } from 'path'
-import { requireAuthAndTenant, requireAuthAndRole, requireAuth, writeAuditLog } from '@/lib/api-helpers'
+import { NextRequest, NextResponse } from 'next/server'
+import { requireAuthAndTenant } from '@/lib/api-helpers'
 
-const UPLOAD_DIR = join(process.cwd(), 'uploaded-invoices')
+const MAX_FILE_BYTES = 10 * 1024 * 1024
+const MAX_REQUEST_BYTES = 14 * 1024 * 1024
+const UPLOAD_ROOT = process.env.BIZBOOK_UPLOAD_DIR ||
+  (process.env.NODE_ENV === 'production' ? '/app/data/uploaded-invoices' : join(process.cwd(), 'uploaded-invoices'))
+
+function hasExpectedFileSignature(buffer: Buffer, mimeType: string): boolean {
+  if (mimeType === 'application/pdf') return buffer.subarray(0, 5).toString('ascii') === '%PDF-'
+  if (mimeType === 'image/jpeg') return buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff
+  if (mimeType === 'image/png') return buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
+  if (mimeType === 'image/webp') return buffer.subarray(0, 4).toString('ascii') === 'RIFF' && buffer.subarray(8, 12).toString('ascii') === 'WEBP'
+  return false
+}
+
+const MIME_EXTENSIONS: Record<string, string> = {
+  'application/pdf': 'pdf',
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/webp': 'webp',
+}
+
+async function readLimitedJson(req: NextRequest): Promise<any> {
+  const reader = req.body?.getReader()
+  if (!reader) throw new Error('EMPTY_REQUEST_BODY')
+
+  const chunks: Uint8Array[] = []
+  let totalBytes = 0
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    if (!value) continue
+    totalBytes += value.byteLength
+    if (totalBytes > MAX_REQUEST_BYTES) {
+      await reader.cancel()
+      throw new RangeError('REQUEST_TOO_LARGE')
+    }
+    chunks.push(value)
+  }
+
+  return JSON.parse(Buffer.concat(chunks).toString('utf8'))
+}
 
 export async function POST(req: NextRequest) {
-  try {
-    const body = await req.json()
-    const { fileData, fileName } = body
+  const contentLength = Number(req.headers.get('content-length') || 0)
+  if (contentLength > MAX_REQUEST_BYTES) {
+    return NextResponse.json({ error: 'Invoice upload is too large. Maximum file size is 10 MB.' }, { status: 413 })
+  }
 
-    if (!fileData) {
-      return NextResponse.json({ error: 'No file data provided' }, { status: 400 })
+  let body: any
+  try {
+    body = await readLimitedJson(req)
+  } catch (error) {
+    if (error instanceof RangeError) {
+      return NextResponse.json({ error: 'Invoice upload is too large. Maximum file size is 10 MB.' }, { status: 413 })
+    }
+    return NextResponse.json({ error: 'Invalid or missing JSON request body.' }, { status: 400 })
+  }
+
+  try {
+    if (!body || typeof body.tenantId !== 'string' || typeof body.fileData !== 'string') {
+      return NextResponse.json({ error: 'Business ID and invoice file data are required.' }, { status: 400 })
     }
 
-    // Validate it's a base64 data URL
-    const match = fileData.match(/^data:([^;]+);base64,(.+)$/)
+    const access = await requireAuthAndTenant(req, body.tenantId)
+    if (access instanceof NextResponse) return access
+
+    const match = body.fileData.match(/^data:(application\/pdf|image\/jpeg|image\/png|image\/webp);base64,([A-Za-z0-9+/]+={0,2})$/)
     if (!match) {
-      return NextResponse.json({ error: 'Invalid file data format' }, { status: 400 })
+      return NextResponse.json({ error: 'Only PDF, JPEG, PNG, and WebP invoice files are accepted.' }, { status: 400 })
     }
 
     const mimeType = match[1]
     const base64 = match[2]
-    const isPdf = mimeType === 'application/pdf'
-    const ext = isPdf ? 'pdf' : (mimeType.split('/')[1] || 'png')
-
-    // Generate a safe filename
-    const safeName = (fileName || 'invoice').replace(/[^a-zA-Z0-9._-]/g, '_')
-    const savedName = `${safeName}_${Date.now()}.${ext}`
-
-    await mkdir(UPLOAD_DIR, { recursive: true })
-    const filePath = join(UPLOAD_DIR, savedName)
+    if (base64.length % 4 === 1) {
+      return NextResponse.json({ error: 'Invalid base64 invoice data.' }, { status: 400 })
+    }
 
     const buffer = Buffer.from(base64, 'base64')
-    await writeFile(filePath, buffer)
+    if (!buffer.length || buffer.toString('base64').replace(/=+$/, '') !== base64.replace(/=+$/, '') || !hasExpectedFileSignature(buffer, mimeType)) {
+      return NextResponse.json({ error: 'Invalid or empty invoice file.' }, { status: 400 })
+    }
+    if (buffer.length > MAX_FILE_BYTES) {
+      return NextResponse.json({ error: 'Invoice file exceeds the 10 MB limit.' }, { status: 413 })
+    }
 
-    return NextResponse.json({ fileName: savedName, size: buffer.length })
+    // The tenant comes from the authenticated membership check. Filenames are
+    // generated by the server so user input cannot escape the tenant folder.
+    const tenantDirectory = body.tenantId.replace(/[^a-zA-Z0-9_-]/g, '')
+    if (!tenantDirectory) return NextResponse.json({ error: 'Invalid business ID.' }, { status: 400 })
+
+    const savedName = `${randomUUID()}.${MIME_EXTENSIONS[mimeType]}`
+    const directory = join(UPLOAD_ROOT, tenantDirectory)
+    await mkdir(directory, { recursive: true })
+    await writeFile(join(directory, savedName), buffer, { flag: 'wx' })
+
+    return NextResponse.json(
+      { fileName: `${tenantDirectory}/${savedName}`, size: buffer.length },
+      { headers: { 'Cache-Control': 'no-store' } }
+    )
   } catch (error) {
-    console.error('Save invoice file error:', error)
-    return NextResponse.json({
-      error: 'Failed to save invoice file',
-      details: error instanceof Error ? error.message : 'Unknown error'
-    }, { status: 500 })
+    console.error('[SAVE-INVOICE-FILE] Error:', error)
+    return NextResponse.json({ error: 'Failed to save invoice file.' }, { status: 500 })
   }
 }
