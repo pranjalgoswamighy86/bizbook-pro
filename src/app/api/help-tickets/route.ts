@@ -5,12 +5,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db-soft-delete'
 import { requireAuth } from '@/lib/api-helpers'
-
-const SUPER_ADMIN_EMAILS = [
-  process.env.ADMIN_EMAIL || '',
-  process.env.INFRA_OWNER_EMAIL || '',
-  process.env.INFRASTRUCTURE_OWNER_EMAIL || '',
-].map(value => value.toLowerCase().trim()).filter(Boolean)
+import { isSystemAdminEmail } from '@/lib/system-admin'
 
 export async function POST(req: NextRequest) {
   try {
@@ -18,7 +13,7 @@ export async function POST(req: NextRequest) {
     if (auth instanceof NextResponse) return auth
 
     const user = await db.user.findUnique({ where: { id: auth.userId } })
-    if (!user || !SUPER_ADMIN_EMAILS.includes(user.email.toLowerCase())) {
+    if (!user || !isSystemAdminEmail(user.email)) {
       return NextResponse.json({ error: 'Super Admin access required' }, { status: 403 })
     }
 
