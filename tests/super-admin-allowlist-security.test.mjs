@@ -25,21 +25,25 @@ test('Help & Support authorization uses the shared server-side allowlist', () =>
 })
 
 test('subscription list and modification use the same shared allowlist', () => {
-  assert.equal(subscriptionRoute.split('isSystemAdminEmail(access.user?.email)').length - 1, 2)
+  assert.equal(subscriptionRoute.split('isSystemAdminEmail(access.email)').length - 1, 2)
   assert.ok(subscriptionRoute.includes("from '@/lib/system-admin'"))
   assert.ok(!subscriptionRoute.includes('const SYSTEM_ADMIN_EMAILS'))
 })
 
 
 test('platform-wide subscription administration does not require a workspace role', () => {
-  const listBlock = subscriptionRoute.split("if (action === 'admin-list-all')")[1]?.split("// ============================================================")[0] || ''
-  const modifyBlock = subscriptionRoute.split("if (action === 'admin-modify')")[1] || ''
-  assert.ok(listBlock.includes('requireAuth(req)'))
-  assert.ok(modifyBlock.includes('requireAuth(req)'))
-  assert.ok(!listBlock.includes('requireAuthAndRole'))
-  assert.ok(!modifyBlock.includes('requireAuthAndRole'))
-  assert.ok(listBlock.includes('isSystemAdminEmail(access.email)'))
-  assert.ok(modifyBlock.includes('isSystemAdminEmail(access.email)'))
+  const listStart = subscriptionRoute.indexOf("if (action === 'admin-list-all')")
+  const modifyStart = subscriptionRoute.indexOf("if (action === 'admin-modify')")
+  assert.ok(listStart >= 0)
+  assert.ok(modifyStart > listStart)
+  const listBlock = subscriptionRoute.slice(listStart, modifyStart)
+  const modifyBlock = subscriptionRoute.slice(modifyStart, modifyStart + 1200)
+  assert.match(listBlock, /const access = await requireAuth\\(req\\)/)
+  assert.match(listBlock, /isSystemAdminEmail\\(access\\.email\\)/)
+  assert.doesNotMatch(listBlock, /requireAuthAndRole/)
+  assert.match(modifyBlock, /const access = await requireAuth\\(req\\)/)
+  assert.match(modifyBlock, /isSystemAdminEmail\\(access\\.email\\)/)
+  assert.doesNotMatch(modifyBlock, /requireAuthAndRole/)
 })
 
 test('Super Admin subscription UI does not depend on a selected tenant', () => {
