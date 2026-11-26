@@ -63,7 +63,7 @@ interface TenantSubscription {
 }
 
 export function SuperAdminSubscriptionPanel() {
-  const { user, tenant } = useAppStore()
+  const { user } = useAppStore()
   const { toast } = useToast()
   const [subscriptions, setSubscriptions] = useState<TenantSubscription[]>([])
   const [loading, setLoading] = useState(true)
@@ -75,7 +75,7 @@ export function SuperAdminSubscriptionPanel() {
   const [isAuthorized, setIsAuthorized] = useState<boolean | null>(null)
 
   const fetchAllSubscriptions = async () => {
-    if (!tenant?.id || !user?.email) {
+    if (!user?.email) {
       setIsAuthorized(false)
       setLoading(false)
       return
@@ -88,7 +88,6 @@ export function SuperAdminSubscriptionPanel() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: 'admin-list-all',
-          tenantId: tenant.id,
         }),
       })
       const data = await res.json()
@@ -111,7 +110,7 @@ export function SuperAdminSubscriptionPanel() {
 
   useEffect(() => {
     fetchAllSubscriptions()
-  }, [tenant?.id, user?.email])
+  }, [user?.email])
 
   const handleEdit = (sub: TenantSubscription) => {
     setEditingId(sub.id)
@@ -148,7 +147,6 @@ export function SuperAdminSubscriptionPanel() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: 'admin-modify',
-          tenantId: tenant?.id,
           targetTenantId,
           modifications,
         }),
