@@ -1448,11 +1448,13 @@ export async function POST(req: NextRequest) {
       // Increment the server-side session version so all previously issued tokens
       // (cookie and Bearer fallback, on every device) become invalid immediately.
 
-      return NextResponse.json({
+      const res = NextResponse.json({
         success: true,
-        message: 'Password reset successfully',
+        message: 'Password reset successfully. Please log in again.',
         user: { id: updatedUser.id, email: updatedUser.email, name: updatedUser.name },
       })
+      clearSessionCookie(res)
+      return res
     }
 
     // ============================================================
@@ -1494,7 +1496,9 @@ export async function POST(req: NextRequest) {
         data: { password: passwordHash, sessionVersion: { increment: 1 } },
       })
 
-      return NextResponse.json({ success: true, message: 'Password changed successfully' })
+      const res = NextResponse.json({ success: true, message: 'Password changed successfully. Please log in again on all devices.' })
+      clearSessionCookie(res)
+      return res
     }
 
     return NextResponse.json({ error: 'Invalid action' }, { status: 400 })
