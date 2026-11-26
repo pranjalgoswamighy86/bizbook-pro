@@ -183,7 +183,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'queueId required' }, { status: 400 })
       }
 
-      const entry = await db.subscriptionQueue.findUnique({ where: { id: queueId } })
+      const entry = await db.subscriptionQueue.findFirst({ where: { id: queueId, tenant: { isDeleted: false } } })
       if (!entry) {
         return NextResponse.json({ error: 'Queue entry not found' }, { status: 404 })
       }
