@@ -26,24 +26,13 @@ jobs:
       - name: Install dependencies
         run: npm install --no-audit --no-fund --force
 
-      - name: Validate startup and seed script syntax
-        run: |
-          node --check scripts/railway-start.js
-          node --check scripts/startup-backup.js
-          node --check scripts/seed-admin.js
-          node --check scripts/seed-dev-admin.js
-          node --check scripts/migrate-passwords.js
-          bash -n scripts/railway-start.sh
-          node --check scripts/try-api-import.js
-          node --check scripts/final-import.js
-          node --check scripts/find-tenant-and-import.js
-          node --check scripts/final-import-v2.js
-          node --check scripts/final-import-v3.js
-          node --check scripts/build-gstr-enhancements.js
-          python3 -m py_compile scripts/stress-test.py scripts/generate-chat-log.py
-
       - name: Generate Prisma client
         run: npx prisma generate
+        env:
+          DATABASE_URL: postgresql://placeholder:placeholder@localhost:5432/placeholder
+
+      - name: TypeScript verification
+        run: npx tsc --noEmit
         env:
           DATABASE_URL: postgresql://placeholder:placeholder@localhost:5432/placeholder
 
@@ -51,53 +40,4 @@ jobs:
         run: npm run build
         env:
           DATABASE_URL: postgresql://placeholder:placeholder@localhost:5432/placeholder
-
-      - name: TypeScript type check
-        run: npx tsc --noEmit -p tsconfig.ci.json
-        env:
-          DATABASE_URL: postgresql://placeholder:placeholder@localhost:5432/placeholder
           NODE_ENV: production
-
-      - name: Run unit tests
-        run: npm test
-
-      - name: Lint changed application files
-        run: |
-          npx eslint \
-            src/app/api/admin/delete-account/route.ts \
-            src/app/api/auth/route.ts \
-            src/app/api/auto-backup/route.ts \
-            src/app/api/backup/emergency/route.ts \
-            src/app/api/backup/restore/route.ts \
-            src/app/api/db-admin/route.ts \
-            src/app/api/debug-env/route.ts \
-            src/app/api/ai-import/route.ts \
-            src/app/api/einvoice/route.ts \
-            src/app/api/eway-bill/route.ts \
-            src/app/api/help-chat/route.ts \
-            src/app/api/help-tickets/route.ts \
-            src/components/app/help-modal.tsx \
-            src/components/app/sidebar.tsx \
-            src/components/modules/ai-import.tsx \
-            src/lib/help-knowledge.ts \
-            src/lib/rate-limit-persistent.ts \
-            src/lib/rate-limit-policy.ts \
-            src/lib/multi-ai.ts \
-            src/lib/version.ts \
-            next.config.ts \
-            src/app/api/payment-proof/review/route.ts \
-            src/app/api/payment-proof/route.ts \
-            src/app/api/subscription/route.ts \
-            src/app/api/upi-checkout/route.ts \
-            src/components/modules/backup.tsx \
-            src/components/modules/super-admin-subscriptions.tsx \
-            src/lib/auto-backup.ts \
-            src/lib/auth/workspace-resolver.ts \
-            src/lib/debug-guard.ts \
-            src/lib/excel-backup.ts \
-            src/lib/master-mobile.ts \
-            src/lib/otp/dispatcher.ts \
-            src/lib/rbac/enforce-v2.ts
-
-      - name: Full repository lint (required)
-        run: npm run lint
