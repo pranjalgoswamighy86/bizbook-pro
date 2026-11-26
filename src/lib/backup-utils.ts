@@ -6,6 +6,11 @@ type BackupTable = {
   tenantWhere?: (tenantId: string, userIds: string[]) => Record<string, unknown>
 }
 
+function sanitizeBackupRows(model: string, rows: any[]): any[] {
+  if (model !== 'user') return rows
+  return rows.map(({ password: _password, ...safeUser }) => safeUser)
+}
+
 // PasswordReset is intentionally excluded: its rows contain live/recent OTPs.
 const BACKUP_TABLES: BackupTable[] = [
   { model: 'tenant', label: 'Tenant', tenantWhere: (tenantId) => ({ id: tenantId }) },
@@ -77,6 +82,8 @@ const BACKUP_TABLES: BackupTable[] = [
 /**
  * Creates a portable backup in the PascalCase shape expected by the restore
  * endpoint. A null tenantId is reserved for authenticated platform admins.
+ * Password hashes are excluded; restored accounts must use destination
+ * credentials or be provisioned through the normal account flow.
  */
 export async function buildBackupRecords(tenantId: string | null, take = 100000) {
   const userIds = tenantId
@@ -100,7 +107,7 @@ export async function buildBackupRecords(tenantId: string | null, take = 100000)
         ...(where ? { where } : {}),
         take,
       })
-      data[table.label] = rows
+      data[table.label] = sanitizeBackupRows(table.model, rows)
     } catch (error) {
       data[table.label] = []
       tableErrors.push({
