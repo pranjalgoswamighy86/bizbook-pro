@@ -16,19 +16,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db-soft-delete'
 import { requireAuth } from '@/lib/api-helpers'
-
-// Admin override email list — must match upi-checkout route
-const ADMIN_OVERRIDE_EMAILS = [
-  process.env.ADMIN_EMAIL || '',
-  process.env.INFRA_OWNER_EMAIL || '',
-  process.env.INFRASTRUCTURE_OWNER_EMAIL || '',
-].map(value => value.toLowerCase().trim()).filter(Boolean).filter(Boolean)
+import { isSystemAdminEmail } from '@/lib/system-admin'
 
 async function requireSuperAdmin(req: NextRequest) {
   const auth = await requireAuth(req)
   if (auth instanceof NextResponse) return auth
   const user = await db.user.findUnique({ where: { id: auth.userId } })
-  if (!user || !ADMIN_OVERRIDE_EMAILS.includes(user.email.toLowerCase())) {
+  if (!user || !isSystemAdminEmail(user.email)) {
     return NextResponse.json(
       { error: 'Super Admin access required' },
       { status: 403 }
@@ -49,7 +43,7 @@ export async function POST(req: NextRequest) {
     // ---------- LIST PENDING PROOFS ----------
     if (action === 'list-pending') {
       const pending = await db.subscriptionQueue.findMany({
-        where: { status: 'PROOF_SUBMITTED' },
+        where: { status: 'PROOF_SUBMITTED', tenant: { isDeleted: false } },
         include: {
           tenant: {
             select: { id: true, name: true, email: true, phone: true }
@@ -87,7 +81,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'queueId required' }, { status: 400 })
       }
 
-      const entry = await db.subscriptionQueue.findUnique({ where: { id: queueId } })
+      const entry = await db.subscriptionQueue.findFirst({ where: { id: queueId, tenant: { isDeleted: false } } })
       if (!entry) {
         return NextResponse.json({ error: 'Queue entry not found' }, { status: 404 })
       }
@@ -107,6 +101,8 @@ export async function POST(req: NextRequest) {
         const claimed = await tx.subscriptionQueue.updateMany({
           where: {
             id: queueId,
+            tenantId: entry.tenantId,
+            tenant: { isDeleted: false },
             status: 'PROOF_SUBMITTED',
             utrNumber: { not: null },
             screenshotPath: { not: null },
@@ -191,16 +187,20 @@ export async function POST(req: NextRequest) {
       if (!entry) {
         return NextResponse.json({ error: 'Queue entry not found' }, { status: 404 })
       }
-      if (entry.status === 'SUCCESS') {
-        return NextResponse.json({ error: 'Already activated, cannot reject' }, { status: 400 })
+      if (entry.status !== 'PROOF_SUBMITTED') {
+        return NextResponse.json({ error: 'Only a submitted payment proof can be rejected' }, { status: 409 })
       }
 
       console.log(`[PAYMENT-PROOF-REVIEW] Admin ${user.email} rejecting queue ${queueId}: ${reviewNotes || 'no reason'}`)
 
-      // Return to PENDING but keep the UTR/screenshot for audit
-      // User can submit a new proof (will overwrite UTR/screenshot)
-      await db.subscriptionQueue.update({
-        where: { id: queueId },
+      // Conditional transition prevents a concurrent approve/reject race.
+      const rejected = await db.subscriptionQueue.updateMany({
+        where: {
+          id: queueId,
+          tenantId: entry.tenantId,
+          tenant: { isDeleted: false },
+          status: 'PROOF_SUBMITTED',
+        },
         data: {
           status: 'PENDING',
           reviewedBy: auth.userId,
@@ -208,6 +208,9 @@ export async function POST(req: NextRequest) {
           reviewNotes: `REJECTED: ${reviewNotes || 'Admin did not provide reason'}`,
         },
       })
+      if (rejected.count !== 1) {
+        return NextResponse.json({ error: 'This proof has already been reviewed or is no longer pending' }, { status: 409 })
+      }
 
       return NextResponse.json({
         success: true,
