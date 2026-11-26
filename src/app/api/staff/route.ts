@@ -416,10 +416,12 @@ export async function POST(req: NextRequest) {
 
         // 3. Decrement the linked Creditor balance
         if (salaryPayment.creditorId) {
-          const creditor = await tx.creditor.findUnique({ where: { id: salaryPayment.creditorId } })
+          const creditor = await tx.creditor.findFirst({
+            where: { id: salaryPayment.creditorId, tenantId: access.tenantId, isDeleted: false },
+          })
           if (creditor) {
             await tx.creditor.update({
-              where: { id: creditor.id },
+              where: { id: creditor.id, tenantId: access.tenantId, isDeleted: false },
               data: { currentBalance: Math.max(0, creditor.currentBalance - numAmount) },
             })
           }
