@@ -25,7 +25,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db-soft-delete'
 import { requireAuth } from '@/lib/api-helpers'
-import { writeFile, mkdir } from 'fs/promises'
+import { isSystemAdminEmail } from '@/lib/system-admin'
+import { writeFile, mkdir, unlink } from 'fs/promises'
 import { join } from 'path'
 import { randomBytes } from 'crypto'
 
@@ -69,6 +70,7 @@ function isValidUTR(utr: string): boolean {
 }
 
 export async function POST(req: NextRequest) {
+  let createdFilePath: string | null = null
   try {
     console.log('[PAYMENT-PROOF] Upload request received')
     const auth = await requireAuth(req)
@@ -158,6 +160,7 @@ export async function POST(req: NextRequest) {
     const uniqueId = randomBytes(8).toString('hex')
     const fileName = `proof_${queueId}_${uniqueId}.${safeExt}`
     const filePath = join(UPLOAD_DIR, fileName)
+    createdFilePath = filePath
 
     await writeFile(filePath, buffer)
 
@@ -179,8 +182,8 @@ export async function POST(req: NextRequest) {
       },
     })
     if (submitted.count !== 1) {
-      const { unlink } = await import('fs/promises')
       await unlink(filePath).catch(() => undefined)
+      createdFilePath = null
       return NextResponse.json({ error: 'This payment proof was already submitted or the queue entry is no longer active' }, { status: 409 })
     }
 
@@ -194,6 +197,7 @@ export async function POST(req: NextRequest) {
       submittedAt: new Date().toISOString(),
     })
   } catch (error: any) {
+    if (createdFilePath) await unlink(createdFilePath).catch(() => undefined)
     console.error('[PAYMENT-PROOF] Upload error:', error?.message)
     return NextResponse.json(
       { error: error?.message || 'Internal server error' },
@@ -227,13 +231,7 @@ export async function GET(req: NextRequest) {
 
     // Check admin status or tenant ownership
     const user = await db.user.findUnique({ where: { id: auth.userId } })
-    const ADMIN_EMAILS = [
-  process.env.ADMIN_EMAIL || '',
-  process.env.INFRA_OWNER_EMAIL || '',
-  process.env.INFRASTRUCTURE_OWNER_EMAIL || '',
-].map(value => value.toLowerCase().trim()).filter(Boolean)
-
-    const isAdmin = user && ADMIN_EMAILS.includes(user.email.toLowerCase())
+    const isAdmin = user && isSystemAdminEmail(user.email)
     if (!isAdmin) {
       // Non-admin: must own the queue entry
       const userTenant = await db.userTenant.findFirst({
