@@ -26,4 +26,7 @@ test('password reset and change increment session version; issued tokens bind to
   assert.match(route, /createPreWorkspaceToken\(user\.id, user\.email, user\.sessionVersion \?\? 0\)/)
   assert.match(route, /createSessionToken\(userTenant\.user\.id, userTenant\.user\.email, userTenant\.user\.sessionVersion \?\? 0\)/)
   assert.doesNotMatch(route, /createSessionToken\(user\.id, user\.email\)/)
+  assert.equal((route.match(/clearSessionCookie\(res\)/g) || []).length, 2)
+  assert.match(route, /Password reset successfully\. Please log in again\./)
+  assert.match(route, /Password changed successfully\. Please log in again on all devices\./)
 })
