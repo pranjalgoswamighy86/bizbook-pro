@@ -431,7 +431,7 @@ export async function POST(req: NextRequest) {
       const newBalance = party.currentBalance + adjustment
 
       const updated = await db.party.update({
-        where: { id: party.id },
+        where: { id: party.id, tenantId: access.tenantId, isDeleted: false },
         data: { currentBalance: newBalance },
       })
 
