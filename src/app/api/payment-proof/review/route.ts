@@ -91,8 +91,8 @@ export async function POST(req: NextRequest) {
       if (!entry) {
         return NextResponse.json({ error: 'Queue entry not found' }, { status: 404 })
       }
-      if (entry.status === 'SUCCESS') {
-        return NextResponse.json({ error: 'Already activated' }, { status: 400 })
+      if (entry.status !== 'PROOF_SUBMITTED') {
+        return NextResponse.json({ error: entry.status === 'SUCCESS' ? 'Already activated' : 'No pending submitted proof to approve' }, { status: 409 })
       }
       if (!entry.utrNumber || !entry.screenshotPath) {
         return NextResponse.json({ error: 'No proof submitted for this entry' }, { status: 400 })
@@ -100,10 +100,17 @@ export async function POST(req: NextRequest) {
 
       console.log(`[PAYMENT-PROOF-REVIEW] Admin ${user.email} approving queue ${queueId} — UTR: ${entry.utrNumber}`)
 
-      // Atomic transaction: mark SUCCESS + activate subscription + record recharge
-      await db.$transaction([
-        db.subscriptionQueue.update({
-          where: { id: queueId },
+      // Claim the submitted proof and perform every financial side effect in
+      // one transaction. The conditional status update is the concurrency
+      // guard: only one reviewer can transition PROOF_SUBMITTED -> SUCCESS.
+      const approval = await db.$transaction(async (tx) => {
+        const claimed = await tx.subscriptionQueue.updateMany({
+          where: {
+            id: queueId,
+            status: 'PROOF_SUBMITTED',
+            utrNumber: { not: null },
+            screenshotPath: { not: null },
+          },
           data: {
             status: 'SUCCESS',
             completedAt: new Date(),
@@ -111,8 +118,13 @@ export async function POST(req: NextRequest) {
             reviewedAt: new Date(),
             reviewNotes: reviewNotes || `Approved by admin ${user.email} on ${new Date().toISOString()}`,
           },
-        }),
-        db.subscription.upsert({
+        })
+
+        if (claimed.count !== 1) {
+          return null
+        }
+
+        const sub = await tx.subscription.upsert({
           where: { tenantId: entry.tenantId },
           update: {
             planName: entry.planName,
@@ -133,12 +145,9 @@ export async function POST(req: NextRequest) {
             isFreeTier: false,
             endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
           },
-        }),
-      ])
+        })
 
-      const sub = await db.subscription.findUnique({ where: { tenantId: entry.tenantId } })
-      if (sub) {
-        await db.recharge.create({
+        await tx.recharge.create({
           data: {
             subscriptionId: sub.id,
             planHours: entry.planHours,
@@ -152,9 +161,15 @@ export async function POST(req: NextRequest) {
             status: 'COMPLETED',
           },
         })
+
+        return sub
+      })
+
+      if (!approval) {
+        return NextResponse.json({ error: 'This proof has already been reviewed or is no longer pending' }, { status: 409 })
       }
 
-      console.log(`[PAYMENT-PROOF-REVIEW] ✅ Approved — ${entry.planName} activated for tenant ${entry.tenantId}`)
+      console.log(`[PAYMENT-PROOF-REVIEW] Approved — ${entry.planName} activated for tenant ${entry.tenantId}`)
 
       return NextResponse.json({
         success: true,
