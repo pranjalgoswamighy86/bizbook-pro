@@ -350,13 +350,11 @@ export async function POST(req: NextRequest) {
       const { tenantId, name, phone, email, address, gstNumber } = body
       const access = await requireAuthAndTenant(req, tenantId)
       if (access instanceof NextResponse) return access
+      const scopedTenantId = access.tenantId
 
-      // Use the tenant proven by authenticated membership, not the request value.
-      const scopedTenantId = access.scopedTenantId
-
-      // Try to find existing party by name+scopedTenantId
+      // Try to find existing party by name+tenantId
       const existing = await db.party.findFirst({
-        where: { name, scopedTenantId, isDeleted: false },
+        where: { name, tenantId: scopedTenantId, isDeleted: false },
       })
 
       if (existing) {
@@ -369,11 +367,10 @@ export async function POST(req: NextRequest) {
 
         if (Object.keys(updateFields).length > 0) {
           const updated = await db.party.update({
-            where: { id: existing.id },
+            where: { id: existing.id, tenantId: scopedTenantId, isDeleted: false },
             data: updateFields,
           })
 
-          // Sync updated info to Debtor/Creditor
           await syncToDebtorCreditor(
             scopedTenantId,
             updated.name,
@@ -387,7 +384,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ party: existing })
       }
 
-      // Create new party
+      // Create new party only in the authenticated tenant
       const party = await db.party.create({
         data: {
           name,
@@ -398,11 +395,10 @@ export async function POST(req: NextRequest) {
           type: 'BOTH',
           openingBalance: 0,
           currentBalance: 0,
-          scopedTenantId,
+          tenantId: scopedTenantId,
         },
       })
 
-      // Sync to both Debtor and Creditor (default type is BOTH)
       await syncToDebtorCreditor(
         scopedTenantId,
         party.name,
