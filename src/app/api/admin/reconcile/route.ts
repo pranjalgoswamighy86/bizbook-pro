@@ -266,7 +266,7 @@ async function runAudit(tenantId: string, userId: string, userName: string) {
   stats.orphanedJEs = { total: saleJEs.length, checked: saleJEs.length, flagged: 0 }
   for (const je of saleJEs) {
     if (!je.sourceId) continue
-    const sale = await db.sale.findFirst({ where: { id: je.sourceId, tenantId, isDeleted: false }, select: { isDeleted: true, invoiceNumber: true } })
+    const sale = await db.sale.findFirst({ where: { id: je.sourceId, tenantId }, select: { isDeleted: true, invoiceNumber: true } })
     if (sale?.isDeleted) {
       // Check if a reversal JE exists
       const reversal = await db.journalEntry.findFirst({
