@@ -16,6 +16,116 @@
  */
 
 import { db } from './db'
+import { rawDb } from './db-soft-delete'
+
+type TenantUpsertArgs = {
+  where: { id: string }
+  create: Record<string, any>
+  update: Record<string, any>
+}
+
+const DIRECT_TENANT_MODELS = new Set([
+  'party', 'inventoryItem', 'product', 'account', 'staff', 'sale', 'purchase',
+  'expense', 'payment', 'receipt', 'bankTransaction', 'salaryPayment', 'debtor',
+  'creditor', 'journalEntry', 'batch', 'priceList', 'staffAttendance',
+])
+
+async function parentRecordBelongsToTenant(model: string, id: unknown, tenantId: string): Promise<boolean> {
+  if (typeof id !== 'string' || !id) return false
+  const parent = await (rawDb as any)[model].findUnique({
+    where: { id },
+    select: { id: true, tenantId: true },
+  })
+  return Boolean(parent && parent.tenantId === tenantId)
+}
+
+/**
+ * All Excel imports pass through this guard. IDs in an uploaded workbook are
+ * untrusted: a row may only update an existing record owned by this tenant,
+ * and every referenced parent record must belong to the same tenant.
+ */
+async function safeTenantUpsert(
+  model: string,
+  tenantId: string,
+  args: TenantUpsertArgs
+): Promise<any> {
+  const delegate = (rawDb as any)[model]
+  if (!delegate?.findUnique) throw new Error(`Unsupported backup model: ${model}`)
+
+  const existing = await delegate.findUnique({ where: args.where })
+  const candidate = { ...(existing || {}), ...(existing ? args.update : args.create) }
+
+  if (existing && existing.id !== args.where.id) {
+    throw new Error('Backup record identity does not match the destination record.')
+  }
+
+  if (DIRECT_TENANT_MODELS.has(model) && candidate.tenantId !== tenantId) {
+    throw new Error(`Backup record is not owned by the selected business (${model}).`)
+  }
+
+  if (model === 'productIngredient') {
+    const [productOk, inventoryOk] = await Promise.all([
+      parentRecordBelongsToTenant('product', candidate.productId, tenantId),
+      parentRecordBelongsToTenant('inventoryItem', candidate.inventoryItemId, tenantId),
+    ])
+    if (!productOk || !inventoryOk) throw new Error('Product ingredient references another business.')
+  } else if (model === 'journalEntryLine') {
+    const [entryOk, accountOk] = await Promise.all([
+      parentRecordBelongsToTenant('journalEntry', candidate.entryId, tenantId),
+      parentRecordBelongsToTenant('account', candidate.accountId, tenantId),
+    ])
+    if (!entryOk || !accountOk) throw new Error('Journal line references another business.')
+  } else if (model === 'priceListItem') {
+    const [priceListOk, inventoryOk] = await Promise.all([
+      parentRecordBelongsToTenant('priceList', candidate.priceListId, tenantId),
+      parentRecordBelongsToTenant('inventoryItem', candidate.inventoryItemId, tenantId),
+    ])
+    if (!priceListOk || !inventoryOk) throw new Error('Price-list item references another business.')
+  } else if (model === 'batch') {
+    const inventoryOk = await parentRecordBelongsToTenant('inventoryItem', candidate.inventoryItemId, tenantId)
+    if (!inventoryOk) throw new Error('Batch references inventory from another business.')
+  } else if (model === 'staffAttendance') {
+    const staffOk = await parentRecordBelongsToTenant('staff', candidate.staffId, tenantId)
+    if (!staffOk) throw new Error('Attendance record references staff from another business.')
+  } else if (model === 'salaryPayment') {
+    const [staffOk, creditorOk, accrualOk, disbursementOk] = await Promise.all([
+      parentRecordBelongsToTenant('staff', candidate.staffId, tenantId),
+      candidate.creditorId ? parentRecordBelongsToTenant('creditor', candidate.creditorId, tenantId) : Promise.resolve(true),
+      candidate.accrualJEId ? parentRecordBelongsToTenant('journalEntry', candidate.accrualJEId, tenantId) : Promise.resolve(true),
+      candidate.disbursementJEId ? parentRecordBelongsToTenant('journalEntry', candidate.disbursementJEId, tenantId) : Promise.resolve(true),
+    ])
+    if (!staffOk || !creditorOk || !accrualOk || !disbursementOk) {
+      throw new Error('Salary payment references records from another business.')
+    }
+  } else if (model === 'bankTransaction') {
+    const [saleOk, purchaseOk] = await Promise.all([
+      candidate.matchedSaleId ? parentRecordBelongsToTenant('sale', candidate.matchedSaleId, tenantId) : Promise.resolve(true),
+      candidate.matchedPurchaseId ? parentRecordBelongsToTenant('purchase', candidate.matchedPurchaseId, tenantId) : Promise.resolve(true),
+    ])
+    if (!saleOk || !purchaseOk) throw new Error('Bank transaction matches a record from another business.')
+  } else if (model === 'journalEntry' && candidate.sourceId) {
+    const sourceModelByType: Record<string, string> = {
+      SALE: 'sale',
+      PURCHASE: 'purchase',
+      EXPENSE: 'expense',
+      PAYMENT: 'payment',
+      RECEIPT: 'receipt',
+    }
+    const sourceModel = sourceModelByType[String(candidate.sourceType || '').toUpperCase()]
+    const sourceOk = sourceModel
+      ? await parentRecordBelongsToTenant(sourceModel, candidate.sourceId, tenantId)
+      : String(candidate.sourceType || '').toUpperCase() === 'MANUAL'
+    if (!sourceOk) throw new Error('Journal entry source belongs to another business.')
+  } else if (model === 'account' && candidate.parentId) {
+    const parentAccountOk = await parentRecordBelongsToTenant('account', candidate.parentId, tenantId)
+    if (!parentAccountOk) throw new Error('Account references a parent account from another business.')
+  } else if (!DIRECT_TENANT_MODELS.has(model) && !['productIngredient', 'journalEntryLine', 'priceListItem'].includes(model)) {
+    throw new Error(`Backup import is not enabled for model: ${model}`)
+  }
+
+  return (db as any)[model].upsert(args)
+}
+
 
 // ============================================================
 // Types
@@ -34,7 +144,9 @@ interface BackupMeta {
 interface SheetConfig {
   name: string
   header: string[]
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   getData: (tenantId: string) => Promise<any[]>
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   mapRow: (row: any) => Record<string, unknown>
 }
 
@@ -85,7 +197,7 @@ const SHEET_CONFIGS: SheetConfig[] = [
     name: 'ProductIngredients',
     header: ['id', 'productId', 'inventoryItemId', 'quantity', 'unit', 'notes', 'createdAt', 'updatedAt'],
     getData: (tid) => db.productIngredient.findMany({
-      where: { product: { tenantId: tid } },
+      where: { product: { tenantId: tid }, inventoryItem: { tenantId: tid } },
       include: { product: { select: { name: true } }, inventoryItem: { select: { name: true } } }
     }),
     mapRow: (r) => ({
@@ -97,13 +209,13 @@ const SHEET_CONFIGS: SheetConfig[] = [
   },
   {
     name: 'Sales',
-    header: ['id', 'invoiceNumber', 'date', 'partyName', 'partyAddress', 'partyGst', 'items', 'subtotal', 'gstAmount', 'totalAmount', 'invoiceStatus', 'paymentStatus', 'amountReceived', 'amountPaid', 'notes', 'einvoiceIrn', 'einvoiceAckNo', 'einvoiceAckDate', 'einvoiceStatus', 'isDeleted', 'deletedAt', 'createdAt', 'updatedAt'],
+    header: ['id', 'invoiceNumber', 'date', 'partyName', 'partyAddress', 'partyGst', 'items', 'subtotal', 'gstAmount', 'totalAmount', 'invoiceType', 'invoiceStatus', 'paymentStatus', 'amountReceived', 'amountPaid', 'notes', 'einvoiceIrn', 'einvoiceAckNo', 'einvoiceAckDate', 'einvoiceStatus', 'isDeleted', 'deletedAt', 'createdAt', 'updatedAt'],
     getData: (tid) => db.sale.findMany({ where: { tenantId: tid } }),
     mapRow: (r) => ({
       id: r.id, invoiceNumber: r.invoiceNumber, date: fmtDate(r.date), partyName: r.partyName,
       partyAddress: r.partyAddress || '', partyGst: r.partyGst || '', items: r.items,
       subtotal: r.subtotal, gstAmount: r.gstAmount, totalAmount: r.totalAmount,
-      invoiceStatus: r.invoiceStatus, paymentStatus: r.paymentStatus,
+      invoiceType: r.invoiceType, invoiceStatus: r.invoiceStatus, paymentStatus: r.paymentStatus,
       amountReceived: r.amountReceived, amountPaid: r.amountPaid, notes: r.notes || '',
       einvoiceIrn: r.einvoiceIrn || '', einvoiceAckNo: r.einvoiceAckNo || '',
       einvoiceAckDate: r.einvoiceAckDate || '', einvoiceStatus: r.einvoiceStatus,
@@ -217,12 +329,13 @@ const SHEET_CONFIGS: SheetConfig[] = [
   },
   {
     name: 'Creditors',
-    header: ['id', 'name', 'phone', 'email', 'address', 'gstNumber', 'openingBalance', 'currentBalance', 'isDeleted', 'deletedAt', 'createdAt', 'updatedAt'],
+    header: ['id', 'name', 'phone', 'email', 'address', 'gstNumber', 'openingBalance', 'currentBalance', 'sourceType', 'sourceId', 'isDeleted', 'deletedAt', 'createdAt', 'updatedAt'],
     getData: (tid) => db.creditor.findMany({ where: { tenantId: tid } }),
     mapRow: (r) => ({
       id: r.id, name: r.name, phone: r.phone || '', email: r.email || '',
       address: r.address || '', gstNumber: r.gstNumber || '',
       openingBalance: r.openingBalance, currentBalance: r.currentBalance,
+      sourceType: r.sourceType, sourceId: r.sourceId || '',
       isDeleted: r.isDeleted ? 'Yes' : 'No', deletedAt: fmtDate(r.deletedAt),
       createdAt: fmtDate(r.createdAt), updatedAt: fmtDate(r.updatedAt),
     }),
@@ -254,7 +367,7 @@ const SHEET_CONFIGS: SheetConfig[] = [
     name: 'JournalEntryLines',
     header: ['id', 'entryId', 'accountId', 'accountCode', 'accountName', 'debit', 'credit', 'description', 'createdAt', 'updatedAt'],
     getData: (tid) => db.journalEntryLine.findMany({
-      where: { entry: { tenantId: tid } },
+      where: { entry: { tenantId: tid }, account: { tenantId: tid } },
       include: { account: { select: { accountCode: true, name: true } } }
     }),
     mapRow: (r) => ({
@@ -266,9 +379,9 @@ const SHEET_CONFIGS: SheetConfig[] = [
   },
   {
     name: 'Batches',
-    header: ['id', 'inventoryItemId', 'itemName', 'batchNumber', 'manufacturingDate', 'expiryDate', 'quantity', 'supplier', 'notes', 'isActive', 'createdAt', 'updatedAt'],
+    header: ['id', 'inventoryItemId', 'itemNme', 'batchNumber', 'manufacturingDate', 'expiryDate', 'quantity', 'supplier', 'notes', 'isActive', 'createdAt', 'updatedAt'],
     getData: (tid) => db.batch.findMany({
-      where: { tenantId: tid },
+      where: { tenantId: tid, inventoryItem: { tenantId: tid } },
       include: { inventoryItem: { select: { name: true } } }
     }),
     mapRow: (r) => ({
@@ -294,7 +407,7 @@ const SHEET_CONFIGS: SheetConfig[] = [
     name: 'PriceListItems',
     header: ['id', 'priceListId', 'priceListName', 'inventoryItemId', 'itemName', 'price', 'createdAt', 'updatedAt'],
     getData: (tid) => db.priceListItem.findMany({
-      where: { priceList: { tenantId: tid } },
+      where: { priceList: { tenantId: tid }, inventoryItem: { tenantId: tid } },
       include: { priceList: { select: { name: true } }, inventoryItem: { select: { name: true } } }
     }),
     mapRow: (r) => ({
@@ -522,194 +635,18 @@ export async function restoreFromExcelData(
   userRole?: string
 ): Promise<{
   success: boolean
-  partial: boolean
   restoredCount: number
   errors: string[]
   details: Record<string, number>
 }> {
-  // A restore can overwrite existing records. Only a server-verified tenant
-  // MAIN_ADMIN may call this helper; never trust a client-supplied role.
+  // A workbook can overwrite existing business records; require the backend-verified MAIN_ADMIN role.
   if (userRole !== 'MAIN_ADMIN') {
-    return { success: false, partial: false, restoredCount: 0, errors: ['Only a tenant MAIN_ADMIN can restore data'], details: {} }
+    return { success: false, restoredCount: 0, errors: ['Only a MAIN_ADMIN can restore business data.'], details: {} }
   }
 
   const errors: string[] = []
   const details: Record<string, number> = {}
   let totalRestored = 0
-  const safeExcelData: Record<string, any[]> = { ...excelData }
-
-  // A malicious tenant backup can contain another tenant's globally-unique
-  // record IDs. Since upsert(where: { id }) would update those rows, first
-  // remove any IDs already owned by a different tenant.
-  const tenantScopedModels: Array<[string, string]> = [
-    ['Parties', 'party'],
-    ['Inventory', 'inventoryItem'],
-    ['Products', 'product'],
-    ['Accounts', 'account'],
-    ['Staff', 'staff'],
-    ['Sales', 'sale'],
-    ['Purchases', 'purchase'],
-    ['Expenses', 'expense'],
-    ['Payments', 'payment'],
-    ['Receipts', 'receipt'],
-    ['BankTransactions', 'bankTransaction'],
-    ['SalaryPayments', 'salaryPayment'],
-    ['Debtors', 'debtor'],
-    ['Creditors', 'creditor'],
-    ['JournalEntries', 'journalEntry'],
-    ['Batches', 'batch'],
-    ['PriceLists', 'priceList'],
-    ['Attendance', 'staffAttendance'],
-  ]
-
-  const importedIdsBySheet: Record<string, Set<string>> = {}
-
-  const chunksOf = <T,>(items: T[], size = 500): T[][] => {
-    const chunks: T[][] = []
-    for (let index = 0; index < items.length; index += size) {
-      chunks.push(items.slice(index, index + size))
-    }
-    return chunks
-  }
-
-  try {
-    for (const [sheetName, modelName] of tenantScopedModels) {
-      const rows = Array.isArray(safeExcelData[sheetName]) ? safeExcelData[sheetName] : []
-      const ids = [...new Set(rows.map(row => String(row?.id || '').trim()).filter(Boolean))]
-      const foreignIds = new Set<string>()
-      const model = (db as any)[modelName]
-
-      for (const chunk of chunksOf(ids)) {
-        const existing = await model.findMany({
-          where: { id: { in: chunk } },
-          select: { id: true, tenantId: true },
-        })
-        for (const record of existing) {
-          if (record.tenantId !== tenantId) foreignIds.add(record.id)
-        }
-      }
-
-      const safeRows = rows.filter(row => {
-        const id = String(row?.id || '').trim()
-        return Boolean(id) && !foreignIds.has(id)
-      })
-      const skipped = rows.length - safeRows.length
-      if (skipped > 0) {
-        errors.push(`${sheetName}: skipped ${skipped} row(s) with missing IDs or records owned by another business.`)
-      }
-      safeExcelData[sheetName] = safeRows
-      importedIdsBySheet[sheetName] = new Set(safeRows.map(row => String(row.id)))
-    }
-
-    // Child tables without tenantId are scoped through their parent records.
-    const childOwnershipChecks = [
-      {
-        sheetName: 'JournalEntryLines',
-        model: (db as any).journalEntryLine,
-        include: { entry: { select: { tenantId: true } }, account: { select: { tenantId: true } } },
-        isOwned: (record: any) => record.entry?.tenantId === tenantId && record.account?.tenantId === tenantId,
-      },
-      {
-        sheetName: 'PriceListItems',
-        model: (db as any).priceListItem,
-        include: { priceList: { select: { tenantId: true } }, inventoryItem: { select: { tenantId: true } } },
-        isOwned: (record: any) => record.priceList?.tenantId === tenantId && record.inventoryItem?.tenantId === tenantId,
-      },
-      {
-        sheetName: 'ProductIngredients',
-        model: (db as any).productIngredient,
-        include: { product: { select: { tenantId: true } }, inventoryItem: { select: { tenantId: true } } },
-        isOwned: (record: any) => record.product?.tenantId === tenantId && record.inventoryItem?.tenantId === tenantId,
-      },
-    ]
-
-    for (const check of childOwnershipChecks) {
-      const rows = Array.isArray(safeExcelData[check.sheetName]) ? safeExcelData[check.sheetName] : []
-      const ids = [...new Set(rows.map(row => String(row?.id || '').trim()).filter(Boolean))]
-      const foreignIds = new Set<string>()
-      for (const chunk of chunksOf(ids)) {
-        const existing = await check.model.findMany({
-          where: { id: { in: chunk } },
-          include: check.include,
-        })
-        for (const record of existing) {
-          if (!check.isOwned(record)) foreignIds.add(record.id)
-        }
-      }
-      const safeRows = rows.filter(row => {
-        const id = String(row?.id || '').trim()
-        return Boolean(id) && !foreignIds.has(id)
-      })
-      const skipped = rows.length - safeRows.length
-      if (skipped > 0) {
-        errors.push(`${check.sheetName}: skipped ${skipped} row(s) linked to another business or missing an ID.`)
-      }
-      safeExcelData[check.sheetName] = safeRows
-    }
-
-    // Validate foreign-key-like IDs before upserting. An ID is allowed only
-    // when it already belongs to this tenant or is included in this backup.
-    const allowedReferenceIds = async (
-      modelName: string,
-      ids: string[],
-      parentSheet: string
-    ): Promise<Set<string>> => {
-      const allowed = new Set(importedIdsBySheet[parentSheet] || [])
-      const model = (db as any)[modelName]
-      for (const chunk of chunksOf([...new Set(ids.filter(Boolean))])) {
-        const existing = await model.findMany({
-          where: { id: { in: chunk } },
-          select: { id: true, tenantId: true },
-        })
-        for (const record of existing) {
-          if (record.tenantId === tenantId) allowed.add(record.id)
-          else allowed.delete(record.id)
-        }
-      }
-      return allowed
-    }
-
-    const referenceChecks = [
-      { sheetName: 'Accounts', field: 'parentId', model: 'account', parentSheet: 'Accounts', optional: true },
-      { sheetName: 'SalaryPayments', field: 'staffId', model: 'staff', parentSheet: 'Staff', optional: false },
-      { sheetName: 'Batches', field: 'inventoryItemId', model: 'inventoryItem', parentSheet: 'Inventory', optional: false },
-      { sheetName: 'Attendance', field: 'staffId', model: 'staff', parentSheet: 'Staff', optional: false },
-      { sheetName: 'JournalEntryLines', field: 'entryId', model: 'journalEntry', parentSheet: 'JournalEntries', optional: false },
-      { sheetName: 'JournalEntryLines', field: 'accountId', model: 'account', parentSheet: 'Accounts', optional: false },
-      { sheetName: 'PriceListItems', field: 'priceListId', model: 'priceList', parentSheet: 'PriceLists', optional: false },
-      { sheetName: 'PriceListItems', field: 'inventoryItemId', model: 'inventoryItem', parentSheet: 'Inventory', optional: false },
-      { sheetName: 'ProductIngredients', field: 'productId', model: 'product', parentSheet: 'Products', optional: false },
-      { sheetName: 'ProductIngredients', field: 'inventoryItemId', model: 'inventoryItem', parentSheet: 'Inventory', optional: false },
-      { sheetName: 'BankTransactions', field: 'matchedSaleId', model: 'sale', parentSheet: 'Sales', optional: true },
-      { sheetName: 'BankTransactions', field: 'matchedPurchaseId', model: 'purchase', parentSheet: 'Purchases', optional: true },
-    ]
-
-    for (const check of referenceChecks) {
-      const rows = Array.isArray(safeExcelData[check.sheetName]) ? safeExcelData[check.sheetName] : []
-      if (rows.length === 0) continue
-      const ids = rows.map(row => String(row?.[check.field] || '').trim()).filter(Boolean)
-      const allowed = await allowedReferenceIds(check.model, ids, check.parentSheet)
-      const safeRows = rows.filter(row => {
-        const id = String(row?.[check.field] || '').trim()
-        if (!id) return check.optional
-        return allowed.has(id)
-      })
-      const skipped = rows.length - safeRows.length
-      if (skipped > 0) {
-        errors.push(`${check.sheetName}: skipped ${skipped} row(s) with references outside this business or missing required references.`)
-      }
-      safeExcelData[check.sheetName] = safeRows
-    }
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    return {
-      success: false,
-      partial: false,
-      restoredCount: 0,
-      errors: [`Backup ownership validation failed; no records were restored. ${message}`],
-      details: {},
-    }
-  }
 
   // Restore order: independent entities first, then dependent ones
   const restoreOrder = [
@@ -737,7 +674,7 @@ export async function restoreFromExcelData(
   ]
 
   for (const sheetName of restoreOrder) {
-    const rows = safeExcelData[sheetName]
+    const rows = excelData[sheetName]
     if (!rows || rows.length === 0) continue
 
     let sheetCount = 0
@@ -747,7 +684,7 @@ export async function restoreFromExcelData(
         case 'Parties':
           for (const row of rows) {
             try {
-              await db.party.upsert({
+              await safeTenantUpsert('party', tenantId, {
                 where: { id: String(row.id || '') },
                 update: {
                   name: String(row.name || 'Unknown'),
@@ -788,7 +725,7 @@ export async function restoreFromExcelData(
         case 'Inventory':
           for (const row of rows) {
             try {
-              await db.inventoryItem.upsert({
+              await safeTenantUpsert('inventoryItem', tenantId, {
                 where: { id: String(row.id || '') },
                 update: {
                   name: String(row.name || 'Unknown'),
@@ -843,7 +780,7 @@ export async function restoreFromExcelData(
         case 'Products':
           for (const row of rows) {
             try {
-              await db.product.upsert({
+              await safeTenantUpsert('product', tenantId, {
                 where: { id: String(row.id || '') },
                 update: {
                   name: String(row.name || 'Unknown'),
@@ -880,7 +817,7 @@ export async function restoreFromExcelData(
         case 'ProductIngredients':
           for (const row of rows) {
             try {
-              await db.productIngredient.upsert({
+              await safeTenantUpsert('productIngredient', tenantId, {
                 where: { id: String(row.id || '') },
                 update: {
                   productId: String(row.productId || ''),
@@ -890,7 +827,7 @@ export async function restoreFromExcelData(
                   notes: strOrNull(row.notes),
                 },
                 create: {
-                  id: String(row.id),
+                  id: String(row.id || ''),
                   productId: String(row.productId || ''),
                   inventoryItemId: String(row.inventoryItemId || ''),
                   quantity: num(row.quantity),
@@ -900,7 +837,7 @@ export async function restoreFromExcelData(
               })
               sheetCount++
             } catch (e: any) {
-              errors.push(`Product ingredient "${row.id}": ${e.message}`)
+              errors.push(`ProductIngredient "${row.id}": ${e.message}`)
             }
           }
           break
@@ -908,7 +845,7 @@ export async function restoreFromExcelData(
         case 'Accounts':
           for (const row of rows) {
             try {
-              await db.account.upsert({
+              await safeTenantUpsert('account', tenantId, {
                 where: { id: String(row.id || '') },
                 update: {
                   accountCode: String(row.accountCode || ''),
@@ -939,7 +876,7 @@ export async function restoreFromExcelData(
         case 'Staff':
           for (const row of rows) {
             try {
-              await db.staff.upsert({
+              await safeTenantUpsert('staff', tenantId, {
                 where: { id: String(row.id || '') },
                 update: {
                   name: String(row.name || 'Unknown'),
@@ -986,7 +923,7 @@ export async function restoreFromExcelData(
         case 'Sales':
           for (const row of rows) {
             try {
-              await db.sale.upsert({
+              await safeTenantUpsert('sale', tenantId, {
                 where: { id: String(row.id || '') },
                 update: {
                   invoiceNumber: String(row.invoiceNumber || ''),
@@ -1053,7 +990,7 @@ export async function restoreFromExcelData(
         case 'Purchases':
           for (const row of rows) {
             try {
-              await db.purchase.upsert({
+              await safeTenantUpsert('purchase', tenantId, {
                 where: { id: String(row.id || '') },
                 update: {
                   invoiceNumber: String(row.invoiceNumber || ''),
@@ -1100,7 +1037,7 @@ export async function restoreFromExcelData(
         case 'Expenses':
           for (const row of rows) {
             try {
-              await db.expense.upsert({
+              await safeTenantUpsert('expense', tenantId, {
                 where: { id: String(row.id || '') },
                 update: {
                   date: dateOrNow(row.date),
@@ -1137,7 +1074,7 @@ export async function restoreFromExcelData(
         case 'Payments':
           for (const row of rows) {
             try {
-              await db.payment.upsert({
+              await safeTenantUpsert('payment', tenantId, {
                 where: { id: String(row.id || '') },
                 update: {
                   date: dateOrNow(row.date),
@@ -1176,7 +1113,7 @@ export async function restoreFromExcelData(
         case 'Receipts':
           for (const row of rows) {
             try {
-              await db.receipt.upsert({
+              await safeTenantUpsert('receipt', tenantId, {
                 where: { id: String(row.id || '') },
                 update: {
                   date: dateOrNow(row.date),
@@ -1215,7 +1152,7 @@ export async function restoreFromExcelData(
         case 'BankTransactions':
           for (const row of rows) {
             try {
-              await db.bankTransaction.upsert({
+              await safeTenantUpsert('bankTransaction', tenantId, {
                 where: { id: String(row.id || '') },
                 update: {
                   date: dateOrNow(row.date),
@@ -1258,7 +1195,7 @@ export async function restoreFromExcelData(
         case 'SalaryPayments':
           for (const row of rows) {
             try {
-              await db.salaryPayment.upsert({
+              await safeTenantUpsert('salaryPayment', tenantId, {
                 where: { id: String(row.id || '') },
                 update: {
                   staffId: String(row.staffId || ''),
@@ -1295,7 +1232,7 @@ export async function restoreFromExcelData(
         case 'Debtors':
           for (const row of rows) {
             try {
-              await db.debtor.upsert({
+              await safeTenantUpsert('debtor', tenantId, {
                 where: { id: String(row.id || '') },
                 update: {
                   name: String(row.name || 'Unknown'),
@@ -1332,7 +1269,7 @@ export async function restoreFromExcelData(
         case 'Creditors':
           for (const row of rows) {
             try {
-              await db.creditor.upsert({
+              await safeTenantUpsert('creditor', tenantId, {
                 where: { id: String(row.id || '') },
                 update: {
                   name: String(row.name || 'Unknown'),
@@ -1371,7 +1308,7 @@ export async function restoreFromExcelData(
         case 'JournalEntries':
           for (const row of rows) {
             try {
-              await db.journalEntry.upsert({
+              await safeTenantUpsert('journalEntry', tenantId, {
                 where: { id: String(row.id || '') },
                 update: {
                   entryDate: dateOrNow(row.entryDate),
@@ -1404,7 +1341,7 @@ export async function restoreFromExcelData(
         case 'JournalEntryLines':
           for (const row of rows) {
             try {
-              await db.journalEntryLine.upsert({
+              await safeTenantUpsert('journalEntryLine', tenantId, {
                 where: { id: String(row.id || '') },
                 update: {
                   entryId: String(row.entryId || ''),
@@ -1432,7 +1369,7 @@ export async function restoreFromExcelData(
         case 'Batches':
           for (const row of rows) {
             try {
-              await db.batch.upsert({
+              await safeTenantUpsert('batch', tenantId, {
                 where: { id: String(row.id || '') },
                 update: {
                   inventoryItemId: String(row.inventoryItemId || ''),
@@ -1467,7 +1404,7 @@ export async function restoreFromExcelData(
         case 'PriceLists':
           for (const row of rows) {
             try {
-              await db.priceList.upsert({
+              await safeTenantUpsert('priceList', tenantId, {
                 where: { id: String(row.id || '') },
                 update: {
                   name: String(row.name || ''),
@@ -1494,7 +1431,7 @@ export async function restoreFromExcelData(
         case 'PriceListItems':
           for (const row of rows) {
             try {
-              await db.priceListItem.upsert({
+              await safeTenantUpsert('priceListItem', tenantId, {
                 where: { id: String(row.id || '') },
                 update: {
                   priceListId: String(row.priceListId || ''),
@@ -1518,7 +1455,7 @@ export async function restoreFromExcelData(
         case 'Attendance':
           for (const row of rows) {
             try {
-              await db.staffAttendance.upsert({
+              await safeTenantUpsert('staffAttendance', tenantId, {
                 where: { id: String(row.id || '') },
                 update: {
                   staffId: String(row.staffId || ''),
@@ -1567,9 +1504,7 @@ export async function restoreFromExcelData(
   }
 
   return {
-    // A partial import must never be reported as a complete success.
-    success: errors.length === 0,
-    partial: errors.length > 0 && totalRestored > 0,
+    success: errors.length === 0 || totalRestored > 0,
     restoredCount: totalRestored,
     errors,
     details,
