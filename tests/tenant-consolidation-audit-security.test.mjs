@@ -27,3 +27,14 @@ test('tenant consolidation audit contains no business-data mutation statements',
   assert.doesNotMatch(source, /\.user\.update\(|\.tenant\.update\(|\.userTenant\.update/)
   assert.doesNotMatch(source, /DELETE FROM|UPDATE "Tenant"|UPDATE "User"|INSERT INTO/)
 })
+
+test('tenant consolidation audit discovers matching tenant names beyond account links', () => {
+  assert.match(source, /TENANT_AUDIT_TENANT_NAMES/)
+  assert.match(source, /LOWER\(BTRIM\(name\)\)/)
+  assert.match(source, /inspectedTenantNames/)
+})
+
+test('tenant row inventory counts base tables rather than views', () => {
+  assert.match(source, /information_schema\.tables/)
+  assert.match(source, /t\.table_type = 'BASE TABLE'/)
+})
