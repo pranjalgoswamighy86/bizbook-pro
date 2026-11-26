@@ -8,7 +8,7 @@ const subscriptionRoute = readFileSync('src/app/api/subscription/route.ts', 'utf
 
 test('shared system-admin allowlist parses ADMIN_BYPASS_EMAILS lists', () => {
   assert.ok(helper.includes('process.env.ADMIN_BYPASS_EMAILS'))
-  assert.ok(helper.includes('.split(/[,;\\s]+/)'))
+  assert.ok(helper.includes('.split(/[ ,;\\s]+/)') || helper.includes('.split(/[,;\\s]+/)'))
   assert.ok(helper.includes('.toLowerCase().trim()'))
 })
 
@@ -25,7 +25,7 @@ test('Help & Support authorization uses the shared server-side allowlist', () =>
 })
 
 test('subscription list and modification use the same shared allowlist', () => {
-  assert.equal((subscriptionRoute.match(/isSystemAdminEmail\\(access\\.user\\?\\.email\\)/g) || []).length, 2)
+  assert.equal(subscriptionRoute.split('isSystemAdminEmail(access.user?.email)').length - 1, 2)
   assert.ok(subscriptionRoute.includes("from '@/lib/system-admin'"))
   assert.ok(!subscriptionRoute.includes('const SYSTEM_ADMIN_EMAILS'))
 })
