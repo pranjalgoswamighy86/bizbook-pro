@@ -18,6 +18,10 @@ const emails = String(process.env.TENANT_AUDIT_EMAILS || '')
   .split(',')
   .map(value => value.trim().toLowerCase())
   .filter(Boolean)
+const tenantNames = String(process.env.TENANT_AUDIT_TENANT_NAMES || 'Tahigo International')
+  .split(',')
+  .map(value => value.trim().toLowerCase())
+  .filter(Boolean)
 
 if (process.env.TENANT_AUDIT_ISOLATED_DB !== 'YES') {
   console.error('Refusing to run: set TENANT_AUDIT_ISOLATED_DB=YES only for a verified isolated database copy.')
@@ -73,18 +77,216 @@ async function main() {
       )
     }
 
-    const tenantIds = [...new Set([
+    const linkedTenantIds = [...new Set([
       ...users.map(user => user.primaryTenantId),
       ...memberships.map(item => item.tenantId),
     ].filter(Boolean))]
-    const tenantPlaceholders = tenantIds.map((_, index) => '$' + (index + 1)).join(', ')
+    const tenantConditions = []
+    const tenantParams = []
+    if (linkedTenantIds.length) {
+      const linkedPlaceholders = linkedTenantIds.map((_, index) => '      `SELECT tc.table_name AS "childTable", kcu.column_name AS "childColumn",
+              ccu.table_name AS "parentTable", ccu.column_name AS "parentColumn",
+              tc.constraint_name AS "constraintName"
+         FROM information_schema.table_constraints tc
+         JOIN information_schema.key_column_usage kcu
+           ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema
+         JOIN information_schema.constraint_column_usage ccu
+           ON ccu.constraint_name = tc.constraint_name AND ccu.constraint_schema = tc.table_schema
+        WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = 'public'
+        ORDER BY tc.table_name, tc.constraint_name`
+    )
+
+    const tenantUniqueConstraints = await tx.$queryRawUnsafe(
+      `SELECT tc.table_name AS "tableName", tc.constraint_name AS "constraintName",
+              string_agg(kcu.column_name, ', ' ORDER BY kcu.ordinal_position) AS columns
+         FROM information_schema.table_constraints tc
+         JOIN information_schema.key_column_usage kcu
+           ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema
+        WHERE tc.constraint_type = 'UNIQUE' AND tc.table_schema = 'public'
+        GROUP BY tc.table_name, tc.constraint_name
+       HAVING bool_or(kcu.column_name = 'tenantId')
+        ORDER BY tc.table_name, tc.constraint_name`
+    )
+
+    return {
+      database: { name: database.database, readOnly: database.read_only },
+      inspectedEmails: emails,
+      inspectedTenantNames: tenantNames,
+      users,
+      memberships,
+      candidateTenants: tenantRows,
+      tenantScopedRowCounts: tenantCounts,
+      tenantScopedUniqueConstraints: tenantUniqueConstraints,
+      foreignKeyDependencyGraph: foreignKeys,
+      notes: [
+        'Candidate tenants include records linked to the inspected users and exact case-insensitive tenant-name matches.',
+        'Only base tables with a direct tenantId column are counted in tenantScopedRowCounts.'
+        'foreignKeyDependencyGraph identifies indirect child tables that need separate ID/link checks.',
+        'Unique constraints are inventoried, not automatically resolved.',
+        'No tenant or user rows were modified.',
+      ],
+    }
+  }, { timeout: 120000 })
+
+  console.log(JSON.stringify(report, null, 2))
+}
+
+main()
+  .catch(error => {
+    console.error('Tenant audit failed:', error.message)
+    process.exitCode = 1
+  })
+  .finally(async () => prisma.$disconnect())
+ + (index + 1)).join(', ')
+      tenantConditions.push(`id IN (${linkedPlaceholders})`)
+      tenantParams.push(...linkedTenantIds)
+    }
+    if (tenantNames.length) {
+      const namePlaceholders = tenantNames.map((_, index) => '      `SELECT tc.table_name AS "childTable", kcu.column_name AS "childColumn",
+              ccu.table_name AS "parentTable", ccu.column_name AS "parentColumn",
+              tc.constraint_name AS "constraintName"
+         FROM information_schema.table_constraints tc
+         JOIN information_schema.key_column_usage kcu
+           ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema
+         JOIN information_schema.constraint_column_usage ccu
+           ON ccu.constraint_name = tc.constraint_name AND ccu.constraint_schema = tc.table_schema
+        WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = 'public'
+        ORDER BY tc.table_name, tc.constraint_name`
+    )
+
+    const tenantUniqueConstraints = await tx.$queryRawUnsafe(
+      `SELECT tc.table_name AS "tableName", tc.constraint_name AS "constraintName",
+              string_agg(kcu.column_name, ', ' ORDER BY kcu.ordinal_position) AS columns
+         FROM information_schema.table_constraints tc
+         JOIN information_schema.key_column_usage kcu
+           ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema
+        WHERE tc.constraint_type = 'UNIQUE' AND tc.table_schema = 'public'
+        GROUP BY tc.table_name, tc.constraint_name
+       HAVING bool_or(kcu.column_name = 'tenantId')
+        ORDER BY tc.table_name, tc.constraint_name`
+    )
+
+    const tenantRows = tenantIds.length
+      ? await tx.$queryRawUnsafe(
+          `SELECT id, name, "isDeleted", "createdAt"
+             FROM "Tenant" WHERE id IN (${tenantPlaceholders}) ORDER BY id`,
+          ...tenantIds
+        )
+      : []
+
+    return {
+      database: { name: database.database, readOnly: database.read_only },
+      inspectedEmails: emails,
+      users,
+      memberships,
+      candidateTenants: tenantRows,
+      tenantScopedRowCounts: tenantCounts,
+      tenantScopedUniqueConstraints: tenantUniqueConstraints,
+      foreignKeyDependencyGraph: foreignKeys,
+      notes: [
+        'Only tables with a direct tenantId column are counted in tenantScopedRowCounts.',
+        'foreignKeyDependencyGraph identifies indirect child tables that need separate ID/link checks.',
+        'Unique constraints are inventoried, not automatically resolved.',
+        'No tenant or user rows were modified.',
+      ],
+    }
+  }, { timeout: 120000 })
+
+  console.log(JSON.stringify(report, null, 2))
+}
+
+main()
+  .catch(error => {
+    console.error('Tenant audit failed:', error.message)
+    process.exitCode = 1
+  })
+  .finally(async () => prisma.$disconnect())
+ + (tenantParams.length + index + 1)).join(', ')
+      tenantConditions.push(`LOWER(BTRIM(name)) IN (${namePlaceholders})`)
+      tenantParams.push(...tenantNames)
+    }
+    const tenantRows = tenantConditions.length
+      ? await tx.$queryRawUnsafe(
+          `SELECT id, name, "isDeleted", "createdAt"
+             FROM "Tenant" WHERE ${tenantConditions.join(' OR ')} ORDER BY id`,
+          ...tenantParams
+        )
+      : []
+    const tenantIds = [...new Set([
+      ...linkedTenantIds,
+      ...tenantRows.map(tenant => tenant.id),
+    ])]
+    const tenantPlaceholders = tenantIds.map((_, index) => '      `SELECT tc.table_name AS "childTable", kcu.column_name AS "childColumn",
+              ccu.table_name AS "parentTable", ccu.column_name AS "parentColumn",
+              tc.constraint_name AS "constraintName"
+         FROM information_schema.table_constraints tc
+         JOIN information_schema.key_column_usage kcu
+           ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema
+         JOIN information_schema.constraint_column_usage ccu
+           ON ccu.constraint_name = tc.constraint_name AND ccu.constraint_schema = tc.table_schema
+        WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = 'public'
+        ORDER BY tc.table_name, tc.constraint_name`
+    )
+
+    const tenantUniqueConstraints = await tx.$queryRawUnsafe(
+      `SELECT tc.table_name AS "tableName", tc.constraint_name AS "constraintName",
+              string_agg(kcu.column_name, ', ' ORDER BY kcu.ordinal_position) AS columns
+         FROM information_schema.table_constraints tc
+         JOIN information_schema.key_column_usage kcu
+           ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema
+        WHERE tc.constraint_type = 'UNIQUE' AND tc.table_schema = 'public'
+        GROUP BY tc.table_name, tc.constraint_name
+       HAVING bool_or(kcu.column_name = 'tenantId')
+        ORDER BY tc.table_name, tc.constraint_name`
+    )
+
+    const tenantRows = tenantIds.length
+      ? await tx.$queryRawUnsafe(
+          `SELECT id, name, "isDeleted", "createdAt"
+             FROM "Tenant" WHERE id IN (${tenantPlaceholders}) ORDER BY id`,
+          ...tenantIds
+        )
+      : []
+
+    return {
+      database: { name: database.database, readOnly: database.read_only },
+      inspectedEmails: emails,
+      users,
+      memberships,
+      candidateTenants: tenantRows,
+      tenantScopedRowCounts: tenantCounts,
+      tenantScopedUniqueConstraints: tenantUniqueConstraints,
+      foreignKeyDependencyGraph: foreignKeys,
+      notes: [
+        'Only tables with a direct tenantId column are counted in tenantScopedRowCounts.',
+        'foreignKeyDependencyGraph identifies indirect child tables that need separate ID/link checks.',
+        'Unique constraints are inventoried, not automatically resolved.',
+        'No tenant or user rows were modified.',
+      ],
+    }
+  }, { timeout: 120000 })
+
+  console.log(JSON.stringify(report, null, 2))
+}
+
+main()
+  .catch(error => {
+    console.error('Tenant audit failed:', error.message)
+    process.exitCode = 1
+  })
+  .finally(async () => prisma.$disconnect())
+ + (index + 1)).join(', ')
     const tenantCounts = []
     if (tenantIds.length) {
       const tables = await tx.$queryRawUnsafe(
-        `SELECT DISTINCT table_name AS "tableName"
-           FROM information_schema.columns
-          WHERE table_schema = 'public' AND column_name = 'tenantId'
-          ORDER BY table_name`
+        `SELECT DISTINCT c.table_name AS "tableName"
+           FROM information_schema.columns c
+           JOIN information_schema.tables t
+             ON t.table_schema = c.table_schema AND t.table_name = c.table_name
+          WHERE c.table_schema = current_schema()
+            AND c.column_name = 'tenantId'
+            AND t.table_type = 'BASE TABLE'
+          ORDER BY c.table_name`
       )
       for (const { tableName } of tables) {
         // Table names originate from information_schema and are quoted as identifiers.
