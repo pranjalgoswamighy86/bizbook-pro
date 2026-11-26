@@ -304,6 +304,14 @@ export async function POST(req: NextRequest) {
         results.push({ table: label, imported: 0, updated: 0, skipped })
         continue
       }
+      if (model === 'userTenant' || model === 'helpSupportTicket') {
+        // Portable restores must not replay access roles/ownership or account-linked
+        // support history when account identities are intentionally not restored.
+        const skipped = sourceRows.length
+        totalSkipped += skipped
+        results.push({ table: label, imported: 0, updated: 0, skipped })
+        continue
+      }
       if (tenantId && model === 'tenant') {
         // Tenant subscription, billing, verification and feature flags are
         // platform-controlled; business restore must not overwrite them.
