@@ -440,7 +440,7 @@ export async function POST(req: NextRequest) {
         const debtor = await db.debtor.findFirst({ where: { name: partyName, tenantId: access.tenantId, isDeleted: false } })
         if (debtor) {
           await db.debtor.update({
-            where: { id: debtor.id },
+            where: { id: debtor.id, tenantId: access.tenantId, isDeleted: false },
             data: { currentBalance: debtor.currentBalance + adjustment },
           })
         }
@@ -450,7 +450,7 @@ export async function POST(req: NextRequest) {
         const creditor = await db.creditor.findFirst({ where: { name: partyName, tenantId: access.tenantId, isDeleted: false } })
         if (creditor) {
           await db.creditor.update({
-            where: { id: creditor.id },
+            where: { id: creditor.id, tenantId: access.tenantId, isDeleted: false },
             data: { currentBalance: creditor.currentBalance + adjustment },
           })
         }
