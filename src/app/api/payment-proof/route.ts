@@ -31,7 +31,7 @@ import { randomBytes } from 'crypto'
 
 // Railway mounts the persistent application volume at /app/data.
 // Keep proof files on that volume instead of the ephemeral container layer.
-const DATA_DIR = join(process.cwd(), 'data')
+const DATA_DIR = process.env.RAILWAY_ENVIRONMENT ? '/app/data' : join(process.cwd(), 'data')
 const UPLOAD_DIR = join(DATA_DIR, 'payment-proofs')
 const MAX_FILE_SIZE = 1 * 1024 * 1024 // 1MB (v4.48: was 5MB, reduced per user request)
 const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'application/pdf']
