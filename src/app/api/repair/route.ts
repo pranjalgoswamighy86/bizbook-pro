@@ -14,9 +14,10 @@ export async function POST(req: NextRequest) {
       const access = await requireAuthAndRole(req, tenantId, ['MAIN_ADMIN'])
       if (access instanceof NextResponse) return access
 
-      // 1. Find ALL UserTenant records where isOwner = true but role != MAIN_ADMIN
+      // 1. Repair owner roles only within the authenticated tenant.
+      // This endpoint must never mutate owner/user records in other tenants.
       const corruptedOwners = await db.userTenant.findMany({
-        where: { isOwner: true, role: { not: 'MAIN_ADMIN' } },
+        where: { tenantId: access.tenantId, isOwner: true, role: { not: 'MAIN_ADMIN' } },
         include: { user: true, tenant: true },
       })
 
@@ -27,7 +28,7 @@ export async function POST(req: NextRequest) {
           data: { role: 'MAIN_ADMIN' },
         })
         await db.user.update({
-          where: { id: ut.userId },
+          where: { id: ut.userId, tenantId: access.tenantId },
           data: { role: 'MAIN_ADMIN' },
         })
         console.log(`[REPAIR] Fixed owner ${ut.user.email} in ${ut.tenant.name}: ${ut.role} → MAIN_ADMIN`)
@@ -36,7 +37,7 @@ export async function POST(req: NextRequest) {
 
       // 2. Pool hours across all companies owned by this user
       const allUserTenants = await db.userTenant.findMany({
-        where: { userId: access.userId, role: 'MAIN_ADMIN', isOwner: true },
+        where: { userId: access.userId, role: 'MAIN_ADMIN', isOwner: true, tenant: { isDeleted: false } },
         select: { tenantId: true },
       })
       const allTenantIds = allUserTenants.map(ut => ut.tenantId)
@@ -67,7 +68,7 @@ export async function POST(req: NextRequest) {
       }
 
       await writeAuditLog({
-        tenantId,
+        tenantId: access.tenantId,
         userId: access.userId,
         userName: access.user.name,
         action: 'UPDATE',
