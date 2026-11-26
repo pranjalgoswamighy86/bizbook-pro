@@ -197,6 +197,8 @@ function getBackupRows(data: Record<string, unknown>, label: string, model: stri
 
 function cleanRecord(record: Record<string, any>) {
   const cleaned = { ...record }
+  // Backup payloads are untrusted and must never set or reset account passwords.
+  delete cleaned.password
   for (const relation of [
     '_count', 'tenant', 'user', 'userTenants', 'sales', 'purchases', 'expenses',
     'inventory', 'items', 'ingredients', 'subscription', 'subscriptions', 'entry',
