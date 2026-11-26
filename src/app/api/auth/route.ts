@@ -102,8 +102,8 @@ async function findTenantByPhone(phone: string) {
  *  in localStorage and send it via Authorization header as a fallback
  *  when cookies are blocked (e.g., in cross-site iframes).
  */
-function buildLoginResponse(user: { id: string; email: string; name: string; role: string; tenantId: string }) {
-  const token = createSessionToken(user.id, user.email)
+function buildLoginResponse(user: { id: string; email: string; name: string; role: string; tenantId: string; sessionVersion?: number }) {
+  const token = createSessionToken(user.id, user.email, user.sessionVersion ?? 0)
   const res = NextResponse.json({
     user: { id: user.id, email: user.email, name: user.name, role: user.role, tenantId: user.tenantId },
     sessionToken: token,  // for Bearer header fallback when cookies are blocked
@@ -349,7 +349,7 @@ export async function POST(req: NextRequest) {
       })
 
       // ---- SECURITY PATCH v1: set session cookie ----
-      const token = createSessionToken(user.id, user.email)
+      const token = createSessionToken(user.id, user.email, user.sessionVersion ?? 0)
       const res = NextResponse.json({
         user: { id: user.id, email: user.email, name: user.name, role: user.role, tenantId: user.tenantId },
         tenant: { id: tenant.id, name: tenant.name, address: tenant.address, phone: tenant.phone, email: tenant.email, gstNumber: tenant.gstNumber, panNumber: tenant.panNumber, upiId: (tenant as any).upiId, plan: tenant.plan, currency: tenant.currency, logoUrl: (tenant as any).logoUrl, invoiceTemplate: (tenant as any).invoiceTemplate, invoiceColor: (tenant as any).invoiceColor, showLogoInInvoice: (tenant as any).showLogoInInvoice, showSignatureInInvoice: (tenant as any).showSignatureInInvoice, showQrCode: (tenant as any).showQrCode, invoiceFooterText: (tenant as any).invoiceFooterText },
@@ -496,7 +496,7 @@ export async function POST(req: NextRequest) {
         // auth check — anyone who knew a userId+tenantId pair got a full
         // admin session (auth bypass). The frontend stores this token and
         // sends it as the session cookie when calling select-workspace.
-        const preWorkspaceToken = createPreWorkspaceToken(user.id, user.email)
+        const preWorkspaceToken = createPreWorkspaceToken(user.id, user.email, user.sessionVersion ?? 0)
         const res = NextResponse.json({
           status: 'WORKSPACE_SELECTION_REQUIRED',
           user: { id: user.id, email: user.email, name: user.name },
@@ -525,7 +525,7 @@ export async function POST(req: NextRequest) {
       }
 
       // ---- SECURITY PATCH v1: set session cookie ----
-      const token = createSessionToken(user.id, user.email)
+      const token = createSessionToken(user.id, user.email, user.sessionVersion ?? 0)
       const res = NextResponse.json({
         user: { id: user.id, email: user.email, name: user.name, role: user.role, tenantId: user.tenantId },
         tenant: { id: defaultTenant.id, name: defaultTenant.name, address: defaultTenant.address, phone: defaultTenant.phone, email: defaultTenant.email, gstNumber: defaultTenant.gstNumber, panNumber: defaultTenant.panNumber, upiId: defaultTenant.upiId, plan: defaultTenant.plan, planExpires: defaultTenant.planExpires?.toISOString(), currency: defaultTenant.currency, logoUrl: (defaultTenant as any).logoUrl, invoiceTemplate: (defaultTenant as any).invoiceTemplate, invoiceColor: (defaultTenant as any).invoiceColor, showLogoInInvoice: (defaultTenant as any).showLogoInInvoice, showSignatureInInvoice: (defaultTenant as any).showSignatureInInvoice, showQrCode: (defaultTenant as any).showQrCode, invoiceFooterText: (defaultTenant as any).invoiceFooterText },
@@ -633,7 +633,7 @@ export async function POST(req: NextRequest) {
       }
 
       // Single workspace — issue session token
-      const token = createSessionToken(user.id, user.email)
+      const token = createSessionToken(user.id, user.email, user.sessionVersion ?? 0)
       const defaultTenant = user.tenant
       const res = NextResponse.json({
         user: { id: user.id, email: user.email, name: user.name, role: user.role, tenantId: user.tenantId },
@@ -690,7 +690,7 @@ export async function POST(req: NextRequest) {
         where: { userId_tenantId: { userId, tenantId } },
         include: {
           tenant: { select: { id: true, name: true, address: true, phone: true, email: true, gstNumber: true, panNumber: true, upiId: true, plan: true, planExpires: true, currency: true, logoUrl: true, invoiceTemplate: true, invoiceColor: true, showLogoInInvoice: true, showSignatureInInvoice: true, showQrCode: true, invoiceFooterText: true } },
-          user: { select: { id: true, email: true, name: true, role: true } },
+          user: { select: { id: true, email: true, name: true, role: true, sessionVersion: true } },
         },
       })
 
@@ -699,7 +699,7 @@ export async function POST(req: NextRequest) {
       }
 
       // Issue session token scoped to selected tenant
-      const token = createSessionToken(userTenant.user.id, userTenant.user.email)
+      const token = createSessionToken(userTenant.user.id, userTenant.user.email, userTenant.user.sessionVersion ?? 0)
       const companies = await db.userTenant.findMany({
         where: { userId },
         include: { tenant: { select: { id: true, name: true, address: true, phone: true, email: true, gstNumber: true, panNumber: true, upiId: true, plan: true, planExpires: true, currency: true, logoUrl: true, invoiceTemplate: true, invoiceColor: true, showLogoInInvoice: true, showSignatureInInvoice: true, showQrCode: true, invoiceFooterText: true } } },
@@ -1442,21 +1442,19 @@ export async function POST(req: NextRequest) {
 
       const updatedUser = await db.user.update({
         where: { email },
-        data: { password: passwordHash },
+        data: { password: passwordHash, sessionVersion: { increment: 1 } },
       })
 
-      // NOTE: Existing session tokens are stateless (HMAC-signed), so we can't
-      // revoke them without a server-side denylist. After a password reset,
-      // any attacker who had an old session will still be able to use it
-      // until expiry (7 days). Mitigation: keep sessions short, or implement
-      // a `sessionVersion` field on User that gets incremented on reset,
-      // and embed it in the token. (Future enhancement.)
+      // Increment the server-side session version so all previously issued tokens
+      // (cookie and Bearer fallback, on every device) become invalid immediately.
 
-      return NextResponse.json({
+      const res = NextResponse.json({
         success: true,
-        message: 'Password reset successfully',
+        message: 'Password reset successfully. Please log in again.',
         user: { id: updatedUser.id, email: updatedUser.email, name: updatedUser.name },
       })
+      clearSessionCookie(res)
+      return res
     }
 
     // ============================================================
@@ -1495,10 +1493,12 @@ export async function POST(req: NextRequest) {
 
       await db.user.update({
         where: { id: auth.userId },
-        data: { password: passwordHash },
+        data: { password: passwordHash, sessionVersion: { increment: 1 } },
       })
 
-      return NextResponse.json({ success: true, message: 'Password changed successfully' })
+      const res = NextResponse.json({ success: true, message: 'Password changed successfully. Please log in again on all devices.' })
+      clearSessionCookie(res)
+      return res
     }
 
     return NextResponse.json({ error: 'Invalid action' }, { status: 400 })

@@ -130,12 +130,20 @@ export async function requireAuth(req: NextRequest): Promise<AuthResult | NextRe
       tenantId: true,
       isActive: true,
       isDeleted: true,
+      sessionVersion: true,
     },
   })
 
   if (!user || user.isDeleted) {
     return NextResponse.json(
       { error: 'Account not found. Please log in again.' },
+      { status: 401 }
+    )
+  }
+
+  if ((payload.sessionVersion ?? 0) !== user.sessionVersion) {
+    return NextResponse.json(
+      { error: 'Session revoked. Please log in again.' },
       { status: 401 }
     )
   }

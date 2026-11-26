@@ -90,6 +90,7 @@ model User {
   lastLoginAt          DateTime?
   lastOtpVerifiedAt    DateTime?
   passwordChangedAt    DateTime?
+  sessionVersion       Int      @default(0) // Increment to revoke all existing signed sessions
   failedLoginAttempts  Int      @default(0)
 
   // Multi-company

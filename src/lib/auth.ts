@@ -110,15 +110,16 @@ interface SessionPayload {
   userId: string
   email: string
   expiresAt: number // epoch ms
+  sessionVersion: number
 }
 
 /**
  * Create a signed session token for a user.
  * Token format: base64url(payloadJson).base64url(hmacSignature)
  */
-export function createSessionToken(userId: string, email: string): string {
+export function createSessionToken(userId: string, email: string, sessionVersion = 0): string {
   const expiresAt = Date.now() + SESSION_MAX_AGE_SECONDS * 1000
-  const payload: SessionPayload = { userId, email, expiresAt }
+  const payload: SessionPayload = { userId, email, expiresAt, sessionVersion }
   const payloadJson = JSON.stringify(payload)
   const payloadB64 = Buffer.from(payloadJson, 'utf-8').toString('base64url')
   const sig = crypto.createHmac('sha256', SESSION_SECRET).update(payloadB64).digest('base64url')
@@ -140,9 +141,9 @@ export function createSessionToken(userId: string, email: string): string {
  * `auth.userId === body.userId`. The short expiry limits the window even if a
  * token leaks, and the userId binding prevents swapping to a different user.
  */
-export function createPreWorkspaceToken(userId: string, email: string): string {
+export function createPreWorkspaceToken(userId: string, email: string, sessionVersion = 0): string {
   const expiresAt = Date.now() + 5 * 60 * 1000 // 5 minutes
-  const payload: SessionPayload = { userId, email, expiresAt }
+  const payload: SessionPayload = { userId, email, expiresAt, sessionVersion }
   const payloadJson = JSON.stringify(payload)
   const payloadB64 = Buffer.from(payloadJson, 'utf-8').toString('base64url')
   const sig = crypto.createHmac('sha256', SESSION_SECRET).update(payloadB64).digest('base64url')
