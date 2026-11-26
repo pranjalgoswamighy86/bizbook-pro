@@ -44,18 +44,18 @@ async function main() {
     await tx.$executeRawUnsafe('SET TRANSACTION READ ONLY')
 
     const [database] = await tx.$queryRawUnsafe(
-      'SELECT current_database() AS database, current_user AS database_user, current_setting(\\'transaction_read_only\\') AS read_only'
+      'SELECT current_database() AS database, current_user AS database_user, current_setting(\'transaction_read_only\') AS read_only'
     )
     if (database.read_only !== 'on') throw new Error('Database transaction is not read-only; aborting.')
 
     const placeholders = emails.map((_, index) => '$' + (index + 1)).join(', ')
     const users = await tx.$queryRawUnsafe(
-      \`SELECT u.id AS "userId", u.email, u."tenantId" AS "primaryTenantId",
+      `SELECT u.id AS "userId", u.email, u."tenantId" AS "primaryTenantId",
               t.name AS "primaryTenantName", t."isDeleted" AS "primaryTenantDeleted"
          FROM "User" u
          LEFT JOIN "Tenant" t ON t.id = u."tenantId"
-        WHERE LOWER(u.email) IN (\${placeholders})
-        ORDER BY LOWER(u.email)\`,
+        WHERE LOWER(u.email) IN (${placeholders})
+        ORDER BY LOWER(u.email)`,
       ...emails
     )
     const userIds = users.map(user => user.userId)
@@ -63,12 +63,12 @@ async function main() {
     if (userIds.length) {
       const userPlaceholders = userIds.map((_, index) => '$' + (index + 1)).join(', ')
       memberships = await tx.$queryRawUnsafe(
-        \`SELECT ut."userId", ut."tenantId", ut.role, ut."isOwner",
+        `SELECT ut."userId", ut."tenantId", ut.role, ut."isOwner",
                 t.name AS "tenantName", t."isDeleted" AS "tenantDeleted"
            FROM "UserTenant" ut
            JOIN "Tenant" t ON t.id = ut."tenantId"
-          WHERE ut."userId" IN (\${userPlaceholders})
-          ORDER BY ut."userId", ut."createdAt"\`,
+          WHERE ut."userId" IN (${userPlaceholders})
+          ORDER BY ut."userId", ut."createdAt"`,
         ...userIds
       )
     }
@@ -81,24 +81,24 @@ async function main() {
     const tenantCounts = []
     if (tenantIds.length) {
       const tables = await tx.$queryRawUnsafe(
-        \`SELECT DISTINCT table_name AS "tableName"
+        `SELECT DISTINCT table_name AS "tableName"
            FROM information_schema.columns
           WHERE table_schema = 'public' AND column_name = 'tenantId'
-          ORDER BY table_name\`
+          ORDER BY table_name`
       )
       for (const { tableName } of tables) {
         // Table names originate from information_schema and are quoted as identifiers.
-        const query = \`SELECT \${quoteIdentifier('tenantId')} AS "tenantId", COUNT(*)::text AS "rowCount"
-                         FROM \${quoteIdentifier(tableName)}
-                        WHERE \${quoteIdentifier('tenantId')} IN (\${tenantPlaceholders})
-                        GROUP BY \${quoteIdentifier('tenantId')}\`
+        const query = `SELECT ${quoteIdentifier('tenantId')} AS "tenantId", COUNT(*)::text AS "rowCount"
+                         FROM ${quoteIdentifier(tableName)}
+                        WHERE ${quoteIdentifier('tenantId')} IN (${tenantPlaceholders})
+                        GROUP BY ${quoteIdentifier('tenantId')}`
         const rows = await tx.$queryRawUnsafe(query, ...tenantIds)
         for (const row of rows) tenantCounts.push({ tableName, ...row })
       }
     }
 
     const foreignKeys = await tx.$queryRawUnsafe(
-      \`SELECT tc.table_name AS "childTable", kcu.column_name AS "childColumn",
+      `SELECT tc.table_name AS "childTable", kcu.column_name AS "childColumn",
               ccu.table_name AS "parentTable", ccu.column_name AS "parentColumn",
               tc.constraint_name AS "constraintName"
          FROM information_schema.table_constraints tc
@@ -107,11 +107,11 @@ async function main() {
          JOIN information_schema.constraint_column_usage ccu
            ON ccu.constraint_name = tc.constraint_name AND ccu.constraint_schema = tc.table_schema
         WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = 'public'
-        ORDER BY tc.table_name, tc.constraint_name\`
+        ORDER BY tc.table_name, tc.constraint_name`
     )
 
     const tenantUniqueConstraints = await tx.$queryRawUnsafe(
-      \`SELECT tc.table_name AS "tableName", tc.constraint_name AS "constraintName",
+      `SELECT tc.table_name AS "tableName", tc.constraint_name AS "constraintName",
               string_agg(kcu.column_name, ', ' ORDER BY kcu.ordinal_position) AS columns
          FROM information_schema.table_constraints tc
          JOIN information_schema.key_column_usage kcu
@@ -119,13 +119,13 @@ async function main() {
         WHERE tc.constraint_type = 'UNIQUE' AND tc.table_schema = 'public'
         GROUP BY tc.table_name, tc.constraint_name
        HAVING bool_or(kcu.column_name = 'tenantId')
-        ORDER BY tc.table_name, tc.constraint_name\`
+        ORDER BY tc.table_name, tc.constraint_name`
     )
 
     const tenantRows = tenantIds.length
       ? await tx.$queryRawUnsafe(
-          \`SELECT id, name, "isDeleted", "createdAt"
-             FROM "Tenant" WHERE id IN (\${tenantPlaceholders}) ORDER BY id\`,
+          `SELECT id, name, "isDeleted", "createdAt"
+             FROM "Tenant" WHERE id IN (${tenantPlaceholders}) ORDER BY id`,
           ...tenantIds
         )
       : []
