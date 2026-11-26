@@ -4,9 +4,11 @@ import { readFileSync } from 'node:fs'
 
 test('e-invoice API filters soft-deleted sales, purchases and tenants before use', () => {
   const route = readFileSync('src/app/api/einvoice/route.ts', 'utf8')
-  assert.doesNotMatch(route, /db\\.(?:sale|purchase|tenant)\\.findUnique\\(/)
-  assert.match(route, /db\\.sale\\.findFirst\\(\\{\\s*where: \\{ id: saleId, tenantId, isDeleted: false \\}/)
-  assert.match(route, /db\\.purchase\\.findFirst\\(\\{\\s*where: \\{ id: purchaseId, tenantId: access\\.tenantId, isDeleted: false \\}/)
-  assert.match(route, /where: \\{ id, tenantId, isDeleted: false \\}/)
-  assert.match(route, /db\\.tenant\\.findFirst\\(\\{ where: \\{ id: tenantId, isDeleted: false \\} \\}/)
+  assert.ok(!route.includes('db.sale.findUnique('))
+  assert.ok(!route.includes('db.purchase.findUnique('))
+  assert.ok(!route.includes('db.tenant.findUnique('))
+  assert.ok(route.includes('db.sale.findFirst({ where: { id: saleId, tenantId, isDeleted: false } })'))
+  assert.ok(route.includes('db.purchase.findFirst({ where: { id: purchaseId, tenantId: access.tenantId, isDeleted: false } })'))
+  assert.ok(route.includes('where: { id, tenantId, isDeleted: false }'))
+  assert.ok(route.includes('db.tenant.findFirst({ where: { id: tenantId, isDeleted: false } })'))
 })
