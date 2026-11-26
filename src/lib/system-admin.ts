@@ -6,7 +6,7 @@
  */
 export function getSystemAdminEmails(): Set<string> {
   const configuredList = (process.env.ADMIN_BYPASS_EMAILS || '')
-    .split(/[,;\\s]+/)
+    .split(/[,;\s]+/)
     .map(value => value.toLowerCase().trim())
     .filter(Boolean)
 
