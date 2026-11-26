@@ -266,7 +266,7 @@ async function runAudit(tenantId: string, userId: string, userName: string) {
   stats.orphanedJEs = { total: saleJEs.length, checked: saleJEs.length, flagged: 0 }
   for (const je of saleJEs) {
     if (!je.sourceId) continue
-    const sale = await db.sale.findUnique({ where: { id: je.sourceId }, select: { isDeleted: true, invoiceNumber: true } })
+    const sale = await db.sale.findFirst({ where: { id: je.sourceId, tenantId, isDeleted: false }, select: { isDeleted: true, invoiceNumber: true } })
     if (sale?.isDeleted) {
       // Check if a reversal JE exists
       const reversal = await db.journalEntry.findFirst({
@@ -342,14 +342,14 @@ async function runRemediation(tenantId: string, userId: string, userName: string
   if (byTable.Sale) {
     for (const d of byTable.Sale) {
       await db.$transaction(async (tx) => {
-        const sale = await tx.sale.findUnique({ where: { id: d.id } })
+        const sale = await tx.sale.findFirst({ where: { id: d.id, tenantId, isDeleted: false } })
         if (!sale) return
         const discountAmount = roundTo2((sale.subtotal || 0) * (sale.discountPercent || 0) / 100)
         const correctTotal = roundTo2((sale.subtotal || 0) - discountAmount + (sale.gstAmount || 0))
         const correctAmountPaid = sale.amountReceived || sale.amountPaid || 0
         const correctStatus = correctAmountPaid >= correctTotal && correctTotal > 0 ? 'RECEIVED' : correctAmountPaid > 0 ? 'PARTIAL' : 'PENDING'
         await tx.sale.update({
-          where: { id: d.id },
+          where: { id: d.id, tenantId, isDeleted: false },
           data: {
             totalAmount: correctTotal,
             amountPaid: correctAmountPaid,
@@ -367,13 +367,13 @@ async function runRemediation(tenantId: string, userId: string, userName: string
   if (byTable.Purchase) {
     for (const d of byTable.Purchase) {
       await db.$transaction(async (tx) => {
-        const purchase = await tx.purchase.findUnique({ where: { id: d.id } })
+        const purchase = await tx.purchase.findFirst({ where: { id: d.id, tenantId, isDeleted: false } })
         if (!purchase) return
         const correctTotal = roundTo2((purchase.subtotal || 0) + (purchase.gstAmount || 0))
         const paid = purchase.amountPaid || 0
         const correctStatus = paid >= correctTotal && correctTotal > 0 ? 'PAID' : paid > 0 ? 'PARTIAL' : 'UNPAID'
         await tx.purchase.update({
-          where: { id: d.id },
+          where: { id: d.id, tenantId, isDeleted: false },
           data: { totalAmount: correctTotal, paymentStatus: correctStatus },
         })
         fixed++
@@ -386,7 +386,7 @@ async function runRemediation(tenantId: string, userId: string, userName: string
   if (byTable.Debtor) {
     for (const d of byTable.Debtor) {
       await db.$transaction(async (tx) => {
-        const debtor = await tx.debtor.findUnique({ where: { id: d.id } })
+        const debtor = await tx.debtor.findFirst({ where: { id: d.id, tenantId, isDeleted: false } })
         if (!debtor) return
         const outstandingSales = await tx.sale.findMany({
           where: { tenantId, partyName: debtor.name, isDeleted: false, paymentStatus: { not: 'RECEIVED' } },
@@ -397,7 +397,7 @@ async function runRemediation(tenantId: string, userId: string, userName: string
           return sum + (due > 0 ? due : 0)
         }, 0)
         const correctBalance = roundTo2(saleDerived + (debtor.openingBalance || 0))
-        await tx.debtor.update({ where: { id: d.id }, data: { currentBalance: correctBalance } })
+        await tx.debtor.update({ where: { id: d.id, tenantId, isDeleted: false }, data: { currentBalance: correctBalance } })
         fixed++
         fixes.push(`Debtor "${debtor.name}": currentBalance=${correctBalance}`)
       })
@@ -408,7 +408,7 @@ async function runRemediation(tenantId: string, userId: string, userName: string
   if (byTable.Creditor) {
     for (const d of byTable.Creditor) {
       await db.$transaction(async (tx) => {
-        const creditor = await tx.creditor.findUnique({ where: { id: d.id } })
+        const creditor = await tx.creditor.findFirst({ where: { id: d.id, tenantId, isDeleted: false } })
         if (!creditor) return
         const outstandingPurchases = await tx.purchase.findMany({
           where: { tenantId, partyName: creditor.name, isDeleted: false, paymentStatus: { not: 'PAID' } },
@@ -419,7 +419,7 @@ async function runRemediation(tenantId: string, userId: string, userName: string
           return sum + (due > 0 ? due : 0)
         }, 0)
         const correctBalance = roundTo2(purchaseDerived + (creditor.openingBalance || 0))
-        await tx.creditor.update({ where: { id: d.id }, data: { currentBalance: correctBalance } })
+        await tx.creditor.update({ where: { id: d.id, tenantId, isDeleted: false }, data: { currentBalance: correctBalance } })
         fixed++
         fixes.push(`Creditor "${creditor.name}": currentBalance=${correctBalance}`)
       })
@@ -430,10 +430,10 @@ async function runRemediation(tenantId: string, userId: string, userName: string
   if (byTable.InventoryItem) {
     for (const d of byTable.InventoryItem) {
       await db.$transaction(async (tx) => {
-        const item = await tx.inventoryItem.findUnique({ where: { id: d.id } })
+        const item = await tx.inventoryItem.findFirst({ where: { id: d.id, tenantId, isDeleted: false } })
         if (!item) return
         const correctValue = roundTo2((item.currentStock || 0) * (item.purchasePrice || 0))
-        await tx.inventoryItem.update({ where: { id: d.id }, data: { value: correctValue } })
+        await tx.inventoryItem.update({ where: { id: d.id, tenantId, isDeleted: false }, data: { value: correctValue } })
         fixed++
         fixes.push(`Inventory "${item.name}": value=${correctValue}`)
       })
@@ -445,7 +445,7 @@ async function runRemediation(tenantId: string, userId: string, userName: string
     for (const d of byTable.JournalEntry) {
       await db.$transaction(async (tx) => {
         const je = await tx.journalEntry.findUnique({
-          where: { id: d.id },
+          where: { id: d.id, tenantId },
           include: { lines: true },
         })
         if (!je) return
@@ -642,8 +642,8 @@ async function runRepairSaleJEs(tenantId: string, userId: string, userName: stri
   for (const je of saleJEs) {
     // Find the corresponding sale
     if (!je.sourceId) continue
-    const sale = await db.sale.findUnique({
-      where: { id: je.sourceId },
+    const sale = await db.sale.findFirst({
+      where: { id: je.sourceId, tenantId, isDeleted: false },
       select: {
         invoiceNumber: true,
         totalAmount: true,
