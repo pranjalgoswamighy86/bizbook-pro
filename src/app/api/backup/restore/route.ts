@@ -296,6 +296,14 @@ export async function POST(req: NextRequest) {
 
     for (const [label, model] of TABLE_ORDER) {
       const sourceRows = getBackupRows(backupData.data, label, model)
+      if (model === 'user') {
+        // Portable backups never carry credentials. Do not create orphaned accounts
+        // or alter destination identities; provision users via the normal auth flow.
+        const skipped = sourceRows.length
+        totalSkipped += skipped
+        results.push({ table: label, imported: 0, updated: 0, skipped })
+        continue
+      }
       if (tenantId && model === 'tenant') {
         // Tenant subscription, billing, verification and feature flags are
         // platform-controlled; business restore must not overwrite them.
@@ -304,7 +312,7 @@ export async function POST(req: NextRequest) {
         results.push({ table: label, imported: 0, updated: 0, skipped })
         continue
       }
-      if (tenantId && ['user', 'userTenant', 'subscription', 'subscriptionQueue', 'recharge', 'usageLog', 'auditLog', 'helpSupportTicket'].includes(model)) {
+      if (tenantId && ['userTenant', 'subscription', 'subscriptionQueue', 'recharge', 'usageLog', 'auditLog', 'helpSupportTicket'].includes(model)) {
         // Older tenant backups may contain credentials, platform billing,
         // usage counters, support tickets or audit history. Do not import them.
         const skipped = sourceRows.length
