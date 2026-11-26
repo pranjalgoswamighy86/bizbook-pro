@@ -348,10 +348,13 @@ export async function POST(req: NextRequest) {
     // ── GET-OR-CREATE ───────────────────────────────────────
     if (action === 'get-or-create') {
       const { tenantId, name, phone, email, address, gstNumber } = body
+      const access = await requireAuthAndTenant(req, tenantId)
+      if (access instanceof NextResponse) return access
+      const scopedTenantId = access.tenantId
 
       // Try to find existing party by name+tenantId
       const existing = await db.party.findFirst({
-        where: { name, tenantId, isDeleted: false },
+        where: { name, tenantId: scopedTenantId, isDeleted: false },
       })
 
       if (existing) {
@@ -364,13 +367,12 @@ export async function POST(req: NextRequest) {
 
         if (Object.keys(updateFields).length > 0) {
           const updated = await db.party.update({
-            where: { id: existing.id },
+            where: { id: existing.id, tenantId: scopedTenantId, isDeleted: false },
             data: updateFields,
           })
 
-          // Sync updated info to Debtor/Creditor
           await syncToDebtorCreditor(
-            tenantId,
+            scopedTenantId,
             updated.name,
             { phone: updated.phone, email: updated.email, address: updated.address, gstNumber: updated.gstNumber },
             updated.type
@@ -382,7 +384,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ party: existing })
       }
 
-      // Create new party
+      // Create new party only in the authenticated tenant
       const party = await db.party.create({
         data: {
           name,
@@ -393,13 +395,12 @@ export async function POST(req: NextRequest) {
           type: 'BOTH',
           openingBalance: 0,
           currentBalance: 0,
-          tenantId,
+          tenantId: scopedTenantId,
         },
       })
 
-      // Sync to both Debtor and Creditor (default type is BOTH)
       await syncToDebtorCreditor(
-        tenantId,
+        scopedTenantId,
         party.name,
         { phone: party.phone, email: party.email, address: party.address, gstNumber: party.gstNumber },
         party.type,
@@ -412,9 +413,14 @@ export async function POST(req: NextRequest) {
     // ── UPDATE-BALANCE ──────────────────────────────────────
     if (action === 'update-balance') {
       const { tenantId, partyName, amount, direction } = body
+      const access = await requireAuthAndTenant(req, tenantId)
+      if (access instanceof NextResponse) return access
+      if (typeof amount !== 'number' || !Number.isFinite(amount) || amount < 0 || !['increase', 'decrease'].includes(direction)) {
+        return NextResponse.json({ error: 'A valid non-negative amount and direction are required' }, { status: 400 })
+      }
 
       const party = await db.party.findFirst({
-        where: { name: partyName, tenantId, isDeleted: false },
+        where: { name: partyName, tenantId: access.tenantId, isDeleted: false },
       })
 
       if (!party) {
@@ -425,26 +431,26 @@ export async function POST(req: NextRequest) {
       const newBalance = party.currentBalance + adjustment
 
       const updated = await db.party.update({
-        where: { id: party.id },
+        where: { id: party.id, tenantId: access.tenantId, isDeleted: false },
         data: { currentBalance: newBalance },
       })
 
       // Also update linked Debtor/Creditor
       if (party.type === 'CUSTOMER' || party.type === 'BOTH') {
-        const debtor = await db.debtor.findFirst({ where: { name: partyName, tenantId, isDeleted: false } })
+        const debtor = await db.debtor.findFirst({ where: { name: partyName, tenantId: access.tenantId, isDeleted: false } })
         if (debtor) {
           await db.debtor.update({
-            where: { id: debtor.id },
+            where: { id: debtor.id, tenantId: access.tenantId, isDeleted: false },
             data: { currentBalance: debtor.currentBalance + adjustment },
           })
         }
       }
 
       if (party.type === 'SUPPLIER' || party.type === 'BOTH') {
-        const creditor = await db.creditor.findFirst({ where: { name: partyName, tenantId, isDeleted: false } })
+        const creditor = await db.creditor.findFirst({ where: { name: partyName, tenantId: access.tenantId, isDeleted: false } })
         if (creditor) {
           await db.creditor.update({
-            where: { id: creditor.id },
+            where: { id: creditor.id, tenantId: access.tenantId, isDeleted: false },
             data: { currentBalance: creditor.currentBalance + adjustment },
           })
         }
