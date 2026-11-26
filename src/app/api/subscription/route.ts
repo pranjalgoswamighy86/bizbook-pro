@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db-soft-delete'
 import { requireAuthAndTenant, requireAuthAndRole, writeAuditLog } from '@/lib/api-helpers'
 import { allocateWalletUsage, sumWalletRemainingSeconds } from '@/lib/subscription-wallet'
+import { isSystemAdminEmail } from '@/lib/system-admin'
 
 // ============================================================
 // Subscription Plans (from the pricing sheet)
@@ -606,14 +607,8 @@ export async function POST(req: NextRequest) {
       const access = await requireAuthAndRole(req, tenantId, ['MAIN_ADMIN'])
       if (access instanceof NextResponse) return access
 
-      // Authorization is restricted to deployment-configured system administrators.
-      const SYSTEM_ADMIN_EMAILS = [
-  process.env.ADMIN_EMAIL || '',
-  process.env.INFRA_OWNER_EMAIL || '',
-  process.env.INFRASTRUCTURE_OWNER_EMAIL || '',
-].map(value => value.toLowerCase().trim()).filter(Boolean)
-
-      if (!access.user?.email || !SYSTEM_ADMIN_EMAILS.includes(access.user.email.toLowerCase().trim())) {
+      // Keep system-admin authorization consistent across admin endpoints.
+      if (!isSystemAdminEmail(access.user?.email)) {
         return NextResponse.json({ error: 'FORBIDDEN — Super Admin only' }, { status: 403 })
       }
 
@@ -721,14 +716,8 @@ export async function POST(req: NextRequest) {
       const access = await requireAuthAndRole(req, tenantId, ['MAIN_ADMIN'])
       if (access instanceof NextResponse) return access
 
-      // Authorization is restricted to deployment-configured system administrators.
-      const SYSTEM_ADMIN_EMAILS = [
-        process.env.ADMIN_EMAIL || '',
-        process.env.INFRA_OWNER_EMAIL || '',
-        process.env.INFRASTRUCTURE_OWNER_EMAIL || '',
-      ].map(value => value.toLowerCase().trim()).filter(Boolean)
-
-      if (!access.user?.email || !SYSTEM_ADMIN_EMAILS.includes(access.user.email.toLowerCase().trim())) {
+      // Keep system-admin authorization consistent across admin endpoints.
+      if (!isSystemAdminEmail(access.user?.email)) {
         return NextResponse.json({ error: 'FORBIDDEN — Super Admin only' }, { status: 403 })
       }
 
