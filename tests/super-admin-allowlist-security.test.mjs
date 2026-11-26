@@ -29,3 +29,23 @@ test('subscription list and modification use the same shared allowlist', () => {
   assert.ok(subscriptionRoute.includes("from '@/lib/system-admin'"))
   assert.ok(!subscriptionRoute.includes('const SYSTEM_ADMIN_EMAILS'))
 })
+
+
+test('platform-wide subscription administration does not require a workspace role', () => {
+  const listBlock = subscriptionRoute.split("if (action === 'admin-list-all')")[1]?.split("// ============================================================")[0] || ''
+  const modifyBlock = subscriptionRoute.split("if (action === 'admin-modify')")[1] || ''
+  assert.ok(listBlock.includes('requireAuth(req)'))
+  assert.ok(modifyBlock.includes('requireAuth(req)'))
+  assert.ok(!listBlock.includes('requireAuthAndRole'))
+  assert.ok(!modifyBlock.includes('requireAuthAndRole'))
+  assert.ok(listBlock.includes('isSystemAdminEmail(access.email)'))
+  assert.ok(modifyBlock.includes('isSystemAdminEmail(access.email)'))
+})
+
+test('Super Admin subscription UI does not depend on a selected tenant', () => {
+  const panel = readFileSync('src/components/modules/super-admin-subscriptions.tsx', 'utf8')
+  assert.ok(panel.includes('if (!user?.email)'))
+  assert.ok(!panel.includes('tenant?.id'))
+  assert.ok(!panel.includes('tenant.id'))
+  assert.ok(panel.includes("action: 'admin-list-all'"))
+})
