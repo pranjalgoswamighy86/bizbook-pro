@@ -43,15 +43,15 @@ export async function GET(req: NextRequest) {
     if (access instanceof NextResponse) return access
     const authorizedTenantId = access.tenantId
 
-    // A valid path is not sufficient: the tenant must own a sale or purchase
-    // record which explicitly references this invoice file.
+    // A valid path is not sufficient: the tenant must own an active sale or
+    // purchase record which explicitly references this invoice file.
     const [saleReference, purchaseReference] = await Promise.all([
       rawDb.sale.findFirst({
-        where: { tenantId: authorizedTenantId, invoiceFile: requestedFile },
+        where: { tenantId: authorizedTenantId, invoiceFile: requestedFile, isDeleted: false },
         select: { id: true },
       }),
       rawDb.purchase.findFirst({
-        where: { tenantId: authorizedTenantId, invoiceFile: requestedFile },
+        where: { tenantId: authorizedTenantId, invoiceFile: requestedFile, isDeleted: false },
         select: { id: true },
       }),
     ])
