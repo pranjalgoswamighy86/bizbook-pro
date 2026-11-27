@@ -14,6 +14,8 @@ test('AI-import sales and purchases synchronize party subledger balances in the 
   assert.match(route, /syncImportedPurchaseBalances\(tx,\s*tid,/)
   assert.match(route, /async function syncImportedSaleBalances\([\s\S]*?tx\.debtor\.findFirst[\s\S]*?tx\.party\.findFirst/)
   assert.match(route, /async function syncImportedPurchaseBalances\([\s\S]*?tx\.creditor\.findFirst[\s\S]*?tx\.party\.findFirst/)
+  assert.match(route, /type:\s*party\.type\s*===\s*'SUPPLIER'\s*\?\s*'BOTH'\s*:\s*party\.type/)
+  assert.match(route, /type:\s*party\.type\s*===\s*'CUSTOMER'\s*\?\s*'BOTH'\s*:\s*party\.type/)
   assert.match(route, /where:\s*\{\s*tenantId,\s*name:\s*partyName,\s*isDeleted:\s*false\s*\}/)
 })
 
