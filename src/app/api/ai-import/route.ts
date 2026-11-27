@@ -1165,7 +1165,10 @@ async function handleApplyImport(req: NextRequest, formData: FormData, tenantId:
           const subtotal = requireImportNumber(s.subtotal, 'Sale subtotal')
           const gstAmount = requireImportNumber(s.gstAmount ?? 0, 'Sale GST amount')
           const totalAmount = requireImportNumber(s.totalAmount, 'Sale total')
-          const amountReceived = requireImportNumber(s.amountReceived ?? s.amountPaid ?? 0, 'Sale amount received')
+          const rawPaymentStatus = String(s.paymentStatus || 'PENDING').toUpperCase()
+          const paymentStatus = rawPaymentStatus === 'PAID' ? 'RECEIVED' : rawPaymentStatus === 'UNPAID' ? 'PENDING' : rawPaymentStatus
+          if (!['PENDING', 'PARTIAL', 'RECEIVED'].includes(paymentStatus)) throw new Error('Sale payment status is invalid.')
+          const amountReceived = requireImportNumber(s.amountReceived ?? s.amountPaid ?? (paymentStatus === 'RECEIVED' ? totalAmount : 0), 'Sale amount received')
           // v6.29.0: dedup — skip if (tenantId, invoiceNumber) already exists
           const existing = await db.sale.findFirst({
             where: { tenantId: tid, invoiceNumber, isDeleted: false },
@@ -1191,7 +1194,7 @@ async function handleApplyImport(req: NextRequest, formData: FormData, tenantId:
                 totalAmount,
                 amountReceived,
                 amountPaid: amountReceived,
-                paymentStatus: s.paymentStatus || 'PENDING',
+                paymentStatus,
                 paymentMode: s.paymentMode || null,
                 invoiceStatus: 'CONFIRMED',
                 tenantId: tid,
@@ -1249,7 +1252,10 @@ async function handleApplyImport(req: NextRequest, formData: FormData, tenantId:
           const subtotal = requireImportNumber(p.subtotal, 'Purchase subtotal')
           const gstAmount = requireImportNumber(p.gstAmount ?? 0, 'Purchase GST amount')
           const totalAmount = requireImportNumber(p.totalAmount, 'Purchase total')
-          const amountPaid = requireImportNumber(p.amountPaid ?? 0, 'Purchase amount paid')
+          const rawPaymentStatus = String(p.paymentStatus || 'UNPAID').toUpperCase()
+          const paymentStatus = rawPaymentStatus === 'RECEIVED' ? 'PAID' : rawPaymentStatus
+          if (!['UNPAID', 'PARTIAL', 'PAID'].includes(paymentStatus)) throw new Error('Purchase payment status is invalid.')
+          const amountPaid = requireImportNumber(p.amountPaid ?? (paymentStatus === 'PAID' ? totalAmount : 0), 'Purchase amount paid')
           const existing = await db.purchase.findFirst({
             where: { tenantId: tid, invoiceNumber, isDeleted: false },
             select: { id: true },
@@ -1273,7 +1279,7 @@ async function handleApplyImport(req: NextRequest, formData: FormData, tenantId:
                 gstAmount,
                 totalAmount,
                 amountPaid,
-                paymentStatus: p.paymentStatus || 'UNPAID',
+                paymentStatus,
                 paymentMode: p.paymentMode || null,
                 tenantId: tid,
                 createdBy: uid,
