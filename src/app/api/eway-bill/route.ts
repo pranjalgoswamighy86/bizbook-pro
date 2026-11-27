@@ -6,6 +6,8 @@ import {
   getStateCode,
   isInterStateSupply,
   calculateItemGST,
+  allocateInvoiceDiscountToItems,
+  splitGSTAmount,
   getFinancialYear,
   formatDateForEinvoice,
   roundTo2,
@@ -224,10 +226,21 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'Invoice has no items.' }, { status: 400 })
       }
 
+      let discountAllocation: ReturnType<typeof allocateInvoiceDiscountToItems>
+      try {
+        discountAllocation = allocateInvoiceDiscountToItems(
+          items.map(item => ({ qty: Number(item.qty) || 0, rate: Number(item.rate) || 0, discount: Number(item.discount || 0) })),
+          Number(sale.discountPercent || 0),
+          sale.subtotal,
+        )
+      } catch (error: any) {
+        return NextResponse.json({ error: error.message || 'Sale discount/taxable value does not reconcile. Correct the invoice before generating the E-Way Bill payload.' }, { status: 422 })
+      }
+
       const itemDetails = items.map((item, idx) => {
         const qty = Number(item.qty) || 0
         const rate = Number(item.rate) || 0
-        const discount = Number(item.discount || 0)
+        const discount = discountAllocation.lineDiscounts[idx]
         const gstRt = getItemGstRate(item)
         const itemGST = calculateItemGST(qty, rate, gstRt, discount, isInterState)
         return {
@@ -240,6 +253,12 @@ export async function POST(req: NextRequest) {
         }
       })
 
+      const calculatedItemTax = roundTo2(itemDetails.reduce((sum, item) => sum + calculateItemGST(1, item.taxableValue, item.gstRate, 0, isInterState).totalTax, 0))
+      if (Math.abs(calculatedItemTax - roundTo2(sale.gstAmount || 0)) > 0.5) {
+        return NextResponse.json({ error: 'Calculated item GST does not reconcile with the saved sale GST. Correct the invoice before generating the E-Way Bill payload.' }, { status: 422 })
+      }
+      const gstSplit = splitGSTAmount(roundTo2(sale.gstAmount || 0), isInterState)
+
       const saleData = {
         invoiceNumber: sale.invoiceNumber,
         invoiceDate: formatDateForEinvoice(sale.date),
@@ -248,9 +267,9 @@ export async function POST(req: NextRequest) {
         partyAddress: sale.partyAddress || undefined,
         partyStateCode: buyerState,
         totalAmount: sale.totalAmount,
-        cgstAmount: isInterState ? 0 : sale.gstAmount / 2,
-        sgstAmount: isInterState ? 0 : sale.gstAmount / 2,
-        igstAmount: isInterState ? sale.gstAmount : 0,
+        cgstAmount: gstSplit.cgst,
+        sgstAmount: gstSplit.sgst,
+        igstAmount: gstSplit.igst,
         supplierGstin: tenant.gstNumber,
         supplierName: tenant.name,
         supplierAddress: tenant.address || undefined,

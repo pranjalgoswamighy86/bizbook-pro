@@ -8,6 +8,7 @@ import {
   isInterStateSupply,
   calculateItemGST,
   calculateInvoiceTotals,
+  allocateInvoiceDiscountToItems,
   getFinancialYear,
   formatDateForEinvoice,
   roundTo2,
@@ -140,10 +141,21 @@ export async function POST(req: NextRequest) {
       const supType = 'B2B'
 
       // BUG FIX: Calculate item-level GST properly with reconciliation
+      let discountAllocation: ReturnType<typeof allocateInvoiceDiscountToItems>
+      try {
+        discountAllocation = allocateInvoiceDiscountToItems(
+          items.map(item => ({ qty: Number(item.qty) || 0, rate: Number(item.rate) || 0, discount: Number(item.discount || 0) })),
+          Number(sale.discountPercent || 0),
+          sale.subtotal,
+        )
+      } catch (error: any) {
+        return NextResponse.json({ error: error.message || 'Sale discount/taxable value does not reconcile. Correct the invoice before generating the e-invoice.' }, { status: 422 })
+      }
+
       const calculatedItems = items.map((item: Record<string, unknown>, idx: number) => {
         const qty = Number(item.qty) || 0
         const rate = Number(item.rate) || 0
-        const discount = Number(item.discount || 0)
+        const discount = discountAllocation.lineDiscounts[idx]
         const gstRt = getItemGstRate(item)
 
         // BUG FIX: Calculate GST from assessable value and rate, not from pre-calculated totalTax
@@ -186,6 +198,14 @@ export async function POST(req: NextRequest) {
         })),
         sale.totalAmount
       )
+
+      const calculatedGstTotal = roundTo2(invoiceTotals.cgstVal + invoiceTotals.sgstVal + invoiceTotals.igstVal)
+      if (Math.abs(calculatedGstTotal - roundTo2(sale.gstAmount || 0)) > 1) {
+        return NextResponse.json({ error: 'Calculated item GST does not reconcile with the saved invoice GST. Correct the sale before generating the e-invoice.' }, { status: 422 })
+      }
+      if (Math.abs(invoiceTotals.rndOffAmt) > 0.5) {
+        return NextResponse.json({ error: 'E-invoice values do not reconcile to the saved invoice total. The difference is too large to treat as rounding; correct the sale before submission.' }, { status: 422 })
+      }
 
       // Build the INV-01 compliant payload
       const payload = {
