@@ -1043,6 +1043,60 @@ async function syncInventoryForImportedPurchase(tx: any, tenantId: string, items
   return adjusted
 }
 
+/** Keep import-side customer/supplier subledgers in sync with the GL posting. */
+async function syncImportedSaleBalances(
+  tx: any, tenantId: string, partyName: string, partyAddress: string | null,
+  partyGst: string | null, totalAmount: number, amountReceived: number,
+) {
+  if (partyName.trim().toLowerCase() === 'cash') return
+  const due = roundTo2(Math.max(0, totalAmount - Math.min(Math.max(amountReceived, 0), totalAmount)))
+  if (due > 0) {
+    const debtor = await tx.debtor.findFirst({ where: { tenantId, name: partyName, isDeleted: false } })
+    if (debtor) {
+      await tx.debtor.update({ where: { id: debtor.id }, data: { currentBalance: roundTo2(debtor.currentBalance + due), address: partyAddress || debtor.address, gstNumber: partyGst || debtor.gstNumber } })
+    } else {
+      await tx.debtor.create({ data: { tenantId, name: partyName, address: partyAddress, gstNumber: partyGst, openingBalance: 0, currentBalance: due } })
+    }
+  }
+  const party = await tx.party.findFirst({ where: { tenantId, name: partyName, isDeleted: false } })
+  if (party) {
+    await tx.party.update({ where: { id: party.id }, data: {
+      ...(due > 0 ? { currentBalance: roundTo2(party.currentBalance + due) } : {}),
+      address: partyAddress || party.address, gstNumber: partyGst || party.gstNumber,
+      type: party.type === 'SUPPLIER' ? 'BOTH' : party.type,
+    } })
+  } else {
+    await tx.party.create({ data: { tenantId, name: partyName, address: partyAddress, gstNumber: partyGst, type: 'CUSTOMER', openingBalance: 0, currentBalance: due } })
+  }
+}
+
+async function syncImportedPurchaseBalances(
+  tx: any, tenantId: string, partyName: string, partyAddress: string | null,
+  partyGst: string | null, totalAmount: number, amountPaid: number,
+) {
+  if (partyName.trim().toLowerCase() === 'cash') return
+  const paid = Math.min(Math.max(amountPaid, 0), totalAmount)
+  const due = roundTo2(Math.max(0, totalAmount - paid))
+  if (due > 0) {
+    const creditor = await tx.creditor.findFirst({ where: { tenantId, name: partyName, isDeleted: false } })
+    if (creditor) {
+      await tx.creditor.update({ where: { id: creditor.id }, data: { currentBalance: roundTo2(creditor.currentBalance + due), address: partyAddress || creditor.address, gstNumber: partyGst || creditor.gstNumber } })
+    } else {
+      await tx.creditor.create({ data: { tenantId, name: partyName, address: partyAddress, gstNumber: partyGst, openingBalance: 0, currentBalance: due } })
+    }
+  }
+  const party = await tx.party.findFirst({ where: { tenantId, name: partyName, isDeleted: false } })
+  if (party) {
+    await tx.party.update({ where: { id: party.id }, data: {
+      ...(due > 0 ? { currentBalance: roundTo2(party.currentBalance + due) } : {}),
+      address: partyAddress || party.address, gstNumber: partyGst || party.gstNumber,
+      type: party.type === 'CUSTOMER' ? 'BOTH' : party.type,
+    } })
+  } else {
+    await tx.party.create({ data: { tenantId, name: partyName, address: partyAddress, gstNumber: partyGst, type: 'SUPPLIER', openingBalance: 0, currentBalance: due } })
+  }
+}
+
 async function handleApplyImport(req: NextRequest, formData: FormData, tenantId: string) {
   if (!tenantId) {
     return NextResponse.json({ error: 'No tenant ID provided' }, { status: 400 })
@@ -1111,7 +1165,10 @@ async function handleApplyImport(req: NextRequest, formData: FormData, tenantId:
           const subtotal = requireImportNumber(s.subtotal, 'Sale subtotal')
           const gstAmount = requireImportNumber(s.gstAmount ?? 0, 'Sale GST amount')
           const totalAmount = requireImportNumber(s.totalAmount, 'Sale total')
-          const amountReceived = requireImportNumber(s.amountReceived ?? s.amountPaid ?? 0, 'Sale amount received')
+          const rawPaymentStatus = String(s.paymentStatus || 'PENDING').toUpperCase()
+          const paymentStatus = rawPaymentStatus === 'PAID' ? 'RECEIVED' : rawPaymentStatus === 'UNPAID' ? 'PENDING' : rawPaymentStatus
+          if (!['PENDING', 'PARTIAL', 'RECEIVED'].includes(paymentStatus)) throw new Error('Sale payment status is invalid.')
+          const amountReceived = requireImportNumber(s.amountReceived ?? s.amountPaid ?? (paymentStatus === 'RECEIVED' ? totalAmount : 0), 'Sale amount received')
           // v6.29.0: dedup — skip if (tenantId, invoiceNumber) already exists
           const existing = await db.sale.findFirst({
             where: { tenantId: tid, invoiceNumber, isDeleted: false },
@@ -1137,9 +1194,9 @@ async function handleApplyImport(req: NextRequest, formData: FormData, tenantId:
                 totalAmount,
                 amountReceived,
                 amountPaid: amountReceived,
-                paymentStatus: s.paymentStatus || 'PENDING',
+                paymentStatus,
                 paymentMode: s.paymentMode || null,
-                invoiceStatus: 'INVOICE',
+                invoiceStatus: 'CONFIRMED',
                 tenantId: tid,
                 createdBy: uid,
               },
@@ -1166,6 +1223,7 @@ async function handleApplyImport(req: NextRequest, formData: FormData, tenantId:
             // imported sales never decreased stock). Throws on insufficient stock →
             // the whole record (Sale + JE + stock moves) rolls back and is
             // reported in results.sales.errors.
+            await syncImportedSaleBalances(tx, tid, partyName, s.partyAddress || null, s.partyGst || null, totalAmount, amountReceived)
             await syncInventoryForImportedSale(tx, tid, saleItems)
             return created
           })
@@ -1194,7 +1252,10 @@ async function handleApplyImport(req: NextRequest, formData: FormData, tenantId:
           const subtotal = requireImportNumber(p.subtotal, 'Purchase subtotal')
           const gstAmount = requireImportNumber(p.gstAmount ?? 0, 'Purchase GST amount')
           const totalAmount = requireImportNumber(p.totalAmount, 'Purchase total')
-          const amountPaid = requireImportNumber(p.amountPaid ?? 0, 'Purchase amount paid')
+          const rawPaymentStatus = String(p.paymentStatus || 'UNPAID').toUpperCase()
+          const paymentStatus = rawPaymentStatus === 'RECEIVED' ? 'PAID' : rawPaymentStatus
+          if (!['UNPAID', 'PARTIAL', 'PAID'].includes(paymentStatus)) throw new Error('Purchase payment status is invalid.')
+          const amountPaid = requireImportNumber(p.amountPaid ?? (paymentStatus === 'PAID' ? totalAmount : 0), 'Purchase amount paid')
           const existing = await db.purchase.findFirst({
             where: { tenantId: tid, invoiceNumber, isDeleted: false },
             select: { id: true },
@@ -1218,7 +1279,7 @@ async function handleApplyImport(req: NextRequest, formData: FormData, tenantId:
                 gstAmount,
                 totalAmount,
                 amountPaid,
-                paymentStatus: p.paymentStatus || 'UNPAID',
+                paymentStatus,
                 paymentMode: p.paymentMode || null,
                 tenantId: tid,
                 createdBy: uid,
@@ -1239,6 +1300,7 @@ async function handleApplyImport(req: NextRequest, formData: FormData, tenantId:
             })
             // v6.30.9: synchronize inventory stock in the same tx (was missing —
             // imported purchases never increased stock or created items).
+            await syncImportedPurchaseBalances(tx, tid, partyName, p.partyAddress || null, p.partyGst || null, totalAmount, amountPaid)
             await syncInventoryForImportedPurchase(tx, tid, purchaseItems)
             return created
           })
