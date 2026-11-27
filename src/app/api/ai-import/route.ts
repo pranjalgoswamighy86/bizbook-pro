@@ -97,8 +97,7 @@ export async function POST(req: NextRequest) {
 
     // ============================================================
     // MODE 2: JSON Search Query (legacy)
-    // ============================================================    return await handleSearchQuery(req)
-  } catch (error: any) {
+    // ============================================================    return await handleSearchQuery(req)  } catch (error: any) {
     console.error('[AI-Import] Error:', error)
     return NextResponse.json(
       { error: error.message || 'Internal server error' },
@@ -197,8 +196,7 @@ async function handleFileUpload(req: NextRequest) {
         const sheet = workbook.Sheets[sheetName]
         sheets[sheetName] = XLSX.utils.sheet_to_json(sheet, { raw: false, defval: '', blankrows: true })
       }
-      // v6.29.0: Row-count cap — reject files with > 5,000 total rows before
-      // AI analysis to prevent provider OOM / 30s timeouts on huge exports.
+      // v6.29.0: Row-count cap — reject files with > 5,000 total rows before      // AI analysis to prevent provider OOM / 30s timeouts on huge exports.
       const totalExcelRows = Object.values(sheets).reduce((a: number, b: any[]) => a + b.length, 0)
       if (totalExcelRows > MAX_ROWS_PER_MODULE) {
         return NextResponse.json({
@@ -297,8 +295,7 @@ async function handleFileUpload(req: NextRequest) {
       // Pass the FULL data URL through to analyzeWithAI; multi-ai.ts now strips
       // the prefix correctly per provider (see multi-ai.ts v6.27.5 fix).      const base64 = buffer.toString('base64')
       const mimeType = `image/${ext === 'jpg' ? 'jpeg' : ext}`
-      parsedData = { base64: `data:${mimeType};base64,${base64}`, fileName: file.name, mimeType }
-      dataType = 'image'
+      parsedData = { base64: `data:${mimeType};base64,${base64}`, fileName: file.name, mimeType }      dataType = 'image'
       console.log(`[AI-Import] Image file: ${fileSize} bytes, mime: ${mimeType}`)
     } else if (['xml'].includes(ext)) {
       // XML file (e.g., Tally export)
@@ -397,8 +394,7 @@ Return EXACTLY this JSON structure (no markdown, no code fences, just pure JSON)
   "importData": {    "sales": [
       {
         "invoiceNumber": "string",
-        "date": "YYYY-MM-DD or ISO date",
-        "partyName": "customer name",
+        "date": "YYYY-MM-DD or ISO date",        "partyName": "customer name",
         "partyAddress": "string or null",
         "partyGst": "GSTIN or null",
         "items": [{"name":"item","qty":1,"rate":100,"amount":100,"total":100}],
@@ -497,8 +493,7 @@ Return EXACTLY one valid JSON object with no markdown or code fences:
   "confidence": 0.0,
   "importData": {
     "sales": [{"invoiceNumber":"string","date":"YYYY-MM-DD","partyName":"string","partyAddress":null,"partyGst":null,"items":[{"name":"string","qty":1,"rate":0,"amount":0,"total":0}],"subtotal":0,"gstAmount":0,"totalAmount":0,"paymentStatus":"PENDING","paymentMode":null}],
-    "purchases": [{"invoiceNumber":"string","date":"YYYY-MM-DD","partyName":"string","items":[{"name":"string","qty":1,"rate":0,"amount":0}],"subtotal":0,"gstAmount":0,"totalAmount":0,"paymentStatus":"UNPAID"}],
-    "expenses": [{"date":"YYYY-MM-DD","description":"string","amount":0,"category":"string","paymentMode":"OTHERS"}],
+    "purchases": [{"invoiceNumber":"string","date":"YYYY-MM-DD","partyName":"string","items":[{"name":"string","qty":1,"rate":0,"amount":0}],"subtotal":0,"gstAmount":0,"totalAmount":0,"paymentStatus":"UNPAID"}],    "expenses": [{"date":"YYYY-MM-DD","description":"string","amount":0,"category":"string","paymentMode":"OTHERS"}],
     "products": [{"name":"string","hsnCode":null,"category":null,"unit":"PCS","purchasePrice":0,"salePrice":0,"mrp":0,"currentStock":0,"gstRate":0}],
     "parties": [{"name":"string","type":"CUSTOMER","address":null,"phone":null,"gstNumber":null,"currentBalance":0}],
     "staff": [{"name":"string","role":"string","salary":0,"phone":null}],
@@ -597,8 +592,7 @@ SOURCE ROW ACCOUNTING REQUIREMENTS:
           : []),
         ...(reconciliation.ambiguous
           ? [`${reconciliation.ambiguous} source row(s) were marked ambiguous by AI and need manual review.`]
-          : []),
-        ...(reconciliation.invalid.length
+          : []),        ...(reconciliation.invalid.length
           ? [`AI returned ${reconciliation.invalid.length} invalid or out-of-batch source row reference(s); these were not counted as reconciled.`]
           : []),
       ]
@@ -697,8 +691,7 @@ SOURCE ROW ACCOUNTING REQUIREMENTS:
     // missing importData / non-numeric confidence. The user can still see the raw
     // parsed data via _parsedData and re-trigger analysis if needed.
     analysis = {
-      dataType,
-      detectedDocumentType: 'unknown',
+      dataType,      detectedDocumentType: 'unknown',
       confidence: 0,
       summary: `File parsed (${dataType}) but AI analysis failed: ${aiError.message}. You can review the raw data below and try again.`,
       importData: { sales: [], purchases: [], expenses: [], products: [], parties: [], staff: [], bankTransactions: [] },
@@ -797,8 +790,7 @@ async function handleSearchQuery(req: NextRequest) {
 }
 
 // ============================================================
-// v6.29.0: Apply Import Handler — GL-aware, transactional, dedup-aware
-// ============================================================
+// v6.29.0: Apply Import Handler — GL-aware, transactional, dedup-aware// ============================================================
 // Commits the AI-analyzed import data to the database. The frontend sends
 // FormData with action='apply', tenantId, and importData (a JSON string with
 // keys: sales, purchases, expenses, products, parties, staff, bankTransactions).
@@ -897,8 +889,7 @@ function requireImportQuantity(value: unknown, label: string, allowZero = false)
 function validateImportItems(raw: unknown, label: string): any[] {
   const items = normalizeItems(raw)
   if (items.length === 0) throw new Error(`${label} has no line items.`)
-  return items.map((item, index) => {
-    if (!item || typeof item !== 'object') throw new Error(`${label} item ${index + 1} is invalid.`)
+  return items.map((item, index) => {    if (!item || typeof item !== 'object') throw new Error(`${label} item ${index + 1} is invalid.`)
     const name = requireImportText(item.name, `${label} item ${index + 1} name`)
     const qty = requireImportQuantity(item.qty, `${label} item ${index + 1} quantity`)
     const rate = requireImportNumber(item.rate ?? item.price, `${label} item ${index + 1} rate`, 0)
@@ -997,8 +988,7 @@ async function syncInventoryForImportedPurchase(tx: any, tenantId: string, items
     })
     if (existingItem) {
       const newStock = existingItem.currentStock + qty
-      const effPrice = rate > 0 ? rate : existingItem.purchasePrice
-      await tx.inventoryItem.update({
+      const effPrice = rate > 0 ? rate : existingItem.purchasePrice      await tx.inventoryItem.update({
         where: { id: existingItem.id },
         data: {
           currentStock: newStock,
@@ -1051,7 +1041,11 @@ async function syncImportedSaleBalances(
   }
   const party = await tx.party.findFirst({ where: { tenantId, name: partyName, isDeleted: false } })
   if (party) {
-    if (due > 0) await tx.party.update({ where: { id: party.id }, data: { currentBalance: roundTo2(party.currentBalance + due), address: partyAddress || party.address, gstNumber: partyGst || party.gstNumber } })
+    await tx.party.update({ where: { id: party.id }, data: {
+      ...(due > 0 ? { currentBalance: roundTo2(party.currentBalance + due) } : {}),
+      address: partyAddress || party.address, gstNumber: partyGst || party.gstNumber,
+      type: party.type === 'SUPPLIER' ? 'BOTH' : party.type,
+    } })
   } else {
     await tx.party.create({ data: { tenantId, name: partyName, address: partyAddress, gstNumber: partyGst, type: 'CUSTOMER', openingBalance: 0, currentBalance: due } })
   }
@@ -1074,7 +1068,11 @@ async function syncImportedPurchaseBalances(
   }
   const party = await tx.party.findFirst({ where: { tenantId, name: partyName, isDeleted: false } })
   if (party) {
-    if (due > 0) await tx.party.update({ where: { id: party.id }, data: { currentBalance: roundTo2(party.currentBalance + due), address: partyAddress || party.address, gstNumber: partyGst || party.gstNumber } })
+    await tx.party.update({ where: { id: party.id }, data: {
+      ...(due > 0 ? { currentBalance: roundTo2(party.currentBalance + due) } : {}),
+      address: partyAddress || party.address, gstNumber: partyGst || party.gstNumber,
+      type: party.type === 'CUSTOMER' ? 'BOTH' : party.type,
+    } })
   } else {
     await tx.party.create({ data: { tenantId, name: partyName, address: partyAddress, gstNumber: partyGst, type: 'SUPPLIER', openingBalance: 0, currentBalance: due } })
   }
@@ -1097,8 +1095,7 @@ async function handleApplyImport(req: NextRequest, formData: FormData, tenantId:
   }
 
   let importData: any
-  try {
-    importData = JSON.parse(importDataRaw)
+  try {    importData = JSON.parse(importDataRaw)
   } catch {
     return NextResponse.json({ error: 'importData is not valid JSON' }, { status: 400 })
   }
@@ -1197,8 +1194,7 @@ async function handleApplyImport(req: NextRequest, formData: FormData, tenantId:
               paymentStatus: created.paymentStatus,
               paymentMode: created.paymentMode,
               discountPercent: 0,
-            })
-            // v6.30.9: synchronize inventory stock in the same tx (was missing —
+            })            // v6.30.9: synchronize inventory stock in the same tx (was missing —
             // imported sales never decreased stock). Throws on insufficient stock →
             // the whole record (Sale + JE + stock moves) rolls back and is
             // reported in results.sales.errors.
@@ -1297,8 +1293,7 @@ async function handleApplyImport(req: NextRequest, formData: FormData, tenantId:
       initResult('expenses', expenses.length)
       for (const e of expenses) {
         try {
-          const description = requireImportText(e.description, 'Expense description')
-          const amount = requireImportNumber(e.amount, 'Expense amount', Number.EPSILON)
+          const description = requireImportText(e.description, 'Expense description')          const amount = requireImportNumber(e.amount, 'Expense amount', Number.EPSILON)
           const date = requireImportDate(e.date, 'Expense date')
           // v6.29.0: dedup — skip if (tenantId, description, date, amount) already exists
           const existing = await db.expense.findFirst({
@@ -1397,8 +1392,7 @@ async function handleApplyImport(req: NextRequest, formData: FormData, tenantId:
         })(),
         address: p.address || null,
         phone: p.phone || null,
-        gstNumber: p.gstNumber || null,
-        currentBalance: requireImportNumber(p.currentBalance ?? 0, 'Party current balance', -Number.MAX_SAFE_INTEGER),
+        gstNumber: p.gstNumber || null,        currentBalance: requireImportNumber(p.currentBalance ?? 0, 'Party current balance', -Number.MAX_SAFE_INTEGER),
       }), (row: any) => db.party.findFirst({
         where: {
           tenantId: tid,
@@ -1497,8 +1491,7 @@ async function handleExportExcel(req: NextRequest, formData: FormData, tenantId:
   if (auth instanceof NextResponse) return auth
 
   const importDataRaw = formData.get('importData') as string
-  if (!importDataRaw) {
-    return NextResponse.json({ error: 'No importData provided' }, { status: 400 })
+  if (!importDataRaw) {    return NextResponse.json({ error: 'No importData provided' }, { status: 400 })
   }
 
   let importData: any
