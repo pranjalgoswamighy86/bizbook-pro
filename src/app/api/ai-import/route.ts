@@ -783,7 +783,8 @@ async function handleSearchQuery(req: NextRequest) {
   Provide a concise summary (2-3 sentences) of what was found.`;
 
   try {
-    const { provider, result } = await analyzeWithAI(prompt)    return NextResponse.json({ success: true, provider, summary: result, results: results.slice(0, 10), total: results.length })
+    const { provider, result } = await analyzeWithAI(prompt)
+    return NextResponse.json({ success: true, provider, summary: result, results: results.slice(0, 10), total: results.length })
   } catch {
     return NextResponse.json({ success: true, provider: 'fallback', summary: `Found ${results.length} results for "${query}"`, results: results.slice(0, 10), total: results.length })
   }
