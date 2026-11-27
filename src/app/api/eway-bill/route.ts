@@ -557,3 +557,64 @@ export async function POST(req: NextRequest) {
           modeOfTransport: transporter.modeOfTransport,
         },
       })
+
+      await writeAuditLog({
+        tenantId,
+        userId: requestAccess.userId,
+        userName: requestAccess.user?.name || 'Unknown',
+        action: 'UPDATE',
+        entityType: 'E-Way Bill',
+        entityName: `EWB ${sale.ewayBillNo} extended for ${sale.invoiceNumber}`,
+        changes: { saleId, ewbNo: sale.ewayBillNo, newValidUpto: result.ewbValidUpto },
+      })
+
+      return NextResponse.json({ success: true, sale: updated })
+    }
+
+    // ============================================================
+    // Action: status — get EWB status for a sale
+    // ============================================================
+    if (action === 'status') {
+      const access = await requireAuthAndTenant(req, tenantId)
+      if (access instanceof NextResponse) return access
+
+      const { saleId } = body
+      if (!saleId) {
+        return NextResponse.json({ error: 'Sale ID required' }, { status: 400 })
+      }
+
+      const sale = await db.sale.findUnique({
+        where: { id: saleId },
+        select: {
+          tenantId: true,
+          ewayBillNo: true,
+          ewayBillDate: true,
+          ewayBillValidUpto: true,
+          ewayBillStatus: true,
+          ewayBillCanceledAt: true,
+          ewayBillCancelReason: true,
+          transporterId: true,
+          transporterName: true,
+          vehicleNo: true,
+          modeOfTransport: true,
+          distanceKm: true,
+          invoiceNumber: true,
+          einvoiceIrn: true,
+          einvoiceStatus: true,
+        },
+      })
+
+      if (!sale || sale.tenantId !== tenantId) {
+        return NextResponse.json({ error: 'Not found' }, { status: 404 })
+      }
+
+      return NextResponse.json({ ewaybill: sale })
+    }
+
+    return NextResponse.json({ error: 'Invalid action' }, { status: 400 })
+  } catch (error: unknown) {
+    console.error('E-Way Bill API error:', error)
+    const message = error instanceof Error ? error.message : 'Internal server error'
+    return NextResponse.json({ error: message }, { status: 500 })
+  }
+}
