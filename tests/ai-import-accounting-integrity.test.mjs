@@ -19,6 +19,13 @@ test('AI-import sales and purchases synchronize party subledger balances in the 
   assert.match(route, /where:\s*\{\s*tenantId,\s*name:\s*partyName,\s*isDeleted:\s*false\s*\}/)
 })
 
+test('AI-import payment statuses normalize paid states and derive settled amounts', () => {
+  assert.match(route, /rawPaymentStatus\s*=\s*String\(s\.paymentStatus\s*\|\|\s*'PENDING'\)/)
+  assert.match(route, /paymentStatus\s*===\s*'RECEIVED'\s*\?\s*totalAmount\s*:\s*0/)
+  assert.match(route, /rawPaymentStatus\s*=\s*String\(p\.paymentStatus\s*\|\|\s*'UNPAID'\)/)
+  assert.match(route, /paymentStatus\s*===\s*'PAID'\s*\?\s*totalAmount\s*:\s*0/)
+})
+
 test('AI-import subledger balances clamp overpayment and exclude cash counterparties', () => {
   assert.match(route, /if \(partyName\.trim\(\)\.toLowerCase\(\) === 'cash'\) return/)
   assert.match(route, /Math\.max\(0, totalAmount - Math\.min\(Math\.max\(amountReceived, 0\), totalAmount\)\)/)
