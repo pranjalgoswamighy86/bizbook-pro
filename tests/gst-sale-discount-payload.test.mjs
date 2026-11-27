@@ -19,7 +19,7 @@ test('e-invoice payload uses combined item and prorated invoice discounts before
   assert.match(einvoice, /allocateInvoiceDiscountToItems\(/)
   assert.match(einvoice, /const discount = discountAllocation\.lineDiscounts\[idx\]/)
   assert.match(einvoice, /calculatedGstTotal - roundTo2\(sale\.gstAmount \|\| 0\)/)
-  assert.match(einvoice, /Math\.abs\(invoiceTotals\.rndOffAmt\) > 1/)
+  assert.match(einvoice, /Math\.abs\(invoiceTotals\.rndOffAmt\) > 0\.5/)
   assert.match(einvoice, /does not reconcile/)
 })
 
@@ -28,5 +28,6 @@ test('direct E-Way Bill taxable values include sale-level discounts and GST spli
   assert.match(ewayBill, /discountAllocation\.lineDiscounts\[idx\]/)
   assert.match(ewayBill, /calculateItemGST\(1, item\.taxableValue, item\.gstRate, 0, isInterState\)/)
   assert.match(ewayBill, /splitGSTAmount\(roundTo2\(sale\.gstAmount \|\| 0\), isInterState\)/)
+  assert.match(ewayBill, /Math\.abs\(calculatedItemTax - roundTo2\(sale\.gstAmount \|\| 0\)\) > 0\.5/)
   assert.match(ewayBill, /Calculated item GST does not reconcile/)
 })
