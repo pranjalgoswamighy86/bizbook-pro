@@ -253,7 +253,7 @@ export async function POST(req: NextRequest) {
         }
       })
 
-      const calculatedItemTax = roundTo2(itemDetails.reduce((sum, item) => sum + calculateItemGST(item.quantity, Number(items[itemDetails.indexOf(item)]?.rate || 0), item.gstRate, 0, isInterState).totalTax, 0))
+      const calculatedItemTax = roundTo2(itemDetails.reduce((sum, item) => sum + calculateItemGST(1, item.taxableValue, item.gstRate, 0, isInterState).totalTax, 0))
       if (Math.abs(calculatedItemTax - roundTo2(sale.gstAmount || 0)) > 1) {
         return NextResponse.json({ error: 'Calculated item GST does not reconcile with the saved sale GST. Correct the invoice before generating the E-Way Bill payload.' }, { status: 422 })
       }
