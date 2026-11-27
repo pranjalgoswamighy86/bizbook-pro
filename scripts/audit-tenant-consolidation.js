@@ -1,20 +1,19 @@
 #!/usr/bin/env node
 /**
  * Read-only tenant consolidation inventory.
- *
  * Run ONLY against a separately restored database copy:
- *   TENANT_AUDIT_ISOLATED_DB=YES \
- *   TENANT_AUDIT_EMAILS="admin@bizbook.pro,PranjalGoswami86@gmail.com" \
- *   node scripts/audit-tenant-consolidation.js
- *
+ * TENANT_AUDIT_ISOLATED_DB=YES TENANT_AUDIT_EMAILS="admin@bizbook.pro,PranjalGoswami86@gmail.com" node scripts/audit-tenant-consolidation.js
  * This tool performs SELECTs only and starts a PostgreSQL READ ONLY transaction.
- * It does not change tenant, user, membership, accounting, or subscription rows.
  */
 'use strict'
 
 const { PrismaClient } = require('@prisma/client')
 
 const emails = String(process.env.TENANT_AUDIT_EMAILS || '')
+  .split(',')
+  .map(value => value.trim().toLowerCase())
+  .filter(Boolean)
+const tenantNames = String(process.env.TENANT_AUDIT_TENANT_NAMES || 'Tahigo International')
   .split(',')
   .map(value => value.trim().toLowerCase())
   .filter(Boolean)
@@ -32,7 +31,7 @@ if (!process.env.DATABASE_URL) {
   process.exit(2)
 }
 if (emails.length === 0) {
-  console.error('Set TENANT_AUDIT_EMAILS to the two account email addresses to locate their tenant links.')
+  console.error('Set TENANT_AUDIT_EMAILS to the account email addresses to locate their tenant links.')
   process.exit(2)
 }
 
@@ -44,17 +43,17 @@ async function main() {
     await tx.$executeRawUnsafe('SET TRANSACTION READ ONLY')
 
     const [database] = await tx.$queryRawUnsafe(
-      'SELECT current_database() AS database, current_user AS database_user, current_setting(\'transaction_read_only\') AS read_only'
+      "SELECT current_database() AS database, current_user AS database_user, current_setting('transaction_read_only') AS read_only"
     )
     if (database.read_only !== 'on') throw new Error('Database transaction is not read-only; aborting.')
 
-    const placeholders = emails.map((_, index) => '$' + (index + 1)).join(', ')
+    const emailPlaceholders = emails.map((_, index) => '$' + (index + 1)).join(', ')
     const users = await tx.$queryRawUnsafe(
       `SELECT u.id AS "userId", u.email, u."tenantId" AS "primaryTenantId",
               t.name AS "primaryTenantName", t."isDeleted" AS "primaryTenantDeleted"
          FROM "User" u
          LEFT JOIN "Tenant" t ON t.id = u."tenantId"
-        WHERE LOWER(u.email) IN (${placeholders})
+        WHERE LOWER(u.email) IN (${emailPlaceholders})
         ORDER BY LOWER(u.email)`,
       ...emails
     )
@@ -73,21 +72,48 @@ async function main() {
       )
     }
 
-    const tenantIds = [...new Set([
+    const linkedTenantIds = [...new Set([
       ...users.map(user => user.primaryTenantId),
       ...memberships.map(item => item.tenantId),
     ].filter(Boolean))]
+    const tenantConditions = []
+    const tenantParams = []
+    if (linkedTenantIds.length) {
+      const linkedPlaceholders = linkedTenantIds.map((_, index) => '$' + (index + 1)).join(', ')
+      tenantConditions.push(`id IN (${linkedPlaceholders})`)
+      tenantParams.push(...linkedTenantIds)
+    }
+    if (tenantNames.length) {
+      const namePlaceholders = tenantNames.map((_, index) => '$' + (tenantParams.length + index + 1)).join(', ')
+      tenantConditions.push(`LOWER(BTRIM(name)) IN (${namePlaceholders})`)
+      tenantParams.push(...tenantNames)
+    }
+
+    const tenantRows = tenantConditions.length
+      ? await tx.$queryRawUnsafe(
+          `SELECT id, name, "isDeleted", "createdAt"
+             FROM "Tenant" WHERE ${tenantConditions.join(' OR ')} ORDER BY id`,
+          ...tenantParams
+        )
+      : []
+    const tenantIds = [...new Set([
+      ...linkedTenantIds,
+      ...tenantRows.map(tenant => tenant.id),
+    ])]
     const tenantPlaceholders = tenantIds.map((_, index) => '$' + (index + 1)).join(', ')
     const tenantCounts = []
     if (tenantIds.length) {
       const tables = await tx.$queryRawUnsafe(
-        `SELECT DISTINCT table_name AS "tableName"
-           FROM information_schema.columns
-          WHERE table_schema = 'public' AND column_name = 'tenantId'
-          ORDER BY table_name`
+        `SELECT DISTINCT c.table_name AS "tableName"
+           FROM information_schema.columns c
+           JOIN information_schema.tables t
+             ON t.table_schema = c.table_schema AND t.table_name = c.table_name
+          WHERE c.table_schema = current_schema()
+            AND c.column_name = 'tenantId'
+            AND t.table_type = 'BASE TABLE'
+          ORDER BY c.table_name`
       )
       for (const { tableName } of tables) {
-        // Table names originate from information_schema and are quoted as identifiers.
         const query = `SELECT ${quoteIdentifier('tenantId')} AS "tenantId", COUNT(*)::text AS "rowCount"
                          FROM ${quoteIdentifier(tableName)}
                         WHERE ${quoteIdentifier('tenantId')} IN (${tenantPlaceholders})
@@ -122,17 +148,10 @@ async function main() {
         ORDER BY tc.table_name, tc.constraint_name`
     )
 
-    const tenantRows = tenantIds.length
-      ? await tx.$queryRawUnsafe(
-          `SELECT id, name, "isDeleted", "createdAt"
-             FROM "Tenant" WHERE id IN (${tenantPlaceholders}) ORDER BY id`,
-          ...tenantIds
-        )
-      : []
-
     return {
       database: { name: database.database, readOnly: database.read_only },
       inspectedEmails: emails,
+      inspectedTenantNames: tenantNames,
       users,
       memberships,
       candidateTenants: tenantRows,
@@ -140,8 +159,9 @@ async function main() {
       tenantScopedUniqueConstraints: tenantUniqueConstraints,
       foreignKeyDependencyGraph: foreignKeys,
       notes: [
-        'Only tables with a direct tenantId column are counted in tenantScopedRowCounts.',
-        'foreignKeyDependencyGraph identifies indirect child tables that need separate ID/link checks.',
+        'Candidate tenants include records linked to inspected users and exact case-insensitive tenant-name matches.',
+        'Only base tables with a direct tenantId column are counted in tenantScopedRowCounts.',
+        'foreignKeyDependencyGraph identifies indirect child tables requiring separate ID/link checks.',
         'Unique constraints are inventoried, not automatically resolved.',
         'No tenant or user rows were modified.',
       ],
