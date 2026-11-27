@@ -254,7 +254,7 @@ export async function POST(req: NextRequest) {
       })
 
       const calculatedItemTax = roundTo2(itemDetails.reduce((sum, item) => sum + calculateItemGST(1, item.taxableValue, item.gstRate, 0, isInterState).totalTax, 0))
-      if (Math.abs(calculatedItemTax - roundTo2(sale.gstAmount || 0)) > 1) {
+      if (Math.abs(calculatedItemTax - roundTo2(sale.gstAmount || 0)) > 0.5) {
         return NextResponse.json({ error: 'Calculated item GST does not reconcile with the saved sale GST. Correct the invoice before generating the E-Way Bill payload.' }, { status: 422 })
       }
       const gstSplit = splitGSTAmount(roundTo2(sale.gstAmount || 0), isInterState)
@@ -537,84 +537,3 @@ export async function POST(req: NextRequest) {
         fromPlace,
         fromState,
       }
-
-      const result = await extendEwb(sale.ewayBillNo, transporter, await getEffectiveGspConfig(tenantId))
-
-      if (!result.success) {
-        return NextResponse.json({
-          success: false,
-          mode: result.mode,
-          error: result.errorMessage || 'EWB extension failed',
-        }, { status: 502 })
-      }
-
-      const updated = await db.sale.update({
-        where: { id: saleId },
-        data: {
-          ewayBillValidUpto: result.ewbValidUpto || sale.ewayBillValidUpto,
-          ewayBillStatus: 'EXTENDED',
-          vehicleNo: transporter.vehicleNo,
-          modeOfTransport: transporter.modeOfTransport,
-        },
-      })
-
-      await writeAuditLog({
-        tenantId,
-        userId: requestAccess.userId,
-        userName: requestAccess.user?.name || 'Unknown',
-        action: 'UPDATE',
-        entityType: 'E-Way Bill',
-        entityName: `EWB ${sale.ewayBillNo} extended for ${sale.invoiceNumber}`,
-        changes: { saleId, ewbNo: sale.ewayBillNo, newValidUpto: result.ewbValidUpto },
-      })
-
-      return NextResponse.json({ success: true, sale: updated })
-    }
-
-    // ============================================================
-    // Action: status — get EWB status for a sale
-    // ============================================================
-    if (action === 'status') {
-      const access = await requireAuthAndTenant(req, tenantId)
-      if (access instanceof NextResponse) return access
-
-      const { saleId } = body
-      if (!saleId) {
-        return NextResponse.json({ error: 'Sale ID required' }, { status: 400 })
-      }
-
-      const sale = await db.sale.findUnique({
-        where: { id: saleId },
-        select: {
-          tenantId: true,
-          ewayBillNo: true,
-          ewayBillDate: true,
-          ewayBillValidUpto: true,
-          ewayBillStatus: true,
-          ewayBillCanceledAt: true,
-          ewayBillCancelReason: true,
-          transporterId: true,
-          transporterName: true,
-          vehicleNo: true,
-          modeOfTransport: true,
-          distanceKm: true,
-          invoiceNumber: true,
-          einvoiceIrn: true,
-          einvoiceStatus: true,
-        },
-      })
-
-      if (!sale || sale.tenantId !== tenantId) {
-        return NextResponse.json({ error: 'Not found' }, { status: 404 })
-      }
-
-      return NextResponse.json({ ewaybill: sale })
-    }
-
-    return NextResponse.json({ error: 'Invalid action' }, { status: 400 })
-  } catch (error: unknown) {
-    console.error('E-Way Bill API error:', error)
-    const message = error instanceof Error ? error.message : 'Internal server error'
-    return NextResponse.json({ error: message }, { status: 500 })
-  }
-}
