@@ -980,7 +980,8 @@ async function syncInventoryForImportedPurchase(tx: any, tenantId: string, items
   for (const item of items) {
     if (!item.name || !item.qty || Number(item.qty) <= 0) continue
     const qty = Number(item.qty)
-    const rate = Number(item.rate || 0)    const existingItem = await tx.inventoryItem.findFirst({
+    const rate = Number(item.rate || 0)
+    const existingItem = await tx.inventoryItem.findFirst({
       where: {
         tenantId,
         OR: [{ name: { equals: item.name } }, ...(item.hsn ? [{ hsnCode: item.hsn }] : [])],
@@ -1294,7 +1295,8 @@ async function handleApplyImport(req: NextRequest, formData: FormData, tenantId:
       initResult('expenses', expenses.length)
       for (const e of expenses) {
         try {
-          const description = requireImportText(e.description, 'Expense description')          const amount = requireImportNumber(e.amount, 'Expense amount', Number.EPSILON)
+          const description = requireImportText(e.description, 'Expense description')
+          const amount = requireImportNumber(e.amount, 'Expense amount', Number.EPSILON)
           const date = requireImportDate(e.date, 'Expense date')
           // v6.29.0: dedup — skip if (tenantId, description, date, amount) already exists
           const existing = await db.expense.findFirst({
