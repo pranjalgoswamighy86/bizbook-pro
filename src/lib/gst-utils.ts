@@ -292,6 +292,51 @@ export function validateHSN(hsn: string, isB2B: boolean = true): { valid: boolea
 }
 
 /**
+ * Allocate an invoice-level percentage discount proportionally across item
+ * assessable bases, preserving item-level discounts and rounding to paise.
+ * Sale subtotal is expected to be the sum of qty × rate less item discounts.
+ */
+export function allocateInvoiceDiscountToItems(
+  items: Array<{ qty: number; rate: number; discount?: number | null }>,
+  discountPercent: number,
+  expectedSubtotal?: number,
+): { lineDiscounts: number[]; subtotal: number; invoiceDiscount: number } {
+  if (!Number.isFinite(discountPercent) || discountPercent < 0 || discountPercent > 100) {
+    throw new Error('Invoice discount percent must be between 0 and 100.')
+  }
+  const bases = items.map((item, index) => {
+    const qty = Number(item.qty)
+    const rate = Number(item.rate)
+    const itemDiscount = Number(item.discount || 0)
+    if (!Number.isFinite(qty) || qty < 0 || !Number.isFinite(rate) || rate < 0
+        || !Number.isFinite(itemDiscount) || itemDiscount < 0 || itemDiscount > qty * rate + 0.01) {
+      throw new Error(`Invoice item ${index + 1} has invalid quantity, rate, or item discount.`)
+    }
+    return roundTo2(qty * rate - itemDiscount)
+  })
+  const subtotal = roundTo2(bases.reduce((sum, base) => sum + base, 0))
+  if (expectedSubtotal !== undefined && Math.abs(subtotal - roundTo2(expectedSubtotal)) > 0.02) {
+    throw new Error('Invoice item subtotal does not reconcile with the saved sale subtotal. Correct the sale before generating a GST payload.')
+  }
+  const invoiceDiscount = roundTo2(subtotal * discountPercent / 100)
+  if (invoiceDiscount > subtotal + 0.01) throw new Error('Invoice discount exceeds the taxable subtotal.')
+  const lineDiscounts = items.map(item => roundTo2(Number(item.discount || 0)))
+  const lastPositiveBase = bases.reduce((last, base, index) => base > 0 ? index : last, -1)
+  let remaining = invoiceDiscount
+  if (subtotal > 0 && lastPositiveBase >= 0) {
+    for (let i = 0; i < bases.length; i++) {
+      if (bases[i] <= 0) continue
+      const allocation = i === lastPositiveBase
+        ? remaining
+        : roundTo2(invoiceDiscount * bases[i] / subtotal)
+      lineDiscounts[i] = roundTo2(lineDiscounts[i] + allocation)
+      remaining = roundTo2(remaining - allocation)
+    }
+  }
+  return { lineDiscounts, subtotal, invoiceDiscount }
+}
+
+/**
  * Calculate item-level GST details for e-invoice (INV-01 schema)
  * Computes assessable value, tax amounts, and total item value
  * ensuring all values reconcile correctly.
