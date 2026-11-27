@@ -97,7 +97,9 @@ export async function POST(req: NextRequest) {
 
     // ============================================================
     // MODE 2: JSON Search Query (legacy)
-    // ============================================================    return await handleSearchQuery(req)  } catch (error: any) {
+    // ============================================================
+    return await handleSearchQuery(req)
+  } catch (error: any) {
     console.error('[AI-Import] Error:', error)
     return NextResponse.json(
       { error: error.message || 'Internal server error' },
@@ -196,7 +198,9 @@ async function handleFileUpload(req: NextRequest) {
         const sheet = workbook.Sheets[sheetName]
         sheets[sheetName] = XLSX.utils.sheet_to_json(sheet, { raw: false, defval: '', blankrows: true })
       }
-      // v6.29.0: Row-count cap — reject files with > 5,000 total rows before      // AI analysis to prevent provider OOM / 30s timeouts on huge exports.
+
+      // v6.29.0: Row-count cap — reject files with > 5,000 total rows before
+      // AI analysis to prevent provider OOM / 30s timeouts on huge exports.
       const totalExcelRows = Object.values(sheets).reduce((a: number, b: any[]) => a + b.length, 0)
       if (totalExcelRows > MAX_ROWS_PER_MODULE) {
         return NextResponse.json({
@@ -293,9 +297,11 @@ async function handleFileUpload(req: NextRequest) {
     } else if (['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp'].includes(ext)) {
       // v6.27.5: Image file — convert to base64 data URL for vision analysis.
       // Pass the FULL data URL through to analyzeWithAI; multi-ai.ts now strips
-      // the prefix correctly per provider (see multi-ai.ts v6.27.5 fix).      const base64 = buffer.toString('base64')
+      // the prefix correctly per provider (see multi-ai.ts v6.27.5 fix).
+      const base64 = buffer.toString('base64')
       const mimeType = `image/${ext === 'jpg' ? 'jpeg' : ext}`
-      parsedData = { base64: `data:${mimeType};base64,${base64}`, fileName: file.name, mimeType }      dataType = 'image'
+      parsedData = { base64: `data:${mimeType};base64,${base64}`, fileName: file.name, mimeType }
+      dataType = 'image'
       console.log(`[AI-Import] Image file: ${fileSize} bytes, mime: ${mimeType}`)
     } else if (['xml'].includes(ext)) {
       // XML file (e.g., Tally export)
@@ -391,10 +397,12 @@ Return EXACTLY this JSON structure (no markdown, no code fences, just pure JSON)
   "detectedGSTIN": "GSTIN if found, else null",
   "summary": "Brief 1-2 sentence summary of what was found",
   "confidence": 0.85,
-  "importData": {    "sales": [
+  "importData": {
+    "sales": [
       {
         "invoiceNumber": "string",
-        "date": "YYYY-MM-DD or ISO date",        "partyName": "customer name",
+        "date": "YYYY-MM-DD or ISO date",
+        "partyName": "customer name",
         "partyAddress": "string or null",
         "partyGst": "GSTIN or null",
         "items": [{"name":"item","qty":1,"rate":100,"amount":100,"total":100}],
@@ -489,11 +497,13 @@ Return EXACTLY one valid JSON object with no markdown or code fences:
 {
   "detectedDocumentType": "sale_invoice|purchase_invoice|bank_statement|inventory_data|expense_data|party_data|staff_data|backup_data|mixed_data|unknown",
   "detectedBusiness": "string or null",
-  "detectedGSTIN": "string or null",  "summary": "brief factual summary",
+  "detectedGSTIN": "string or null",
+  "summary": "brief factual summary",
   "confidence": 0.0,
   "importData": {
     "sales": [{"invoiceNumber":"string","date":"YYYY-MM-DD","partyName":"string","partyAddress":null,"partyGst":null,"items":[{"name":"string","qty":1,"rate":0,"amount":0,"total":0}],"subtotal":0,"gstAmount":0,"totalAmount":0,"paymentStatus":"PENDING","paymentMode":null}],
-    "purchases": [{"invoiceNumber":"string","date":"YYYY-MM-DD","partyName":"string","items":[{"name":"string","qty":1,"rate":0,"amount":0}],"subtotal":0,"gstAmount":0,"totalAmount":0,"paymentStatus":"UNPAID"}],    "expenses": [{"date":"YYYY-MM-DD","description":"string","amount":0,"category":"string","paymentMode":"OTHERS"}],
+    "purchases": [{"invoiceNumber":"string","date":"YYYY-MM-DD","partyName":"string","items":[{"name":"string","qty":1,"rate":0,"amount":0}],"subtotal":0,"gstAmount":0,"totalAmount":0,"paymentStatus":"UNPAID"}],
+    "expenses": [{"date":"YYYY-MM-DD","description":"string","amount":0,"category":"string","paymentMode":"OTHERS"}],
     "products": [{"name":"string","hsnCode":null,"category":null,"unit":"PCS","purchasePrice":0,"salePrice":0,"mrp":0,"currentStock":0,"gstRate":0}],
     "parties": [{"name":"string","type":"CUSTOMER","address":null,"phone":null,"gstNumber":null,"currentBalance":0}],
     "staff": [{"name":"string","role":"string","salary":0,"phone":null}],
@@ -587,12 +597,14 @@ SOURCE ROW ACCOUNTING REQUIREMENTS:
       const reconciliation = reconcileSourceRows(spreadsheetBatches, batchOutcomes)
       const mergedImportData = mergeSpreadsheetImportData(successfulResults, moduleKeys)
       const reconciliationWarnings = [
-        ...batchWarnings,        ...(reconciliation.missing.length
+        ...batchWarnings,
+        ...(reconciliation.missing.length
           ? [`Row reconciliation incomplete: ${reconciliation.missing.length} of ${reconciliation.expected} source rows have no explicit AI outcome. Review the preview before importing.`]
           : []),
         ...(reconciliation.ambiguous
           ? [`${reconciliation.ambiguous} source row(s) were marked ambiguous by AI and need manual review.`]
-          : []),        ...(reconciliation.invalid.length
+          : []),
+        ...(reconciliation.invalid.length
           ? [`AI returned ${reconciliation.invalid.length} invalid or out-of-batch source row reference(s); these were not counted as reconciled.`]
           : []),
       ]
@@ -685,13 +697,15 @@ SOURCE ROW ACCOUNTING REQUIREMENTS:
       }
     }
 
-    console.log(`[AI-Import] AI analysis complete. Provider: ${provider}`)  } catch (aiError: any) {
+    console.log(`[AI-Import] AI analysis complete. Provider: ${provider}`)
+  } catch (aiError: any) {
     console.error('[AI-Import] AI analysis failed:', aiError)
     // v6.27.5: Return a properly-shaped fallback so the frontend doesn't crash on
     // missing importData / non-numeric confidence. The user can still see the raw
     // parsed data via _parsedData and re-trigger analysis if needed.
     analysis = {
-      dataType,      detectedDocumentType: 'unknown',
+      dataType,
+      detectedDocumentType: 'unknown',
       confidence: 0,
       summary: `File parsed (${dataType}) but AI analysis failed: ${aiError.message}. You can review the raw data below and try again.`,
       importData: { sales: [], purchases: [], expenses: [], products: [], parties: [], staff: [], bankTransactions: [] },
@@ -791,7 +805,8 @@ async function handleSearchQuery(req: NextRequest) {
 }
 
 // ============================================================
-// v6.29.0: Apply Import Handler — GL-aware, transactional, dedup-aware// ============================================================
+// v6.29.0: Apply Import Handler — GL-aware, transactional, dedup-aware
+// ============================================================
 // Commits the AI-analyzed import data to the database. The frontend sends
 // FormData with action='apply', tenantId, and importData (a JSON string with
 // keys: sales, purchases, expenses, products, parties, staff, bankTransactions).
@@ -882,7 +897,8 @@ function requireImportQuantity(value: unknown, label: string, allowZero = false)
     throw new Error(`${label} is missing. Review the AI preview before importing.`)
   }
   const quantity = Number(value)
-  if (!Number.isFinite(quantity) || (allowZero ? quantity < 0 : quantity <= 0)) {    throw new Error(`${label} must be a valid ${allowZero ? 'non-negative' : 'positive'} quantity.`)
+  if (!Number.isFinite(quantity) || (allowZero ? quantity < 0 : quantity <= 0)) {
+    throw new Error(`${label} must be a valid ${allowZero ? 'non-negative' : 'positive'} quantity.`)
   }
   return quantity
 }
@@ -890,7 +906,8 @@ function requireImportQuantity(value: unknown, label: string, allowZero = false)
 function validateImportItems(raw: unknown, label: string): any[] {
   const items = normalizeItems(raw)
   if (items.length === 0) throw new Error(`${label} has no line items.`)
-  return items.map((item, index) => {    if (!item || typeof item !== 'object') throw new Error(`${label} item ${index + 1} is invalid.`)
+  return items.map((item, index) => {
+    if (!item || typeof item !== 'object') throw new Error(`${label} item ${index + 1} is invalid.`)
     const name = requireImportText(item.name, `${label} item ${index + 1} name`)
     const qty = requireImportQuantity(item.qty, `${label} item ${index + 1} quantity`)
     const rate = requireImportNumber(item.rate ?? item.price, `${label} item ${index + 1} rate`, 0)
@@ -990,7 +1007,8 @@ async function syncInventoryForImportedPurchase(tx: any, tenantId: string, items
     })
     if (existingItem) {
       const newStock = existingItem.currentStock + qty
-      const effPrice = rate > 0 ? rate : existingItem.purchasePrice      await tx.inventoryItem.update({
+      const effPrice = rate > 0 ? rate : existingItem.purchasePrice
+      await tx.inventoryItem.update({
         where: { id: existingItem.id },
         data: {
           currentStock: newStock,
@@ -1024,7 +1042,6 @@ async function syncInventoryForImportedPurchase(tx: any, tenantId: string, items
   }
   return adjusted
 }
-
 
 /** Keep import-side customer/supplier subledgers in sync with the GL posting. */
 async function syncImportedSaleBalances(
@@ -1097,7 +1114,8 @@ async function handleApplyImport(req: NextRequest, formData: FormData, tenantId:
   }
 
   let importData: any
-  try {    importData = JSON.parse(importDataRaw)
+  try {
+    importData = JSON.parse(importDataRaw)
   } catch {
     return NextResponse.json({ error: 'importData is not valid JSON' }, { status: 400 })
   }
@@ -1133,7 +1151,8 @@ async function handleApplyImport(req: NextRequest, formData: FormData, tenantId:
 
   try {
     // ============================================================
-    // SALES — transactional + GL posting + dedup    // ============================================================
+    // SALES — transactional + GL posting + dedup
+    // ============================================================
     if (Array.isArray(importData.sales) && importData.sales.length > 0) {
       const sales = importData.sales as any[]
       initResult('sales', sales.length)
@@ -1196,7 +1215,8 @@ async function handleApplyImport(req: NextRequest, formData: FormData, tenantId:
               paymentStatus: created.paymentStatus,
               paymentMode: created.paymentMode,
               discountPercent: 0,
-            })            // v6.30.9: synchronize inventory stock in the same tx (was missing —
+            })
+            // v6.30.9: synchronize inventory stock in the same tx (was missing —
             // imported sales never decreased stock). Throws on insufficient stock →
             // the whole record (Sale + JE + stock moves) rolls back and is
             // reported in results.sales.errors.
@@ -1232,7 +1252,8 @@ async function handleApplyImport(req: NextRequest, formData: FormData, tenantId:
           const amountPaid = requireImportNumber(p.amountPaid ?? 0, 'Purchase amount paid')
           const existing = await db.purchase.findFirst({
             where: { tenantId: tid, invoiceNumber, isDeleted: false },
-            select: { id: true },          })
+            select: { id: true },
+          })
           if (existing) {
             results.purchases.skipped++
             results.purchases.errors.push(`Purchase ${invoiceNumber}: skipped (already exists)`)
@@ -1332,7 +1353,8 @@ async function handleApplyImport(req: NextRequest, formData: FormData, tenantId:
             return created
           })
           results.expenses.created++
-          results.expenses.glPosted++          void expense
+          results.expenses.glPosted++
+          void expense
         } catch (err: any) {
           results.expenses.failed++
           results.expenses.errors.push(`${err.message || err}`)
@@ -1395,7 +1417,8 @@ async function handleApplyImport(req: NextRequest, formData: FormData, tenantId:
         })(),
         address: p.address || null,
         phone: p.phone || null,
-        gstNumber: p.gstNumber || null,        currentBalance: requireImportNumber(p.currentBalance ?? 0, 'Party current balance', -Number.MAX_SAFE_INTEGER),
+        gstNumber: p.gstNumber || null,
+        currentBalance: requireImportNumber(p.currentBalance ?? 0, 'Party current balance', -Number.MAX_SAFE_INTEGER),
       }), (row: any) => db.party.findFirst({
         where: {
           tenantId: tid,
@@ -1430,7 +1453,8 @@ async function handleApplyImport(req: NextRequest, formData: FormData, tenantId:
         return {
           date: requireImportDate(b.date, 'Bank transaction date'),
           description: requireImportText(b.description, 'Bank transaction description'),
-          deposit,          withdrawal,
+          deposit,
+          withdrawal,
           balance: requireImportNumber(b.balance ?? 0, 'Bank balance', -Number.MAX_SAFE_INTEGER),
           category: b.category || null,
           bankName: b.bankName || null,
@@ -1494,7 +1518,8 @@ async function handleExportExcel(req: NextRequest, formData: FormData, tenantId:
   if (auth instanceof NextResponse) return auth
 
   const importDataRaw = formData.get('importData') as string
-  if (!importDataRaw) {    return NextResponse.json({ error: 'No importData provided' }, { status: 400 })
+  if (!importDataRaw) {
+    return NextResponse.json({ error: 'No importData provided' }, { status: 400 })
   }
 
   let importData: any
@@ -1528,7 +1553,8 @@ async function handleExportExcel(req: NextRequest, formData: FormData, tenantId:
     // If no sheets were added, add an empty "No Data" sheet
     if (workbook.SheetNames.length === 0) {
       const ws = XLSX.utils.aoa_to_sheet([['No data to export']])
-      XLSX.utils.book_append_sheet(workbook, ws, 'No Data')    }
+      XLSX.utils.book_append_sheet(workbook, ws, 'No Data')
+    }
 
     const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' })
     const filename = `BizBook_AI_Import_${new Date().toISOString().slice(0, 10)}.xlsx`
