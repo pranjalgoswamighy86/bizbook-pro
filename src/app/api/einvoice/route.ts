@@ -203,7 +203,7 @@ export async function POST(req: NextRequest) {
       if (Math.abs(calculatedGstTotal - roundTo2(sale.gstAmount || 0)) > 1) {
         return NextResponse.json({ error: 'Calculated item GST does not reconcile with the saved invoice GST. Correct the sale before generating the e-invoice.' }, { status: 422 })
       }
-      if (Math.abs(invoiceTotals.rndOffAmt) > 1) {
+      if (Math.abs(invoiceTotals.rndOffAmt) > 0.5) {
         return NextResponse.json({ error: 'E-invoice values do not reconcile to the saved invoice total. The difference is too large to treat as rounding; correct the sale before submission.' }, { status: 422 })
       }
 
