@@ -537,3 +537,23 @@ export async function POST(req: NextRequest) {
         fromPlace,
         fromState,
       }
+
+      const result = await extendEwb(sale.ewayBillNo, transporter, await getEffectiveGspConfig(tenantId))
+
+      if (!result.success) {
+        return NextResponse.json({
+          success: false,
+          mode: result.mode,
+          error: result.errorMessage || 'EWB extension failed',
+        }, { status: 502 })
+      }
+
+      const updated = await db.sale.update({
+        where: { id: saleId },
+        data: {
+          ewayBillValidUpto: result.ewbValidUpto || sale.ewayBillValidUpto,
+          ewayBillStatus: 'EXTENDED',
+          vehicleNo: transporter.vehicleNo,
+          modeOfTransport: transporter.modeOfTransport,
+        },
+      })
