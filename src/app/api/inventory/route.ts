@@ -181,7 +181,8 @@ export async function POST(req: NextRequest) {
             data: { currentStock: type === 'in' ? { increment: quantity } : { decrement: quantity } },
           })
           if (updatedCount.count !== 1) {
-            return { insufficient: true as const, currentStock: item.currentStock }
+            if (type === 'out') return { insufficient: true as const, currentStock: item.currentStock }
+            return { notFound: true as const }
           }
 
           const updatedStock = await tx.inventoryItem.findFirst({
