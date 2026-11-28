@@ -200,7 +200,7 @@ export async function POST(req: NextRequest) {
       )
 
       const calculatedGstTotal = roundTo2(invoiceTotals.cgstVal + invoiceTotals.sgstVal + invoiceTotals.igstVal)
-      if (Math.abs(calculatedGstTotal - roundTo2(sale.gstAmount || 0)) > 1) {
+      if (Math.abs(calculatedGstTotal - roundTo2(sale.gstAmount || 0)) > 0.5) {
         return NextResponse.json({ error: 'Calculated item GST does not reconcile with the saved invoice GST. Correct the sale before generating the e-invoice.' }, { status: 422 })
       }
       if (Math.abs(invoiceTotals.rndOffAmt) > 0.5) {
