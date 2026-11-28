@@ -18,7 +18,7 @@ test('shared GST discount allocator validates percent and saved subtotal, and al
 test('e-invoice payload uses combined item and prorated invoice discounts before tax', () => {
   assert.match(einvoice, /allocateInvoiceDiscountToItems\(/)
   assert.match(einvoice, /const discount = discountAllocation\.lineDiscounts\[idx\]/)
-  assert.match(einvoice, /calculatedGstTotal - roundTo2\(sale\.gstAmount \|\| 0\)/)
+  assert.match(einvoice, /Math\.abs\(calculatedGstTotal - roundTo2\(sale\.gstAmount \|\| 0\)\) > 0\.5/)\n  assert.doesNotMatch(einvoice, /Math\.abs\(calculatedGstTotal - roundTo2\(sale\.gstAmount \|\| 0\)\) > 1/)
   assert.match(einvoice, /Math\.abs\(invoiceTotals\.rndOffAmt\) > 0\.5/)
   assert.match(einvoice, /does not reconcile/)
 })
