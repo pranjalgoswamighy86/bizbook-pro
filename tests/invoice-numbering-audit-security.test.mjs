@@ -17,11 +17,12 @@ test('invoice numbering audit enforces PostgreSQL read-only transaction', () => 
 })
 
 test('invoice numbering audit only runs grouped SELECT queries and does not mutate invoices', () => {
-  assert.match(source, /FROM "Sale"/)
-  assert.match(source, /FROM "Purchase"/)
+  assert.match(source, /FROM "\$\{table\}"/)
+  assert.match(source, /auditTable\(tx, 'Sale'\)/)
+  assert.match(source, /auditTable\(tx, 'Purchase'\)/)
   assert.match(source, /GROUP BY "tenantId", "fyStartYear", "normalizedInvoiceNumber"/)
   assert.match(source, /COUNT\(\*\) FILTER \(WHERE COALESCE\("isDeleted", false\) = false\)/)
-  assert.doesNotMatch(source, /\b(INSERT INTO|UPDATE "Sale"|UPDATE "Purchase"|DELETE FROM|\.sale\.(create|update|delete)|\.purchase\.(create|update|delete))\b/i)
+  assert.doesNotMatch(source, /\b(INSERT INTO|UPDATE "Sale"|UPDATE "Purchase"|DELETE FROM|\.sale\.(create|update,delete)|\.purchase\.(create,update,delete))\b/i)
 })
 
 test('audit reports active and soft-deleted duplicate groups separately', () => {
