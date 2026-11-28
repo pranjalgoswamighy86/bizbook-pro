@@ -152,54 +152,84 @@ export async function POST(req: NextRequest) {
     }
 
     if (action === 'adjust-stock') {
-      // v6.27.5: CRITICAL SECURITY FIX — add auth + tenant check + negative-stock guard.
-      // Previously this action had NO authentication, NO tenant verification, and
-      // allowed stock to go negative — contradicting the v4.9 anti-negative-stock
-      // rule enforced in the sale flow.
+      // Authenticated, tenant-scoped, atomic stock adjustment.
       const access = await requireAuthAndTenant(req, tenantId)
       if (access instanceof NextResponse) return access
 
-      const { id, quantity, type } = body // type: 'in' or 'out'
-      if (!id || !quantity || !type) {
-        return NextResponse.json({ error: 'id, quantity, and type (in/out) are required' }, { status: 400 })
+      const { id, quantity: rawQuantity, type } = body
+      const quantity = Number(rawQuantity)
+      if (!id || !Number.isFinite(quantity) || quantity <= 0 || !type) {
+        return NextResponse.json({ error: 'id, positive quantity, and type (in/out) are required' }, { status: 400 })
       }
       if (type !== 'in' && type !== 'out') {
         return NextResponse.json({ error: "type must be 'in' or 'out'" }, { status: 400 })
       }
-      if (quantity <= 0) {
-        return NextResponse.json({ error: 'quantity must be positive' }, { status: 400 })
+
+      // Serializable transactions plus conditional stock predicates prevent lost
+      // updates and stock-out races from pushing inventory below zero.
+      let result: { item: any; oldStock: number } | { insufficient: true; currentStock: number } | { notFound: true }
+      try {
+        result = await db.$transaction(async (tx) => {
+          const item = await tx.inventoryItem.findFirst({
+            where: { id, tenantId: access.tenantId, isDeleted: false },
+          })
+          if (!item) return { notFound: true as const }
+
+          const predicate = type === 'out' ? { currentStock: { gte: quantity } } : {}
+          const updatedCount = await tx.inventoryItem.updateMany({
+            where: { id, tenantId: access.tenantId, isDeleted: false, ...predicate },
+            data: { currentStock: type === 'in' ? { increment: quantity } : { decrement: quantity } },
+          })
+          if (updatedCount.count !== 1) {
+            return { insufficient: true as const, currentStock: item.currentStock }
+          }
+
+          const updatedStock = await tx.inventoryItem.findFirst({
+            where: { id, tenantId: access.tenantId, isDeleted: false },
+          })
+          if (!updatedStock) return { notFound: true as const }
+
+          const itemWithValue = await tx.inventoryItem.update({
+            where: { id: updatedStock.id },
+            data: { value: updatedStock.currentStock * updatedStock.purchasePrice },
+          })
+
+          await tx.auditLog.create({
+            data: {
+              tenantId: access.tenantId,
+              userId: access.userId,
+              userName: access.user.name,
+              action: 'UPDATE',
+              entityType: 'InventoryItem',
+              entityId: id,
+              entityName: item.name,
+              changes: JSON.stringify({
+                action: 'adjust-stock',
+                type,
+                quantity,
+                oldStock: item.currentStock,
+                newStock: updatedStock.currentStock,
+              }),
+            },
+          })
+
+          return { item: itemWithValue, oldStock: item.currentStock }
+        }, { isolationLevel: 'Serializable' })
+      } catch (error: unknown) {
+        const code = error && typeof error === 'object' && 'code' in error ? String((error as { code?: unknown }).code) : ''
+        if (code === 'P2034') {
+          return NextResponse.json({ error: 'Stock changed concurrently. Refresh inventory and retry.' }, { status: 409 })
+        }
+        throw error
       }
 
-      // Verify the item belongs to this tenant
-      const item = await db.inventoryItem.findFirst({ where: { id, tenantId: access.tenantId } })
-      if (!item) return NextResponse.json({ error: 'Item not found' }, { status: 404 })
-
-      const newStock = type === 'in' ? item.currentStock + quantity : item.currentStock - quantity
-      // v6.27.5: Negative-stock guard — prevents corruption from manual adjustments
-      if (newStock < 0) {
+      if ('notFound' in result) return NextResponse.json({ error: 'Item not found' }, { status: 404 })
+      if ('insufficient' in result) {
         return NextResponse.json({
-          error: `Insufficient stock. Current: ${item.currentStock}, attempted to remove: ${quantity}.`,
-        }, { status: 400 })
+          error: `Insufficient stock. Current: ${result.currentStock}, attempted to remove: ${quantity}.`,
+        }, { status: 409 })
       }
-
-      const updated = await db.inventoryItem.update({
-        where: { id },
-        data: { currentStock: newStock, value: newStock * item.purchasePrice },
-      })
-
-      // Audit log
-      await writeAuditLog({
-        tenantId: access.tenantId,
-        userId: access.userId,
-        userName: access.user.name,
-        action: 'UPDATE',
-        entityType: 'InventoryItem',
-        entityId: id,
-        entityName: item.name,
-        changes: { action: 'adjust-stock', type, quantity, oldStock: item.currentStock, newStock },
-      }).catch(() => {})
-
-      return NextResponse.json({ item: updated })
+      return NextResponse.json({ item: result.item })
     }
 
     return NextResponse.json({ error: 'Invalid action' }, { status: 400 })
