@@ -22,7 +22,8 @@ test('invoice numbering audit only runs grouped SELECT queries and does not muta
   assert.match(source, /auditTable\(tx, 'Purchase'\)/)
   assert.match(source, /GROUP BY "tenantId", "fyStartYear", "normalizedInvoiceNumber"/)
   assert.match(source, /COUNT\(\*\) FILTER \(WHERE COALESCE\("isDeleted", false\) = false\)/)
-  assert.doesNotMatch(source, /\b(INSERT INTO|UPDATE "Sale"|UPDATE "Purchase"|DELETE FROM|\.sale\.(create|update,delete)|\.purchase\.(create,update,delete))\b/i)
+  assert.doesNotMatch(source, /\b(INSERT INTO|UPDATE "Sale"|UPDATE "Purchase"|DELETE FROM)\b/i)
+  assert.doesNotMatch(source, /\.(sale|purchase)\.(create|update|delete)\b/i)
 })
 
 test('audit reports active and soft-deleted duplicate groups separately', () => {
