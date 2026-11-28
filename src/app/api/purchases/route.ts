@@ -97,23 +97,7 @@ export async function POST(req: NextRequest) {
       const { purchase, inventoryUpdates } = await db.$transaction(async (tx) => {
         const purchase = await tx.purchase.create({ data })
 
-      // Atomic purchase creation: purchase, inventory, payables, party, GL, payment and audit commit together.
-      // The create flow performs 6 side-effecting writes after the purchase
-      // record is saved (inventory, payables, party, journal entry, payment,
-      // audit log). Each was wrapped in its own try/catch that silently
-      // swallowed errors, so the API returned { purchase } even when the
-      // books were left inconsistent (e.g., JE failed → purchase exists but
-      // trial balance doesn't reflect it; inventory succeeded but JE failed
-      // → stock up with no matching liability entry). This made partial
-      // failures invisible to both the client and the operator.
-      //
-      // Fix: collect each catch into a `warnings` array, log them under a
-      // structured [PURCHASE-INTEGRITY] tag (greppable in Railway logs), and
-      // return them in the response so the client can surface them to the
-      // user ("Purchase saved, but journal entry failed — contact support").
-      // The purchase itself is NOT rolled back (that would require a full
-      // tx.$transaction refactor — deferred), but now the failure is
-      // visible instead of silent.
+      // Atomic create: purchase, stock, accounting, payables, payment and audit writes commit together.
       const recordWarning = (step: string, err: unknown): never => {
         const msg = err instanceof Error ? err.message : String(err)
         throw new Error(`[PURCHASE-INTEGRITY] ${step} failed for ${purchase.invoiceNumber}: ${msg}`, { cause: err })
