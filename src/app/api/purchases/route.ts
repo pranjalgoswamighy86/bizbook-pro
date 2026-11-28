@@ -94,31 +94,13 @@ export async function POST(req: NextRequest) {
       // BUG FIX: Round amountPaid
       data.amountPaid = roundTo2(data.amountPaid)
 
-      const purchase = await db.purchase.create({ data })
+      const { purchase, inventoryUpdates } = await db.$transaction(async (tx) => {
+        const purchase = await tx.purchase.create({ data })
 
-      // v6.29.9: partial-failure tracking.
-      // The create flow performs 6 side-effecting writes after the purchase
-      // record is saved (inventory, payables, party, journal entry, payment,
-      // audit log). Each was wrapped in its own try/catch that silently
-      // swallowed errors, so the API returned { purchase } even when the
-      // books were left inconsistent (e.g., JE failed → purchase exists but
-      // trial balance doesn't reflect it; inventory succeeded but JE failed
-      // → stock up with no matching liability entry). This made partial
-      // failures invisible to both the client and the operator.
-      //
-      // Fix: collect each catch into a `warnings` array, log them under a
-      // structured [PURCHASE-INTEGRITY] tag (greppable in Railway logs), and
-      // return them in the response so the client can surface them to the
-      // user ("Purchase saved, but journal entry failed — contact support").
-      // The purchase itself is NOT rolled back (that would require a full
-      // db.$transaction refactor — deferred), but now the failure is
-      // visible instead of silent.
-      const warnings: string[] = []
-      const recordWarning = (step: string, err: unknown) => {
+      // Atomic create: purchase, stock, accounting, payables, payment and audit writes commit together.
+      const recordWarning = (step: string, err: unknown): never => {
         const msg = err instanceof Error ? err.message : String(err)
-        const warning = `${step}: ${msg}`
-        warnings.push(warning)
-        console.error(`[PURCHASE-INTEGRITY] purchase ${purchase.invoiceNumber} (${purchase.id}) partial failure — ${warning}`)
+        throw new Error(`[PURCHASE-INTEGRITY] ${step} failed for ${purchase.invoiceNumber}: ${msg}`, { cause: err })
       }
 
       // ===== AUTO INVENTORY UPDATE: Stock IN on Purchase =====
@@ -129,7 +111,7 @@ export async function POST(req: NextRequest) {
           if (!item.name || !item.qty || item.qty <= 0) continue
 
           // Try to find existing inventory item by name (case-insensitive for SQLite)
-          const allItems = await db.inventoryItem.findMany({ where: { tenantId } })
+          const allItems = await tx.inventoryItem.findMany({ where: { tenantId } })
           const existingItem = allItems.find(i =>
             i.name.toLowerCase() === item.name.toLowerCase() ||
             (item.hsn && i.hsnCode === item.hsn)
@@ -141,7 +123,7 @@ export async function POST(req: NextRequest) {
             // BUG FIX: Inventory value should use purchase price (cost excluding GST,
             // since GST Input Credit is claimed separately in journal entry)
             const purchasePrice = roundTo2(item.rate || existingItem.purchasePrice)
-            await db.inventoryItem.update({
+            await tx.inventoryItem.update({
               where: { id: existingItem.id },
               data: {
                 currentStock: newStock,
@@ -157,7 +139,7 @@ export async function POST(req: NextRequest) {
           } else {
             // Create new inventory item from purchase line item
             const purchasePrice = roundTo2(item.rate || 0)
-            await db.inventoryItem.create({
+            await tx.inventoryItem.create({
               data: {
                 tenantId,
                 name: item.name,
@@ -190,11 +172,11 @@ export async function POST(req: NextRequest) {
           const amountDue = roundTo2(data.totalAmount - (data.amountPaid || 0))
           if (amountDue > 0) {
             // Upsert Creditor record
-            const existingCreditor = await db.creditor.findFirst({
+            const existingCreditor = await tx.creditor.findFirst({
               where: { name: data.partyName, tenantId }
             })
             if (existingCreditor) {
-              await db.creditor.update({
+              await tx.creditor.update({
                 where: { id: existingCreditor.id },
                 data: {
                   currentBalance: roundTo2(existingCreditor.currentBalance + amountDue),
@@ -203,7 +185,7 @@ export async function POST(req: NextRequest) {
                 }
               })
             } else {
-              await db.creditor.create({
+              await tx.creditor.create({
                 data: {
                   name: data.partyName,
                   address: data.partyAddress || null,
@@ -215,11 +197,11 @@ export async function POST(req: NextRequest) {
               })
             }
             // Also update Party record if exists
-            const existingParty = await db.party.findFirst({
+            const existingParty = await tx.party.findFirst({
               where: { name: data.partyName, tenantId }
             })
             if (existingParty) {
-              await db.party.update({
+              await tx.party.update({
                 where: { id: existingParty.id },
                 data: { currentBalance: roundTo2(existingParty.currentBalance + amountDue) }
               })
@@ -233,11 +215,11 @@ export async function POST(req: NextRequest) {
       // ===== AUTO PARTY GET-OR-CREATE =====
       if (!isCashPurchase) {
         try {
-          const existingParty = await db.party.findFirst({
+          const existingParty = await tx.party.findFirst({
             where: { name: data.partyName, tenantId }
           })
           if (!existingParty) {
-            await db.party.create({
+            await tx.party.create({
               data: {
                 name: data.partyName,
                 address: data.partyAddress || null,
@@ -255,7 +237,7 @@ export async function POST(req: NextRequest) {
 
       // ===== AUTO-POST JOURNAL ENTRY (Double-Entry) =====
       try {
-        const accounts = await db.account.findMany({ where: { tenantId } })
+        const accounts = await tx.account.findMany({ where: { tenantId } })
         const findAccount = (code: string) => accounts.find(a => a.accountCode === code)
 
         // v6.28.6: Removed `if (accounts.length > 0)` guard — always post JE.
@@ -273,16 +255,16 @@ export async function POST(req: NextRequest) {
           // Keep old single account for backward compatibility
           let gstInputAccount = findAccount('50600')
 
-          if (!creditorsAccount) creditorsAccount = await db.account.create({ data: { accountCode: '20100', name: 'Accounts Payable', type: 'Liability', tenantId } })
-          if (!cashAccount) cashAccount = await db.account.create({ data: { accountCode: '10100', name: 'Cash', type: 'Asset', tenantId } })
-          if (!purchaseAccount) purchaseAccount = await db.account.create({ data: { accountCode: '50200', name: 'Purchase Expenses', type: 'Expense', tenantId } })
+          if (!creditorsAccount) creditorsAccount = await tx.account.create({ data: { accountCode: '20100', name: 'Accounts Payable', type: 'Liability', tenantId } })
+          if (!cashAccount) cashAccount = await tx.account.create({ data: { accountCode: '10100', name: 'Cash', type: 'Asset', tenantId } })
+          if (!purchaseAccount) purchaseAccount = await tx.account.create({ data: { accountCode: '50200', name: 'Purchase Expenses', type: 'Expense', tenantId } })
 
           // BUG FIX: Create split GST Input accounts as Assets
-          if (!cgstInputAccount) cgstInputAccount = await db.account.create({ data: { accountCode: '10601', name: 'CGST Input Credit', type: 'Asset', tenantId } })
-          if (!sgstInputAccount) sgstInputAccount = await db.account.create({ data: { accountCode: '10602', name: 'SGST Input Credit', type: 'Asset', tenantId } })
-          if (!igstInputAccount) igstInputAccount = await db.account.create({ data: { accountCode: '10603', name: 'IGST Input Credit', type: 'Asset', tenantId } })
+          if (!cgstInputAccount) cgstInputAccount = await tx.account.create({ data: { accountCode: '10601', name: 'CGST Input Credit', type: 'Asset', tenantId } })
+          if (!sgstInputAccount) sgstInputAccount = await tx.account.create({ data: { accountCode: '10602', name: 'SGST Input Credit', type: 'Asset', tenantId } })
+          if (!igstInputAccount) igstInputAccount = await tx.account.create({ data: { accountCode: '10603', name: 'IGST Input Credit', type: 'Asset', tenantId } })
           // Create old single account for fallback (but with correct type: Asset)
-          if (!gstInputAccount) gstInputAccount = await db.account.create({ data: { accountCode: '50600', name: 'GST Input Credit', type: 'Asset', tenantId } })
+          if (!gstInputAccount) gstInputAccount = await tx.account.create({ data: { accountCode: '50600', name: 'GST Input Credit', type: 'Asset', tenantId } })
 
           const isCashPurchase = (data.partyName || '').trim().toLowerCase() === 'cash'
           const jeLines: Array<{ accountId: string; debit: number; credit: number; description: string }> = []
@@ -293,7 +275,7 @@ export async function POST(req: NextRequest) {
           // BUG FIX: Debit GST Input Credit with proper CGST/SGST/IGST split
           // Determine if purchase is intra-state or inter-state based on GSTINs
           if (purchase.gstAmount > 0) {
-            const tenant = await db.tenant.findUnique({ where: { id: tenantId } })
+            const tenant = await tx.tenant.findUnique({ where: { id: tenantId } })
             const tenantGstin = tenant?.gstNumber || ''
             const partyGst = purchase.partyGst || ''
 
@@ -335,7 +317,7 @@ export async function POST(req: NextRequest) {
             jeLines.push({ accountId: creditorsAccount!.id, debit: 0, credit: amountDue, description: `Payable to ${purchase.partyName} for ${purchase.invoiceNumber}` })
           }
 
-          await db.journalEntry.create({
+          await tx.journalEntry.create({
             data: {
               entryDate: purchase.date,
               reference: purchase.invoiceNumber,
@@ -356,7 +338,7 @@ export async function POST(req: NextRequest) {
       // v4.159: Create Payment record if amountPaid > 0 (was missing — broke cash flow tracking)
       if (data.amountPaid && data.amountPaid > 0) {
         try {
-          await db.payment.create({
+          await tx.payment.create({
             data: {
               date: purchase.date,
               partyName: purchase.partyName,
@@ -372,42 +354,29 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // v4.159: Audit log (was missing — no trail for purchase creation)
-      try {
-        const access = await requireAuthAndTenant(req, tenantId)
-        if (!(access instanceof NextResponse)) {
-          await db.auditLog.create({
-            data: {
-              tenantId,
-              userId: access.userId,
-              userName: access.user.name,
-              action: 'CREATE',
-              entityType: 'Purchase',
-              entityId: purchase.id,
-              entityName: purchase.invoiceNumber,
-              changes: JSON.stringify({
-                partyName: purchase.partyName,
-                totalAmount: purchase.totalAmount,
-                paymentStatus: purchase.paymentStatus,
-              }),
-            },
-          })
-        }
-      } catch (auditErr) {
-        recordWarning('audit-log', auditErr)
-      }
+      // Audit log participates in the same transaction; failure rolls back all purchase side effects.
+      await tx.auditLog.create({
+        data: {
+          tenantId,
+          userId: access.userId,
+          userName: access.user.name,
+          action: 'CREATE',
+          entityType: 'Purchase',
+          entityId: purchase.id,
+          entityName: purchase.invoiceNumber,
+          changes: JSON.stringify({
+            partyName: purchase.partyName,
+            totalAmount: purchase.totalAmount,
+            paymentStatus: purchase.paymentStatus,
+          }),
+        },
+      })
 
-      // v4.155: Auto Excel backup after purchase create
+      return { purchase, inventoryUpdates }
+      })
+      // Trigger external backup only after the transaction commits.
       triggerAutoBackup(tenantId, 'purchase:create')
-      // v6.29.9: surface partial failures. If warnings is non-empty, the
-      // purchase saved but one or more side-effecting writes failed. The
-      // client should display these to the user so they know the books may
-      // need a manual reconciliation.
-      const response: { purchase: typeof purchase; inventoryUpdates: string[]; warnings?: string[] } = { purchase, inventoryUpdates }
-      if (warnings.length > 0) {
-        response.warnings = warnings
-      }
-      return NextResponse.json(response)
+      return NextResponse.json({ purchase, inventoryUpdates })
     }
 
     if (action === 'update') {
